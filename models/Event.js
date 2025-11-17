@@ -14,7 +14,7 @@ const eventSchema = new mongoose.Schema(
     type: { 
       type: String, 
       enum: ['event', 'ad', 'promotion', 'announcement'], 
-      required: true, 
+      required: false, 
       index: true 
     },
     startDate: { 
@@ -74,6 +74,27 @@ const eventSchema = new mongoose.Schema(
       ref: 'User', 
       required: true, 
       index: true 
+    },
+    // Users who liked the event
+    likes: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true
+    }],
+    // Users who joined the event
+    joinedUsers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true
+    }],
+    // Soft delete
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
+    deletedAt: {
+      type: Date
     }
   },
   { timestamps: true }
@@ -83,6 +104,15 @@ const eventSchema = new mongoose.Schema(
 eventSchema.index({ type: 1, status: 1, startDate: -1 });
 eventSchema.index({ targetAudience: 1, targetCountry: 1 });
 eventSchema.index({ createdBy: 1, createdAt: -1 });
+eventSchema.index({ isDeleted: 1, status: 1 });
+
+// Method to soft delete
+eventSchema.methods.softDelete = function() {
+  this.isDeleted = true;
+  this.deletedAt = new Date();
+  this.status = 'cancelled';
+  return this.save();
+};
 
 const Event = mongoose.model('Event', eventSchema);
 export default Event;

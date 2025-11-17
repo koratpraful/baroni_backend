@@ -1216,7 +1216,8 @@ export const createEvent = async (req, res) => {
       title,
       description,
       type,
-      startDate,
+      eventDate,
+      eventTime,
       endDate,
       targetAudience,
       targetCountry,
@@ -1241,37 +1242,81 @@ export const createEvent = async (req, res) => {
       }
     }
 
-    // Validate dates
-    if (!startDate || !endDate) {
+    // Validate event date
+    if (!eventDate) {
       return res.status(400).json({
         success: false,
-        message: 'Start date and end date are required'
+        message: 'Event date is required'
       });
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    // Combine eventDate and eventTime to create startDate
+    let startDateValue = eventDate;
+    if (eventTime && eventTime.trim() !== '') {
+      // If eventTime is provided, combine with eventDate
+      // Handle different date formats
+      const dateObj = new Date(eventDate);
+      if (isNaN(dateObj.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid event date format'
+        });
+      }
+      
+      // Extract date part (YYYY-MM-DD)
+      const datePart = dateObj.toISOString().split('T')[0];
+      
+      // Handle time format (HH:mm or HH:mm:ss)
+      let timePart = eventTime.trim();
+      if (!timePart.includes(':')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Event time must be in HH:mm or HH:mm:ss format'
+        });
+      }
+      
+      // Ensure time has seconds if not provided
+      const timeParts = timePart.split(':');
+      if (timeParts.length === 2) {
+        timePart = `${timePart}:00`;
+      }
+      
+      startDateValue = `${datePart}T${timePart}.000Z`;
+    }
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    const start = new Date(startDateValue);
+    
+    if (isNaN(start.getTime())) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid date format. Please use ISO 8601 format (e.g., 2024-01-01T00:00:00.000Z)'
+        message: 'Invalid event date format. Please use ISO 8601 format (e.g., 2024-01-01T00:00:00.000Z)'
       });
     }
 
-    if (end <= start) {
-      return res.status(400).json({
-        success: false,
-        message: 'End date must be after start date'
-      });
+    // Handle endDate if provided
+    let end = null;
+    if (endDate) {
+      end = new Date(endDate);
+      if (isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid end date format. Please use ISO 8601 format (e.g., 2024-01-01T00:00:00.000Z)'
+        });
+      }
+      if (end <= start) {
+        return res.status(400).json({
+          success: false,
+          message: 'End date must be after event date'
+        });
+      }
     }
 
     const event = new Event({
       title,
       description,
-      type,
+      type: type || undefined,
       startDate: start,
-      endDate: end,
+      endDate: end || undefined,
       targetAudience: targetAudience || 'all',
       targetCountry,
       priority: priority || 'medium',
@@ -1335,7 +1380,7 @@ export const getEvents = async (req, res) => {
     const { status, type, limit = 20, page = 1 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const filter = {};
+    const filter = { isDeleted: false };
     if (status) filter.status = status;
     if (type) filter.type = type;
 
@@ -1343,15 +1388,24 @@ export const getEvents = async (req, res) => {
       .populate('createdBy', 'name pseudo')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean();
 
     const totalEvents = await Event.countDocuments(filter);
+
+    // Transform events to include likes and joined users counts
+    const transformedEvents = events.map(event => {
+      const transformed = { ...event };
+      transformed.likesCount = Array.isArray(event.likes) ? event.likes.length : 0;
+      transformed.joinedUsersCount = Array.isArray(event.joinedUsers) ? event.joinedUsers.length : 0;
+      return transformed;
+    });
 
     return res.json({
       success: true,
       message: 'Events retrieved successfully',
       data: {
-        events,
+        events: transformedEvents,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -1382,11 +1436,7 @@ export const updateEventStatus = async (req, res) => {
     const { eventId } = req.params;
     const { status } = req.body;
 
-    const event = await Event.findByIdAndUpdate(
-      eventId,
-      { status },
-      { new: true }
-    );
+    const event = await Event.findOne({ _id: eventId, isDeleted: false });
 
     if (!event) {
       return res.status(404).json({
@@ -1394,6 +1444,9 @@ export const updateEventStatus = async (req, res) => {
         message: 'Event not found'
       });
     }
+
+    event.status = status;
+    await event.save();
 
     return res.json({
       success: true,
@@ -1406,6 +1459,55 @@ export const updateEventStatus = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to update event status'
+    });
+  }
+};
+
+export const deleteEvent = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { eventId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event ID'
+      });
+    }
+
+    const event = await Event.findOne({ 
+      _id: eventId, 
+      isDeleted: false 
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found'
+      });
+    }
+
+    // Soft delete the event
+    await event.softDelete();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Event deleted successfully'
+    });
+
+  } catch (err) {
+    console.error('Delete event error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete event',
+      error: err.message
     });
   }
 };
