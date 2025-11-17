@@ -74,6 +74,14 @@ router.get('/', appointmentFiltersValidator, getAppointmentsWithFilters);
 // GET /api/admin/appointments/statistics - Get appointment statistics
 router.get('/statistics', statisticsValidator, getAppointmentStatistics);
 
+// GET /api/admin/appointments/live-shows - Get live show appointments
+// IMPORTANT: Specific routes must come before parameterized routes
+router.get('/live-shows', appointmentFiltersValidator, getLiveShowAppointments);
+
+// GET /api/admin/appointments/dedications - Get dedication appointments
+// IMPORTANT: Specific routes must come before parameterized routes
+router.get('/dedications', appointmentFiltersValidator, getDedicationAppointments);
+
 // GET /api/admin/appointments/:appointmentId - Get appointment details
 router.get('/:appointmentId', appointmentIdValidator, getAppointmentDetails);
 
@@ -88,11 +96,5 @@ router.put('/:appointmentId/reschedule', rescheduleAppointmentValidator, resched
 
 // PUT /api/admin/appointments/:appointmentId/cancel - Cancel appointment
 router.put('/:appointmentId/cancel', cancelAppointmentValidator, cancelAppointment);
-
-// GET /api/admin/appointments/live-shows - Get live show appointments
-router.get('/live-shows', appointmentFiltersValidator, getLiveShowAppointments);
-
-// GET /api/admin/appointments/dedications - Get dedication appointments
-router.get('/dedications', appointmentFiltersValidator, getDedicationAppointments);
 
 export default router;

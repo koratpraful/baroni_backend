@@ -1,6 +1,7 @@
 import StarWallet from '../models/StarWallet.js';
 import StarTransaction from '../models/StarTransaction.js';
 import Withdrawal from '../models/Withdrawal.js';
+import JackpotWithdrawalRequest from '../models/JackpotWithdrawalRequest.js';
 import User from '../models/User.js';
 import { withdrawFromJackpot } from '../services/starWalletService.js';
 import { getEffectiveCommission, applyCommission } from '../utils/commissionHelper.js';
@@ -67,7 +68,7 @@ export const getJackpotMetrics = async (req, res) => {
 
 export const listStars = async (req, res) => {
   try {
-    const { q } = req.query;
+    const { q, status } = req.query;
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(100, Math.max(1, Number(req.query.limit || 20)));
 
@@ -87,21 +88,141 @@ export const listStars = async (req, res) => {
     const wallets = await StarWallet.find({ starId: { $in: ids } }).lean();
     const mapWallet = new Map(wallets.map((w) => [String(w.starId), w]));
 
-    const items = users.map((u) => ({
-      starId: u._id,
-      name: u.name || u.pseudo,
-      pseudo: u.pseudo,
-      baroniId: u.baroniId,
-      profilePic: u.profilePic,
-      country: u.country,
-      contact: u.contact,
-      profession: u.profession?.name || 'Singer',
-      isVerified: u.isVerified,
-      wallet: mapWallet.get(String(u._id)) || { escrow: 0, jackpot: 0, totalEarned: 0, totalWithdrawn: 0 }
-    }));
+    // Get today's date range
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
-    return res.json({ success: true, data: { items, page, limit, total: items.length } });
+    // Get all withdrawal requests for these stars
+    const withdrawalRequests = await JackpotWithdrawalRequest.find({ starId: { $in: ids } })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Get all withdrawals (completed) for these stars
+    const withdrawals = await Withdrawal.find({ starId: { $in: ids } })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Group withdrawal requests and withdrawals by starId
+    const requestsByStar = new Map();
+    const withdrawalsByStar = new Map();
+    const lastWithdrawalByStar = new Map();
+
+    withdrawalRequests.forEach(req => {
+      const starId = String(req.starId);
+      if (!requestsByStar.has(starId)) {
+        requestsByStar.set(starId, []);
+      }
+      requestsByStar.get(starId).push(req);
+    });
+
+    withdrawals.forEach(w => {
+      const starId = String(w.starId);
+      if (!withdrawalsByStar.has(starId)) {
+        withdrawalsByStar.set(starId, []);
+      }
+      withdrawalsByStar.get(starId).push(w);
+      
+      // Track last withdrawal
+      if (!lastWithdrawalByStar.has(starId)) {
+        lastWithdrawalByStar.set(starId, w);
+      }
+    });
+
+    // Build items with status, today stats, and last withdrawal
+    const items = users.map((u) => {
+      const starId = String(u._id);
+      const wallet = mapWallet.get(starId) || { escrow: 0, jackpot: 0, totalEarned: 0, totalWithdrawn: 0 };
+      
+      // Get withdrawal requests for this star
+      const starRequests = requestsByStar.get(starId) || [];
+      const starWithdrawals = withdrawalsByStar.get(starId) || [];
+      
+      // Determine status: eligible (no pending), pending (has pending request), failed (has rejected request)
+      let starStatus = 'eligible';
+      const hasPending = starRequests.some(r => r.status === 'pending');
+      const hasRejected = starRequests.some(r => r.status === 'rejected');
+      
+      if (hasPending) {
+        starStatus = 'pending';
+      } else if (hasRejected) {
+        starStatus = 'failed';
+      }
+
+      // Calculate today's stats
+      const todayRequests = starRequests.filter(r => {
+        const reqDate = new Date(r.createdAt);
+        return reqDate >= todayStart && reqDate <= todayEnd;
+      });
+      const todayWithdrawals = starWithdrawals.filter(w => {
+        const wDate = new Date(w.createdAt);
+        return wDate >= todayStart && wDate <= todayEnd;
+      });
+
+      const todayPaid = todayWithdrawals.filter(w => w.status === 'completed').length;
+      const todayPaidAmount = todayWithdrawals
+        .filter(w => w.status === 'completed')
+        .reduce((sum, w) => sum + (w.amount || 0), 0);
+      const todayFailed = todayRequests.filter(r => r.status === 'rejected').length;
+
+      // Get last withdrawal
+      const lastWithdrawal = lastWithdrawalByStar.get(starId);
+      let lastWithdrawalData = null;
+      if (lastWithdrawal) {
+        lastWithdrawalData = {
+          id: lastWithdrawal._id,
+          status: lastWithdrawal.status === 'completed' ? 'completed' : lastWithdrawal.status,
+          amount: lastWithdrawal.amount || 0
+        };
+      }
+
+      return {
+        starId: u._id,
+        name: u.name || u.pseudo,
+        pseudo: u.pseudo,
+        baroniId: u.baroniId,
+        profilePic: u.profilePic,
+        country: u.country,
+        contact: u.contact,
+        profession: u.profession?.name || 'Singer',
+        isVerified: u.isVerified,
+        wallet: {
+          escrow: wallet.escrow || 0,
+          jackpot: wallet.jackpot || 0,
+          totalEarned: wallet.totalEarned || 0,
+          totalWithdrawn: wallet.totalWithdrawn || 0
+        },
+        status: starStatus,
+        today: {
+          paid: todayPaid,
+          amount: todayPaidAmount,
+          failed: todayFailed
+        },
+        lastWithdrawal: lastWithdrawalData
+      };
+    });
+
+    // Filter by status if provided
+    let filteredItems = items;
+    if (status && status !== 'all') {
+      filteredItems = items.filter(item => item.status === status);
+    }
+
+    // Get total count for pagination (before filtering)
+    const totalUsers = await User.countDocuments(userMatch);
+
+    return res.json({ 
+      success: true, 
+      data: { 
+        items: filteredItems, 
+        page, 
+        limit, 
+        total: totalUsers 
+      } 
+    });
   } catch (err) {
+    console.error('Error listing stars:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
