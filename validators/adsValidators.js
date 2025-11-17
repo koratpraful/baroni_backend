@@ -7,9 +7,18 @@ const titleValidation = body('title')
   .withMessage('Title must be between 1 and 100 characters');
 
 const linkValidation = body('link')
-  .optional()
+  .optional({ values: 'falsy' })
   .trim()
-  .isURL()
+  .custom((value) => {
+    // If link is provided and not empty, it must be a valid URL
+    if (value && value.trim() !== '') {
+      const urlPattern = /^https?:\/\/.+/.test(value);
+      if (!urlPattern) {
+        throw new Error('Link must be a valid URL');
+      }
+    }
+    return true;
+  })
   .withMessage('Link must be a valid URL');
 
 const budgetValidation = body('budget')

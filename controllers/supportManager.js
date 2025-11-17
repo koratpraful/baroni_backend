@@ -346,11 +346,37 @@ export const getAllSupportTickets = async (req, res) => {
 
     const total = await ContactSupport.countDocuments(query);
 
+    // Transform tickets to ensure userId, userType, and image are properly included
+    const transformedTickets = tickets.map(ticket => {
+      const transformed = { ...ticket };
+      
+      // Extract userId and userType from populated user object
+      if (ticket.userId && typeof ticket.userId === 'object' && ticket.userId._id) {
+        // Populated user object - extract ID and role
+        // With .lean(), _id is already a string
+        transformed.userId = String(ticket.userId._id);
+        transformed.userType = ticket.userId.role || null;
+        // Keep the full populated user object as 'user' for backward compatibility
+        transformed.user = ticket.userId;
+      } else if (ticket.userId) {
+        // If userId is already a string/ID (shouldn't happen with populate, but handle it)
+        transformed.userId = String(ticket.userId);
+        transformed.userType = null;
+      }
+      
+      // Ensure image is included (use default if not present)
+      if (!transformed.image) {
+        transformed.image = 'https://res.cloudinary.com/ddnpvm2yk/image/upload/v1759868390/placeholder_aws6oc.png';
+      }
+      
+      return transformed;
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Support tickets retrieved successfully',
       data: {
-        tickets,
+        tickets: transformedTickets,
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / limit),
