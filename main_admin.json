@@ -2678,7 +2678,7 @@
 				}
 			]
 		},
-		{
+			{
 			"name": "Event Management",
 			"item": [
 				{
@@ -2689,15 +2689,82 @@
 							{
 								"key": "Authorization",
 								"value": "Bearer {{admin_token}}"
-							},
-							{
-								"key": "Content-Type",
-								"value": "application/json"
 							}
 						],
 						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"title\": \"New Year Special Event\",\n  \"description\": \"Celebrate New Year with your favorite stars\",\n  \"type\": \"promotional\",\n  \"startDate\": \"2024-01-01T00:00:00.000Z\",\n  \"endDate\": \"2024-01-07T23:59:59.000Z\",\n  \"targetAudience\": \"all\",\n  \"targetCountry\": \"USA\",\n  \"priority\": \"high\",\n  \"budget\": 5000,\n  \"image\": \"https://example.com/event-image.jpg\",\n  \"link\": \"https://example.com/event-link\"\n}"
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "title",
+									"value": "New Year Special Event",
+									"type": "text"
+								},
+								{
+									"key": "description",
+									"value": "Celebrate New Year with your favorite stars",
+									"type": "text"
+								},
+								{
+									"key": "type",
+									"value": "promotion",
+									"type": "text",
+									"description": "Optional: event, ad, promotion, announcement"
+								},
+								{
+									"key": "eventDate",
+									"value": "2024-01-01",
+									"type": "text",
+									"description": "Required: Event date (YYYY-MM-DD or ISO 8601)"
+								},
+								{
+									"key": "eventTime",
+									"value": "10:00",
+									"type": "text",
+									"description": "Optional: Event time (HH:mm or HH:mm:ss)"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-01-07T23:59:59.000Z",
+									"type": "text",
+									"description": "Optional: End date (ISO 8601)"
+								},
+								{
+									"key": "targetAudience",
+									"value": "all",
+									"type": "text",
+									"description": "Optional: all, fans, stars, specific_country"
+								},
+								{
+									"key": "targetCountry",
+									"value": "USA",
+									"type": "text",
+									"description": "Optional: 2-letter country code"
+								},
+								{
+									"key": "priority",
+									"value": "high",
+									"type": "text",
+									"description": "Optional: low, medium, high, urgent"
+								},
+								{
+									"key": "budget",
+									"value": "5000",
+									"type": "text",
+									"description": "Optional: Budget amount"
+								},
+								{
+									"key": "link",
+									"value": "https://example.com/event-link",
+									"type": "text",
+									"description": "Optional: Event link URL"
+								},
+								{
+									"key": "image",
+									"type": "file",
+									"src": [],
+									"description": "Required: Event image file"
+								}
+							]
 						},
 						"url": {
 							"raw": "{{base_url}}/api/events",
@@ -2708,7 +2775,8 @@
 								"api",
 								"events"
 							]
-						}
+						},
+						"description": "Create a new event. Supports multipart/form-data for image upload. Type field is optional. Use eventDate and eventTime instead of startDate."
 					},
 					"response": []
 				},
@@ -2734,22 +2802,141 @@
 							"query": [
 								{
 									"key": "status",
-									"value": ""
+									"value": "",
+									"description": "Optional: draft, active, paused, completed, cancelled"
 								},
 								{
 									"key": "type",
-									"value": ""
+									"value": "",
+									"description": "Optional: event, ad, promotion, announcement"
 								},
 								{
 									"key": "limit",
-									"value": "20"
+									"value": "20",
+									"description": "Optional: Number of events per page (1-100)"
 								},
 								{
 									"key": "page",
-									"value": "1"
+									"value": "1",
+									"description": "Optional: Page number"
 								}
 							]
-						}
+						},
+						"description": "Get all events with pagination. Response includes likesCount and joinedUsersCount for each event."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Event",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "title",
+									"value": "Updated Event Title",
+									"type": "text",
+									"description": "Optional: Event title"
+								},
+								{
+									"key": "description",
+									"value": "Updated event description",
+									"type": "text",
+									"description": "Optional: Event description"
+								},
+								{
+									"key": "type",
+									"value": "event",
+									"type": "text",
+									"description": "Optional: event, ad, promotion, announcement"
+								},
+								{
+									"key": "eventDate",
+									"value": "2024-01-15",
+									"type": "text",
+									"description": "Optional: Event date (YYYY-MM-DD or ISO 8601)"
+								},
+								{
+									"key": "eventTime",
+									"value": "14:30",
+									"type": "text",
+									"description": "Optional: Event time (HH:mm or HH:mm:ss)"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-01-20T23:59:59.000Z",
+									"type": "text",
+									"description": "Optional: End date (ISO 8601)"
+								},
+								{
+									"key": "targetAudience",
+									"value": "all",
+									"type": "text",
+									"description": "Optional: all, fans, stars, specific_country"
+								},
+								{
+									"key": "targetCountry",
+									"value": "USA",
+									"type": "text",
+									"description": "Optional: 2-letter country code"
+								},
+								{
+									"key": "priority",
+									"value": "medium",
+									"type": "text",
+									"description": "Optional: low, medium, high, urgent"
+								},
+								{
+									"key": "budget",
+									"value": "6000",
+									"type": "text",
+									"description": "Optional: Budget amount"
+								},
+								{
+									"key": "status",
+									"value": "active",
+									"type": "text",
+									"description": "Optional: draft, active, paused, completed, cancelled"
+								},
+								{
+									"key": "link",
+									"value": "https://example.com/updated-link",
+									"type": "text",
+									"description": "Optional: Event link URL"
+								},
+								{
+									"key": "image",
+									"type": "file",
+									"src": [],
+									"description": "Optional: New event image file"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/events/:eventId",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"events",
+								":eventId"
+							],
+							"variable": [
+								{
+									"key": "eventId",
+									"value": "EVENT_ID_HERE"
+								}
+							]
+						},
+						"description": "Update event data. All fields are optional (partial update). Supports multipart/form-data for image upload."
 					},
 					"response": []
 				},
@@ -2788,7 +2975,39 @@
 									"value": "EVENT_ID_HERE"
 								}
 							]
-						}
+						},
+						"description": "Update only the event status. Quick status change endpoint."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Event",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/events/:eventId",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"events",
+								":eventId"
+							],
+							"variable": [
+								{
+									"key": "eventId",
+									"value": "EVENT_ID_HERE"
+								}
+							]
+						},
+						"description": "Delete an event (soft delete). Event will be marked as deleted and status set to cancelled."
 					},
 					"response": []
 				}
@@ -2878,7 +3097,8 @@
 								{
 									"key": "link",
 									"value": "https://example.com/promotion",
-									"type": "text"
+									"type": "text",
+									"description": "Optional: Ad link URL"
 								},
 								{
 									"key": "budget",

@@ -204,6 +204,79 @@ export const updateEventStatusValidator = [
     .withMessage('Status must be one of: draft, active, paused, completed, cancelled')
 ];
 
+// Update Event Validator
+export const updateEventValidator = [
+  param('eventId')
+    .isMongoId()
+    .withMessage('Event ID must be a valid MongoDB ObjectId'),
+  
+  body('title')
+    .optional()
+    .isLength({ min: 3, max: 100 })
+    .withMessage('Title must be between 3 and 100 characters'),
+  
+  body('type')
+    .optional()
+    .isIn(['event', 'ad', 'promotion', 'announcement'])
+    .withMessage('Type must be one of: event, ad, promotion, announcement'),
+  
+  body('eventDate')
+    .optional()
+    .custom((value) => {
+      const date = new Date(value);
+      if (isNaN(date.getTime())) {
+        throw new Error('Event date must be a valid date');
+      }
+      return true;
+    })
+    .withMessage('Event date must be a valid date'),
+  
+  body('eventTime')
+    .optional()
+    .trim()
+    .custom((value) => {
+      if (!value || value.trim() === '') return true;
+      const timePattern = /^([0-1][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/;
+      if (!timePattern.test(value)) {
+        throw new Error('Event time must be in HH:mm or HH:mm:ss format');
+      }
+      return true;
+    })
+    .withMessage('Event time must be in HH:mm or HH:mm:ss format'),
+  
+  body('endDate')
+    .optional()
+    .custom((value) => {
+      if (!value || value === '') return true;
+      const date = new Date(value);
+      if (isNaN(date.getTime())) {
+        throw new Error('End date must be a valid date');
+      }
+      return true;
+    })
+    .withMessage('End date must be a valid date'),
+  
+  body('targetAudience')
+    .optional()
+    .isIn(['all', 'fans', 'stars', 'specific_country'])
+    .withMessage('Target audience must be one of: all, fans, stars, specific_country'),
+  
+  body('priority')
+    .optional()
+    .isIn(['low', 'medium', 'high', 'urgent'])
+    .withMessage('Priority must be one of: low, medium, high, urgent'),
+  
+  body('status')
+    .optional()
+    .isIn(['draft', 'active', 'paused', 'completed', 'cancelled'])
+    .withMessage('Status must be one of: draft, active, paused, completed, cancelled'),
+  
+  body('budget')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Budget must be a positive number')
+];
+
 // Delete Event Validator
 export const deleteEventValidator = [
   param('eventId')

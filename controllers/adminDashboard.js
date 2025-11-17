@@ -1423,6 +1423,192 @@ export const getEvents = async (req, res) => {
   }
 };
 
+export const updateEvent = async (req, res) => {
+  try {
+    // Check validation errors first
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      const errorMessage = getFirstValidationError(errors);
+      return res.status(400).json({
+        success: false,
+        message: errorMessage || 'Validation failed'
+      });
+    }
+
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { eventId } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event ID'
+      });
+    }
+
+    const event = await Event.findOne({ _id: eventId, isDeleted: false });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found'
+      });
+    }
+
+    const {
+      title,
+      description,
+      type,
+      eventDate,
+      eventTime,
+      endDate,
+      targetAudience,
+      targetCountry,
+      priority,
+      budget,
+      image,
+      link,
+      status
+    } = req.body;
+
+    // Handle image upload if provided via form-data
+    let imageUrl = event.image; // Keep existing image by default
+    
+    if (req.file && req.file.fieldname === 'image') {
+      try {
+        const { uploadFile } = await import('../utils/uploadFile.js');
+        imageUrl = await uploadFile(req.file.buffer);
+      } catch (uploadError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Error uploading image: ' + uploadError.message
+        });
+      }
+    } else if (image !== undefined) {
+      // If image is provided in body (URL string), use it
+      imageUrl = image;
+    }
+
+    // Build update data object
+    const updateData = {};
+
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (type !== undefined) updateData.type = type || undefined;
+    if (imageUrl !== undefined && imageUrl !== event.image) updateData.image = imageUrl;
+    if (link !== undefined) updateData.link = (link && link.trim() !== '') ? link.trim() : undefined;
+    if (targetAudience !== undefined) updateData.targetAudience = targetAudience;
+    if (targetCountry !== undefined) updateData.targetCountry = targetCountry;
+    if (priority !== undefined) updateData.priority = priority;
+    if (budget !== undefined) updateData.budget = budget ? parseFloat(budget) : undefined;
+    if (status !== undefined) updateData.status = status;
+
+    // Handle eventDate and eventTime
+    if (eventDate !== undefined) {
+      let startDateValue = eventDate;
+      
+      if (eventTime && eventTime.trim() !== '') {
+        // Combine eventDate and eventTime
+        const dateObj = new Date(eventDate);
+        if (isNaN(dateObj.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid event date format'
+          });
+        }
+        
+        const datePart = dateObj.toISOString().split('T')[0];
+        let timePart = eventTime.trim();
+        
+        if (!timePart.includes(':')) {
+          return res.status(400).json({
+            success: false,
+            message: 'Event time must be in HH:mm or HH:mm:ss format'
+          });
+        }
+        
+        const timeParts = timePart.split(':');
+        if (timeParts.length === 2) {
+          timePart = `${timePart}:00`;
+        }
+        
+        startDateValue = `${datePart}T${timePart}.000Z`;
+      }
+
+      const start = new Date(startDateValue);
+      if (isNaN(start.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid event date format. Please use ISO 8601 format (e.g., 2024-01-01T00:00:00.000Z)'
+        });
+      }
+      updateData.startDate = start;
+    }
+
+    // Handle endDate
+    if (endDate !== undefined) {
+      if (endDate === null || endDate === '') {
+        updateData.endDate = undefined;
+      } else {
+        const end = new Date(endDate);
+        if (isNaN(end.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid end date format. Please use ISO 8601 format (e.g., 2024-01-01T00:00:00.000Z)'
+          });
+        }
+        
+        // Validate end date is after start date
+        const startDate = updateData.startDate || event.startDate;
+        if (end <= startDate) {
+          return res.status(400).json({
+            success: false,
+            message: 'End date must be after event date'
+          });
+        }
+        updateData.endDate = end;
+      }
+    }
+
+    // Update the event
+    const updatedEvent = await Event.findByIdAndUpdate(
+      eventId,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('createdBy', 'name email baroniId');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Event updated successfully',
+      data: updatedEvent
+    });
+
+  } catch (err) {
+    console.error('Update event error:', err);
+    
+    // Handle mongoose validation errors
+    if (err.name === 'ValidationError') {
+      const errorMessages = Object.values(err.errors).map(e => e.message).join(', ');
+      return res.status(400).json({
+        success: false,
+        message: `Validation error: ${errorMessages}`
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update event',
+      error: err.message
+    });
+  }
+};
+
 export const updateEventStatus = async (req, res) => {
   try {
     const admin = req.user;
