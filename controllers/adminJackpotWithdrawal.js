@@ -1,7 +1,9 @@
+import mongoose from 'mongoose';
 import { validationResult } from 'express-validator';
 import { getFirstValidationError } from '../utils/validationHelper.js';
 import JackpotWithdrawalRequest from '../models/JackpotWithdrawalRequest.js';
 import StarWallet from '../models/StarWallet.js';
+import StarTransaction from '../models/StarTransaction.js';
 import User from '../models/User.js';
 import { withdrawFromJackpot } from '../services/starWalletService.js';
 import { getEffectiveCommission, applyCommission } from '../utils/commissionHelper.js';
@@ -349,8 +351,47 @@ export const approveWithdrawalRequest = async (req, res) => {
     }
 
     // Process the withdrawal
+    // NOTE: Amount was already deducted from jackpot when request was created (pending status)
+    // So we just need to update totalWithdrawn and create transaction record
     try {
-      await withdrawFromJackpot(request.starId, request.amount, { adminId: req.user._id });
+      const session = await mongoose.startSession();
+      
+      try {
+        await session.withTransaction(async () => {
+          // Get wallet within transaction
+          const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
+          if (!walletDoc) {
+            throw new Error('Star wallet not found');
+          }
+          
+          // Amount already deducted when request was created, just update totalWithdrawn
+          walletDoc.totalWithdrawn = (walletDoc.totalWithdrawn || 0) + request.amount;
+          await walletDoc.save({ session });
+          
+          // Create transaction record
+          await StarTransaction.create([{
+            starId: request.starId,
+            amount: request.amount,
+            type: 'withdrawal',
+            status: 'completed',
+            escrowMovement: 'release',
+            completedAt: new Date(),
+            fanId: req.user._id // adminId stored as fanId in transaction
+          }], { session });
+          
+          console.log(`[ApproveWithdrawal] Updated totalWithdrawn. Amount: ${request.amount}, TotalWithdrawn: ${walletDoc.totalWithdrawn}`);
+        });
+      } finally {
+        await session.endSession();
+      }
+      
+      // Verify wallet was updated correctly
+      const updatedWallet = await StarWallet.findOne({ starId: request.starId });
+      if (!updatedWallet) {
+        throw new Error('Failed to verify wallet update after withdrawal');
+      }
+      
+      console.log(`[ApproveWithdrawal] Request approved. Jackpot: ${updatedWallet.jackpot}, TotalWithdrawn: ${updatedWallet.totalWithdrawn}, Amount: ${request.amount}`);
       
       // Update request status to approved
       request.status = 'approved';
@@ -370,7 +411,12 @@ export const approveWithdrawalRequest = async (req, res) => {
           id: request._id,
           status: request.status,
           amount: request.amount,
-          processedAt: request.processedAt
+          processedAt: request.processedAt,
+          wallet: {
+            previousJackpot: wallet.jackpot,
+            currentJackpot: updatedWallet.jackpot,
+            totalWithdrawn: updatedWallet.totalWithdrawn
+          }
         }
       });
     } catch (err) {
@@ -433,6 +479,28 @@ export const rejectWithdrawalRequest = async (req, res) => {
       });
     }
 
+    // IMPORTANT: Refund the amount back to jackpot since it was deducted when request was created
+    const session = await mongoose.startSession();
+    
+    try {
+      await session.withTransaction(async () => {
+        // Get wallet within transaction
+        const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
+        if (!walletDoc) {
+          throw new Error('Star wallet not found');
+        }
+        
+        // Refund amount back to jackpot
+        const currentJackpot = walletDoc.jackpot || 0;
+        walletDoc.jackpot = currentJackpot + request.amount;
+        await walletDoc.save({ session });
+        
+        console.log(`[RejectWithdrawal] Refunded ${request.amount} to jackpot. Old: ${currentJackpot}, New: ${walletDoc.jackpot}`);
+      });
+    } finally {
+      await session.endSession();
+    }
+
     // Update request status to rejected
     request.status = 'rejected';
     request.rejectedBy = req.user._id;
@@ -442,6 +510,9 @@ export const rejectWithdrawalRequest = async (req, res) => {
     request.metadata = { ...request.metadata, error: rejectionMsg };
     if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
     await request.save();
+    
+    // Get updated wallet for response
+    const updatedWallet = await StarWallet.findOne({ starId: request.starId });
 
     // Populate for response
     await request.populate('starId', 'name pseudo baroniId');
@@ -449,12 +520,16 @@ export const rejectWithdrawalRequest = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Withdrawal request rejected successfully',
+      message: 'Withdrawal request rejected successfully. Amount refunded to jackpot.',
       data: {
         id: request._id,
         status: request.status,
         rejectionReason: request.rejectionReason,
-        processedAt: request.processedAt
+        processedAt: request.processedAt,
+        refundedAmount: request.amount,
+        wallet: {
+          currentJackpot: updatedWallet?.jackpot || 0
+        }
       }
     });
   } catch (err) {

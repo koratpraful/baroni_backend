@@ -1,9 +1,10 @@
+import mongoose from 'mongoose';
 import StarWallet from '../models/StarWallet.js';
 import StarTransaction from '../models/StarTransaction.js';
 import Withdrawal from '../models/Withdrawal.js';
 import JackpotWithdrawalRequest from '../models/JackpotWithdrawalRequest.js';
 import User from '../models/User.js';
-import { withdrawFromJackpot } from '../services/starWalletService.js';
+import { withdrawFromJackpot, getOrCreateStarWallet } from '../services/starWalletService.js';
 import { getEffectiveCommission, applyCommission } from '../utils/commissionHelper.js';
 
 // Helper function to format date
@@ -231,31 +232,152 @@ export const createWithdrawal = async (req, res) => {
   try {
     const { starId, amount, note } = req.body;
     if (!starId) return res.status(400).json({ success: false, message: 'starId required' });
+    
+    // Validate starId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid starId format. starId must be a valid MongoDB ObjectId (24 hexadecimal characters)' 
+      });
+    }
+    
+    // Convert starId to ObjectId to ensure proper format
+    const starObjectId = new mongoose.Types.ObjectId(starId);
+    
     const numericAmount = Number(amount);
     if (!numericAmount || numericAmount <= 0) return res.status(400).json({ success: false, message: 'Invalid amount' });
 
-    // Check if star has sufficient jackpot balance
-    const wallet = await StarWallet.findOne({ starId });
-    if (!wallet) return res.status(404).json({ success: false, message: 'Star wallet not found' });
-    if (wallet.jackpot < numericAmount) {
-      return res.status(400).json({ success: false, message: 'Insufficient jackpot balance' });
+    // Get star wallet - MUST find existing wallet, withdrawal is ONLY from jackpot
+    // Use ObjectId for proper MongoDB query matching
+    let wallet = await StarWallet.findOne({ starId: starObjectId }).lean();
+    
+    // If not found, try with string (in case of data inconsistency)
+    if (!wallet) {
+      wallet = await StarWallet.findOne({ starId: mongoose.Types.ObjectId.isValid(starId) ? new mongoose.Types.ObjectId(starId) : starId }).lean();
     }
-
-    // Create withdrawal request with 'approved' status (pending in UI, waiting for admin approval)
-    const withdrawal = await Withdrawal.create({ 
-      starId, 
-      adminId: req.user._id, 
-      amount: numericAmount, 
-      status: 'approved', // Create as approved, then admin can approve/reject
-      note 
+    
+    // If wallet doesn't exist, create it (but this should be rare - wallet should exist)
+    if (!wallet) {
+      console.warn(`[AdminJackpot] Wallet not found for starId ${starId}, creating new wallet with 0 balance`);
+      const newWallet = await StarWallet.create({ starId: starObjectId });
+      wallet = newWallet.toObject ? newWallet.toObject() : newWallet;
+    }
+    
+    // Ensure we have the actual jackpot value (not undefined or null)
+    const currentJackpot = wallet.jackpot || 0;
+    
+    // Optional: Verify that the star exists (warning only, don't block withdrawal)
+    const star = await User.findById(starObjectId);
+    if (!star) {
+      console.warn(`[AdminJackpot] Warning: User not found for starId ${starId}, but wallet exists. Proceeding with withdrawal.`);
+    } else if (star.role !== 'star') {
+      console.warn(`[AdminJackpot] Warning: User ${starId} does not have 'star' role (current role: ${star.role}), but wallet exists. Proceeding with withdrawal.`);
+    }
+    
+    // Debug: Log wallet details
+    console.log(`[AdminJackpot] Wallet details:`, {
+      walletId: wallet._id,
+      starId: wallet.starId,
+      starIdString: String(wallet.starId),
+      requestedStarId: starId,
+      jackpot: currentJackpot,
+      requestedAmount: numericAmount,
+      walletObject: wallet
     });
     
+    // Withdrawal is ONLY from jackpot amount
+    if (currentJackpot < numericAmount) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Insufficient jackpot balance',
+        data: {
+          availableBalance: currentJackpot,
+          requestedAmount: numericAmount,
+          starId: starId
+        }
+      });
+    }
+
+    // Check if there's already a pending request for this star
+    const existingPendingRequest = await JackpotWithdrawalRequest.findOne({
+      starId: starObjectId,
+      status: 'pending'
+    });
+
+    if (existingPendingRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'Star already has a pending withdrawal request. Please approve or reject the existing request first.',
+        data: {
+          existingRequestId: existingPendingRequest._id,
+          existingAmount: existingPendingRequest.amount,
+          existingCreatedAt: existingPendingRequest.createdAt
+        }
+      });
+    }
+
+    // IMPORTANT: Deduct amount from jackpot IMMEDIATELY when creating pending request
+    // This reserves/holds the amount so it can't be used for other withdrawals
+    const session = await mongoose.startSession();
+    let withdrawalRequest;
+    
+    try {
+      await session.withTransaction(async () => {
+        // Get fresh wallet within transaction
+        const walletDoc = await StarWallet.findOne({ starId: starObjectId }).session(session);
+        if (!walletDoc) {
+          throw new Error('Star wallet not found');
+        }
+        
+        // Verify balance again within transaction
+        const walletJackpot = walletDoc.jackpot || 0;
+        if (walletJackpot < numericAmount) {
+          throw new Error(`Insufficient jackpot balance. Available: ${walletJackpot}, Requested: ${numericAmount}`);
+        }
+        
+        // Deduct from jackpot immediately (reserve the amount)
+        walletDoc.jackpot = walletJackpot - numericAmount;
+        await walletDoc.save({ session });
+        
+        console.log(`[CreateWithdrawal] Deducted ${numericAmount} from jackpot. Old: ${walletJackpot}, New: ${walletDoc.jackpot}`);
+        
+        // Create withdrawal request with 'pending' status
+        withdrawalRequest = await JackpotWithdrawalRequest.create([{
+          starId: starObjectId,
+          amount: numericAmount,
+          status: 'pending', // Start as pending, admin must approve
+          note: note || undefined
+        }], { session });
+        
+        withdrawalRequest = withdrawalRequest[0];
+      });
+    } catch (err) {
+      console.error('[CreateWithdrawal] Error in transaction:', err);
+      throw err;
+    } finally {
+      await session.endSession();
+    }
+
+    // Populate star details for response
+    await withdrawalRequest.populate('starId', 'name pseudo profilePic baroniId country contact');
+    
+    // Get updated wallet balance
+    const updatedWallet = await StarWallet.findOne({ starId: starObjectId });
+
     return res.status(201).json({ 
       success: true, 
+      message: 'Withdrawal request created successfully. Amount deducted from jackpot. Waiting for admin approval.',
       data: { 
-        id: withdrawal._id, 
-        status: withdrawal.status,
-        message: 'Withdrawal request created successfully. Use approve endpoint to process payment.'
+        id: withdrawalRequest._id,
+        withdrawalRequestId: withdrawalRequest._id,
+        starId: starObjectId,
+        amount: withdrawalRequest.amount,
+        status: withdrawalRequest.status,
+        note: withdrawalRequest.note,
+        createdAt: withdrawalRequest.createdAt,
+        previousBalance: currentJackpot,
+        currentBalance: updatedWallet?.jackpot || 0,
+        message: 'Use PATCH /api/admin/jackpot/withdrawal-requests/:id/approve to approve, or :id/reject to reject and refund'
       } 
     });
   } catch (err) {
@@ -265,19 +387,23 @@ export const createWithdrawal = async (req, res) => {
 
 export const listWithdrawals = async (req, res) => {
   try {
-    const { status, from, to } = req.query;
+    const { status, from, to, q } = req.query;
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(100, Math.max(1, Number(req.query.limit || 20)));
     const match = {};
     
-    // Map UI status to withdrawal status
+    // Map UI status to withdrawal request status
+    // UI: paid, pending, failed
+    // DB: approved (paid), pending (pending), rejected (failed)
     if (status) {
       if (status === 'paid') {
-        match.status = 'completed';
+        match.status = 'approved';
       } else if (status === 'pending') {
-        match.status = 'approved'; // Pending withdrawals are those approved but not yet processed
+        match.status = 'pending';
       } else if (status === 'failed') {
-        match.status = 'failed';
+        match.status = 'rejected';
+      } else if (status === 'all' || status === '') {
+        // Show all - no status filter
       } else {
         match.status = status;
       }
@@ -286,35 +412,314 @@ export const listWithdrawals = async (req, res) => {
     const createdAt = parseRange(from, to);
     if (createdAt) match.createdAt = createdAt;
 
-    const total = await Withdrawal.countDocuments(match);
-    const withdrawals = await Withdrawal.find(match)
-      .populate({
-        path: 'starId',
-        select: 'name pseudo profilePic baroniId country contact profession isVerified role',
-        populate: { path: 'profession', select: 'name' }
-      })
-      .populate('adminId', 'name baroniId')
+    // Search by star name, pseudo, or baroniId
+    if (q) {
+      const searchRegex = new RegExp(q, 'i');
+      const matchingStars = await User.find({
+        role: 'star',
+        $or: [
+          { name: searchRegex },
+          { pseudo: searchRegex },
+          { baroniId: searchRegex }
+        ]
+      }).select('_id').lean();
+      
+      const starIds = matchingStars.map(s => s._id);
+      if (starIds.length > 0) {
+        match.starId = { $in: starIds };
+      } else {
+        // No matching stars, return empty result
+        return res.json({ 
+          success: true, 
+          data: { 
+            items: [], 
+            page, 
+            limit, 
+            total: 0 
+          } 
+        });
+      }
+    }
+
+    // Query JackpotWithdrawalRequest instead of old Withdrawal model
+    const total = await JackpotWithdrawalRequest.countDocuments(match);
+    
+    // Get withdrawals - use lean but we'll manually populate stars
+    const withdrawals = await JackpotWithdrawalRequest.find(match)
+      .populate('approvedBy', 'name baroniId')
+      .populate('rejectedBy', 'name baroniId')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
+    
+    // Extract all unique starIds to fetch stars in batch
+    // Handle both ObjectId objects and strings
+    console.log(`[ListWithdrawals] Processing ${withdrawals.length} withdrawals`);
+    
+    const starIdValues = withdrawals
+      .map((w, index) => {
+        console.log(`[ListWithdrawals] Withdrawal ${index}: starId type=${typeof w.starId}, value=`, w.starId);
+        // Handle different formats of starId
+        if (!w.starId) {
+          console.warn(`[ListWithdrawals] Withdrawal ${w._id} has null/undefined starId`);
+          return null;
+        }
+        if (typeof w.starId === 'string') {
+          console.log(`[ListWithdrawals] starId is string: ${w.starId}`);
+          return w.starId;
+        }
+        if (w.starId._id) {
+          const idStr = String(w.starId._id);
+          console.log(`[ListWithdrawals] starId has _id property: ${idStr}`);
+          return idStr;
+        }
+        if (w.starId.toString) {
+          const idStr = w.starId.toString();
+          console.log(`[ListWithdrawals] starId has toString method: ${idStr}`);
+          return idStr;
+        }
+        const idStr = String(w.starId);
+        console.log(`[ListWithdrawals] starId converted to string: ${idStr}`);
+        return idStr;
+      })
+      .filter(Boolean);
+    
+    const uniqueStarIds = [...new Set(starIdValues)];
+    console.log(`[ListWithdrawals] Found ${uniqueStarIds.length} unique starIds:`, uniqueStarIds);
+    
+    // Convert string IDs to ObjectIds for MongoDB query
+    const starObjectIds = uniqueStarIds
+      .filter(id => {
+        const isValid = mongoose.Types.ObjectId.isValid(id);
+        if (!isValid) {
+          console.warn(`[ListWithdrawals] Invalid ObjectId: ${id}`);
+        }
+        return isValid;
+      })
+      .map(id => {
+        const objId = new mongoose.Types.ObjectId(id);
+        console.log(`[ListWithdrawals] Converted ${id} to ObjectId: ${objId}`);
+        return objId;
+      });
+    
+    console.log(`[ListWithdrawals] Converted to ${starObjectIds.length} ObjectIds:`, starObjectIds.map(id => id.toString()));
+    
+    // Fetch all stars in one query for better performance
+    // Include soft-deleted users too (they might have withdrawal requests)
+    let stars = [];
+    if (starObjectIds.length > 0) {
+      console.log(`[ListWithdrawals] Querying User collection with ObjectIds:`, starObjectIds.map(id => id.toString()));
+      // Don't filter by isDeleted - include all users (even soft-deleted ones)
+      stars = await User.find({ _id: { $in: starObjectIds } })
+        .populate('profession', 'name image')
+        .select('name pseudo profilePic baroniId country contact profession isVerified role isDeleted deletedAt')
+        .lean();
+      console.log(`[ListWithdrawals] User.find returned ${stars.length} results`);
+      stars.forEach(s => {
+        console.log(`[ListWithdrawals] Found star: _id=${s._id}, name=${s.name || s.pseudo}, isDeleted=${s.isDeleted || false}`);
+      });
+      
+      // If we got fewer results than expected, log which IDs are missing
+      if (stars.length < starObjectIds.length) {
+        const foundIds = new Set(stars.map(s => String(s._id)));
+        const missingIds = starObjectIds.filter(id => !foundIds.has(String(id)));
+        console.warn(`[ListWithdrawals] Missing ${missingIds.length} users:`, missingIds.map(id => id.toString()));
+      }
+    } else {
+      console.warn(`[ListWithdrawals] No valid ObjectIds to query`);
+    }
+    
+    // Create a map for quick lookup (use both string and ObjectId as keys)
+    const starMap = new Map();
+    stars.forEach(s => {
+      const idString = String(s._id);
+      starMap.set(idString, s);
+      starMap.set(s._id.toString(), s);
+      console.log(`[ListWithdrawals] Added star to map: key=${idString}, name=${s.name || s.pseudo}`);
+    });
+    
+    console.log(`[ListWithdrawals] Star map created with ${starMap.size} entries`);
+    
+    // Debug: Check if specific starId exists
+    if (uniqueStarIds.length > 0) {
+      const testStarId = uniqueStarIds[0];
+      console.log(`[ListWithdrawals] Testing lookup for starId: ${testStarId}`);
+      const testStar = starMap.get(testStarId);
+      console.log(`[ListWithdrawals] Test lookup result:`, testStar ? `Found: ${testStar.name || testStar.pseudo}` : 'NOT FOUND');
+    }
 
     // Enrich withdrawals with commission calculations and formatted data
     const enrichedItems = await Promise.all(withdrawals.map(async (withdrawal) => {
-      const star = withdrawal.starId;
-      const admin = withdrawal.adminId;
+      // Get star data from the map we created
+      const starIdValue = withdrawal.starId;
+      
+      // Try multiple formats to find star in map
+      let star = null;
+      if (starIdValue) {
+        // Try different key formats
+        const keysToTry = [
+          String(starIdValue),
+          starIdValue.toString ? starIdValue.toString() : null,
+          starIdValue._id ? String(starIdValue._id) : null,
+          starIdValue._id?.toString ? starIdValue._id.toString() : null
+        ].filter(Boolean);
+        
+        for (const key of keysToTry) {
+          star = starMap.get(key);
+          if (star) {
+            console.log(`[ListWithdrawals] Found star in map using key: ${key}`);
+            break;
+          }
+        }
+      }
+      
+      // If star not found in map, try to fetch it directly
+      if (!star && starIdValue) {
+        try {
+          // Convert to ObjectId
+          let starObjectId;
+          if (typeof starIdValue === 'string') {
+            starObjectId = mongoose.Types.ObjectId.isValid(starIdValue) 
+              ? new mongoose.Types.ObjectId(starIdValue) 
+              : null;
+          } else if (starIdValue._id) {
+            starObjectId = starIdValue._id;
+          } else if (starIdValue.toString) {
+            const idStr = starIdValue.toString();
+            starObjectId = mongoose.Types.ObjectId.isValid(idStr) 
+              ? new mongoose.Types.ObjectId(idStr) 
+              : null;
+          } else {
+            starObjectId = starIdValue;
+          }
+          
+          if (starObjectId) {
+            // Try to find user (including soft-deleted)
+            star = await User.findById(starObjectId)
+              .populate('profession', 'name image')
+              .select('name pseudo profilePic baroniId country contact profession isVerified role isDeleted deletedAt')
+              .lean();
+            
+            if (star) {
+              // Cache it in the map with all possible keys
+              const idString = String(star._id);
+              starMap.set(idString, star);
+              starMap.set(star._id.toString(), star);
+              console.log(`[ListWithdrawals] Successfully fetched star ${idString}: ${star.name || star.pseudo}, isDeleted=${star.isDeleted || false}`);
+            } else {
+              console.warn(`[ListWithdrawals] User not found in database for starId: ${starObjectId}`);
+              
+              // FALLBACK: Try to get user info from other sources (Appointment, Transaction, etc.)
+              let fallbackStarData = null;
+              
+              // Try to find user info from Appointment
+              const Appointment = (await import('../models/Appointment.js')).default;
+              const appointment = await Appointment.findOne({ starId: starObjectId })
+                .populate('starId', 'name pseudo profilePic baroniId country contact profession')
+                .lean();
+              
+              if (appointment && appointment.starId && typeof appointment.starId === 'object' && appointment.starId.name) {
+                console.log(`[ListWithdrawals] Found star info from Appointment for starId ${starObjectId}`);
+                fallbackStarData = appointment.starId;
+              } else {
+                // Try to find from Transaction
+                const Transaction = (await import('../models/Transaction.js')).default;
+                const transaction = await Transaction.findOne({ 
+                  $or: [
+                    { receiverId: starObjectId },
+                    { payerId: starObjectId }
+                  ]
+                })
+                .populate('receiverId', 'name pseudo profilePic baroniId country contact profession')
+                .populate('payerId', 'name pseudo profilePic baroniId country contact profession')
+                .lean();
+                
+                if (transaction) {
+                  const userFromTransaction = transaction.receiverId?._id?.toString() === String(starObjectId) 
+                    ? transaction.receiverId 
+                    : transaction.payerId?._id?.toString() === String(starObjectId)
+                      ? transaction.payerId
+                      : null;
+                  
+                  if (userFromTransaction && userFromTransaction.name) {
+                    console.log(`[ListWithdrawals] Found star info from Transaction for starId ${starObjectId}`);
+                    fallbackStarData = userFromTransaction;
+                  }
+                }
+              }
+              
+              // If we found fallback data, use it; otherwise create minimal object
+              if (fallbackStarData) {
+                star = {
+                  _id: starObjectId,
+                  id: starObjectId,
+                  name: fallbackStarData.name || null,
+                  pseudo: fallbackStarData.pseudo || null,
+                  baroniId: fallbackStarData.baroniId || null,
+                  profilePic: fallbackStarData.profilePic || null,
+                  country: fallbackStarData.country || null,
+                  contact: fallbackStarData.contact || null,
+                  profession: fallbackStarData.profession?.name || (typeof fallbackStarData.profession === 'string' ? fallbackStarData.profession : 'Singer'),
+                  professionImage: fallbackStarData.profession?.image || null,
+                  isVerified: fallbackStarData.isVerified || false,
+                  role: 'star',
+                  isDeleted: false
+                };
+              } else {
+                // Last resort: Check wallet and create minimal object
+                const wallet = await StarWallet.findOne({ starId: starObjectId }).lean();
+                if (wallet) {
+                  console.log(`[ListWithdrawals] Wallet found for starId ${starObjectId}, creating minimal star object`);
+                  star = {
+                    _id: starObjectId,
+                    id: starObjectId,
+                    name: null,
+                    pseudo: null,
+                    baroniId: null,
+                    profilePic: null,
+                    country: null,
+                    contact: null,
+                    profession: { name: 'Singer', image: null },
+                    professionImage: null,
+                    isVerified: false,
+                    role: 'star',
+                    isDeleted: false
+                  };
+                } else {
+                  console.error(`[ListWithdrawals] Neither User, Wallet, Appointment, nor Transaction found for starId: ${starObjectId}`);
+                }
+              }
+              
+              // Cache it if we created a star object
+              if (star) {
+                const idString = String(starObjectId);
+                starMap.set(idString, star);
+                starMap.set(starObjectId.toString(), star);
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[ListWithdrawals] Error fetching star ${starIdValue}:`, err.message);
+          star = null;
+        }
+      }
+      
+      if (!star) {
+        console.error(`[ListWithdrawals] Star not found for withdrawal ${withdrawal._id}, starId: ${starIdValue}`);
+      }
+      
+      const approvedBy = withdrawal.approvedBy;
+      const rejectedBy = withdrawal.rejectedBy;
       
       // Calculate commission and net amount
       let commissionAmount = 0;
       let netAmount = withdrawal.amount;
       
-      // For withdrawals, commission might be stored in metadata or calculated
-      // For now, using a default commission rate if available
       try {
         const countryCode = star?.country;
-        // Assuming withdrawal commission is based on country
         const commissionRate = await getEffectiveCommission({ 
-          serviceType: 'videoCall', // Default service type for withdrawals
+          serviceType: 'videoCall',
           countryCode 
         });
         const { commission, netAmount: net } = applyCommission(withdrawal.amount, commissionRate);
@@ -322,55 +727,92 @@ export const listWithdrawals = async (req, res) => {
         netAmount = net;
       } catch (err) {
         console.error('Error calculating withdrawal commission:', err);
-        // Use default 10% commission if calculation fails
+        // Use default commission calculation
         commissionAmount = Math.round(withdrawal.amount * 0.1 * 100) / 100;
         netAmount = Math.round((withdrawal.amount - commissionAmount) * 100) / 100;
       }
       
-      // Map withdrawal status to UI status
+      // Map DB status to UI status
+      // DB: pending, approved, rejected
+      // UI: pending, paid, failed
       let uiStatus = 'pending';
-      if (withdrawal.status === 'completed') {
+      if (withdrawal.status === 'approved') {
         uiStatus = 'paid';
-      } else if (withdrawal.status === 'failed') {
+      } else if (withdrawal.status === 'rejected') {
         uiStatus = 'failed';
-      } else if (withdrawal.status === 'approved') {
-        uiStatus = 'pending';
-      } else {
+      } else if (withdrawal.status === 'pending') {
         uiStatus = 'pending';
       }
+      
+      // Get error message for failed requests
+      let errorMessage = null;
+      if (withdrawal.status === 'rejected' && withdrawal.rejectionReason) {
+        errorMessage = withdrawal.rejectionReason;
+        if (withdrawal.metadata?.error) {
+          errorMessage = withdrawal.metadata.error;
+        }
+      }
+      
+      // Get operator ID (approvedBy or rejectedBy)
+      const operatorId = approvedBy?._id 
+        ? approvedBy._id.toString().slice(-8) 
+        : rejectedBy?._id 
+          ? rejectedBy._id.toString().slice(-8) 
+          : 'N/A';
       
       return {
         id: withdrawal._id,
         withdrawalId: withdrawal._id,
-        status: withdrawal.status,
-        uiStatus: uiStatus,
+        withdrawalRequestId: withdrawal._id,
+        status: withdrawal.status, // DB status
+        uiStatus: uiStatus, // UI status (paid, pending, failed)
         amount: withdrawal.amount,
         grossAmount: withdrawal.amount,
         commissionAmount: commissionAmount,
         netAmount: netAmount,
         note: withdrawal.note,
+        rejectionReason: withdrawal.rejectionReason,
+        errorMessage: errorMessage,
         createdAt: withdrawal.createdAt,
         updatedAt: withdrawal.updatedAt,
         processedAt: withdrawal.processedAt,
         formattedDate: formatDate(withdrawal.createdAt),
-        operatorId: admin?._id ? admin._id.toString().slice(-8) : withdrawal.adminId?.toString().slice(-8) || 'N/A',
-        errorMessage: withdrawal.status === 'failed' && withdrawal.metadata?.error ? withdrawal.metadata.error : null,
+        operatorId: operatorId,
         star: star ? {
-          id: star._id,
-          name: star.name,
-          pseudo: star.pseudo,
-          baroniId: star.baroniId,
-          profilePic: star.profilePic,
-          country: star.country,
-          contact: star.contact,
-          profession: star.profession?.name || 'Singer',
-          isVerified: star.isVerified,
-          role: star.role
+          id: star._id || star.id || withdrawal.starId,
+          name: star.name || star.pseudo || null,
+          pseudo: star.pseudo || star.name || null,
+          baroniId: star.baroniId || null,
+          profilePic: star.profilePic || null,
+          country: star.country || null,
+          contact: star.contact || null,
+          profession: star.profession?.name || (typeof star.profession === 'object' && star.profession?.name ? star.profession.name : (typeof star.profession === 'string' ? star.profession : 'Singer')),
+          professionImage: star.profession?.image || null,
+          isVerified: star.isVerified || false,
+          role: star.role || 'star'
+        } : (withdrawal.starId ? {
+          // Fallback: Return minimal star object with just the ID if user doesn't exist
+          id: withdrawal.starId,
+          name: null,
+          pseudo: null,
+          baroniId: null,
+          profilePic: null,
+          country: null,
+          contact: null,
+          profession: 'Singer',
+          professionImage: null,
+          isVerified: false,
+          role: 'star'
+        } : null),
+        approvedBy: approvedBy ? {
+          id: approvedBy._id,
+          name: approvedBy.name,
+          baroniId: approvedBy.baroniId
         } : null,
-        admin: admin ? {
-          id: admin._id,
-          name: admin.name,
-          baroniId: admin.baroniId
+        rejectedBy: rejectedBy ? {
+          id: rejectedBy._id,
+          name: rejectedBy.name,
+          baroniId: rejectedBy.baroniId
         } : null,
         metadata: withdrawal.metadata
       };

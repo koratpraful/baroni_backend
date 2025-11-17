@@ -270,17 +270,37 @@ export const withdrawFromJackpot = async (starId, amount, metadata = {}, provide
   try {
     let result;
     const run = async () => {
-      const wallet = await StarWallet.findOne({ starId }).session(session);
-      if (!wallet) throw new Error('Star wallet not found');
-      if (wallet.jackpot < amount) throw new Error('Insufficient jackpot balance');
+      // Ensure starId is ObjectId for proper query
+      const starObjectId = starId instanceof mongoose.Types.ObjectId ? starId : new mongoose.Types.ObjectId(starId);
+      
+      // Find wallet - MUST use session for transaction
+      const wallet = await StarWallet.findOne({ starId: starObjectId }).session(session);
+      if (!wallet) {
+        throw new Error(`Star wallet not found for starId: ${starId}`);
+      }
+      
+      // Check balance
+      const currentJackpot = wallet.jackpot || 0;
+      if (currentJackpot < amount) {
+        throw new Error(`Insufficient jackpot balance. Available: ${currentJackpot}, Requested: ${amount}`);
+      }
 
-      wallet.jackpot -= amount;
-      wallet.totalWithdrawn += amount;
+      // Deduct from jackpot and update totalWithdrawn
+      const newJackpot = currentJackpot - amount;
+      const newTotalWithdrawn = (wallet.totalWithdrawn || 0) + amount;
+      
+      wallet.jackpot = newJackpot;
+      wallet.totalWithdrawn = newTotalWithdrawn;
+      
+      // Save with session to ensure transaction consistency
       await wallet.save({ session });
+      
+      console.log(`[WithdrawFromJackpot] Deducted ${amount} from jackpot. Old: ${currentJackpot}, New: ${newJackpot}, TotalWithdrawn: ${newTotalWithdrawn}`);
 
+      // Create transaction record
       const txns = await StarTransaction.create([
         {
-          starId,
+          starId: starObjectId,
           amount,
           type: 'withdrawal',
           status: 'completed',
@@ -300,6 +320,9 @@ export const withdrawFromJackpot = async (starId, amount, metadata = {}, provide
     }
 
     return result;
+  } catch (error) {
+    console.error('[WithdrawFromJackpot] Error:', error);
+    throw error;
   } finally {
     if (shouldStartSession) await session.endSession();
   }
