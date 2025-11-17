@@ -45,7 +45,7 @@ export const createAd = async (req, res) => {
 
     const adData = {
       title,
-      link: link || undefined,
+      link: (link && link.trim() !== '') ? link.trim() : undefined,
       image: imageUrl,
       createdBy,
       budget: budget ? parseFloat(budget) : undefined,
@@ -249,7 +249,7 @@ export const updateAd = async (req, res) => {
     // Update ad fields
     const updateData = {};
     if (title !== undefined) updateData.title = title;
-    if (link !== undefined) updateData.link = link;
+    if (link !== undefined) updateData.link = (link && link.trim() !== '') ? link.trim() : undefined;
     if (imageUrl !== ad.image) updateData.image = imageUrl;
     if (budget !== undefined) updateData.budget = budget ? parseFloat(budget) : undefined;
     if (targetAudience !== undefined) updateData.targetAudience = targetAudience;
