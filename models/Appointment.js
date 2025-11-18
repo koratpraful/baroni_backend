@@ -10,7 +10,7 @@ const appointmentSchema = new mongoose.Schema(
     time: { type: String, required: true, trim: true },
     utcStartTime: { type: Date, index: true }, // UTC time for appointment start (calculated from local time based on country)
     price: { type: Number, required: true, min: 0 },
-    status: { type: String, enum: ['pending', 'approved', 'in_progress', 'rejected', 'cancelled', 'completed', 'rescheduled'], default: 'pending', index: true },
+    status: { type: String, enum: ['pending', 'approved', 'in_progress', 'rejected', 'cancelled', 'completed', 'rescheduled', 'missed'], default: 'pending', index: true },
     // Tracks the lifecycle of the payment linked to this appointment
     // initiated -> hybrid external part initiated
     // pending -> full payment (coin only) or external part completed and funds in escrow
@@ -28,6 +28,7 @@ const appointmentSchema = new mongoose.Schema(
     // Reschedule fields
     isRescheduled: { type: Boolean, default: false, index: true },
     parentAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', default: null, index: true },
+    referenceAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', default: null, index: true }, // Reference to the appointment that was rescheduled
   },
   { timestamps: true }
 );

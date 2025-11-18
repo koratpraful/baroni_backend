@@ -39,7 +39,7 @@ const sanitize = (doc) => {
     price: doc.price,
     // Map in_progress to approved for outward responses as requested
     status: doc.status === 'in_progress' ? 'approved' : doc.status,
-    ...(doc.paymentStatus ? { paymentStatus: doc.paymentStatus } : {}),
+    paymentStatus: doc.paymentStatus || 'pending', // Always include paymentStatus, default to 'pending'
     transactionId: doc.transactionId,
     // Keep transaction status light; paymentStatus covers domain payment lifecycle
     completedAt: doc.completedAt,
@@ -49,6 +49,7 @@ const sanitize = (doc) => {
     // Always include isRescheduled flag (defaults to false if not set)
     isRescheduled: doc.isRescheduled === true,
     ...(doc.parentAppointment ? { parentAppointment: doc.parentAppointment } : {}),
+    ...(doc.referenceAppointment ? { referenceAppointment: doc.referenceAppointment } : {}),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -361,6 +362,30 @@ export const createAppointment = async (req, res) => {
           console.log(`[AppointmentCreated] Sending notification for coin-only payment - appointment ${created._id}, transaction ${transaction._id}`);
           await NotificationHelper.sendAppointmentNotification('APPOINTMENT_CREATED', created, { currentUserId: req.user._id });
           console.log(`[AppointmentCreated] ✓ Coin-only payment completed, notification sent for appointment ${created._id}`);
+          
+          // Send notification to fan that request is now on star's side for validation
+          try {
+            const fanNotificationTemplate = {
+              title: 'Request Submitted',
+              body: "Your request is now on star's side for validation. please wait."
+            };
+            const fanNotificationData = {
+              type: 'appointment_payment_completed',
+              appointmentId: created._id.toString(),
+              starId: created.starId?.toString?.() || String(created.starId || ''),
+              fanId: created.fanId?.toString?.() || String(created.fanId || ''),
+              navigateTo: 'appointment',
+              eventType: 'APPOINTMENT_PAYMENT_COMPLETED'
+            };
+            const { default: notificationService } = await import('../services/notificationService.js');
+            await notificationService.sendToUser(created.fanId, fanNotificationTemplate, fanNotificationData, {
+              relatedEntity: { type: 'appointment', id: created._id }
+            });
+            console.log(`[AppointmentCreated] ✓ Fan notification sent - request is on star's side for validation`);
+          } catch (fanNotificationError) {
+            console.error('[AppointmentCreated] Error sending fan notification:', fanNotificationError);
+            // Don't fail the request if fan notification fails
+          }
         } else {
           console.warn(`[AppointmentCreated] ⚠ Transaction ${transaction._id} not completed yet, skipping notification to avoid duplicates`);
         }
@@ -1044,9 +1069,15 @@ export const rejectAppointment = async (req, res) => {
       // Continue even if slot update fails - appointment is already rejected
     }
 
+    // Populate appointment before sending notification to ensure fanId and starId are available
+    const appointmentForNotification = await Appointment.findById(updated._id)
+      .populate('starId', 'name pseudo')
+      .populate('fanId', 'name pseudo');
+
     // Send notification to fan about appointment rejection
     try {
-      await NotificationHelper.sendAppointmentNotification('APPOINTMENT_REJECTED', updated, { currentUserId: req.user._id });
+      await NotificationHelper.sendAppointmentNotification('APPOINTMENT_REJECTED', appointmentForNotification, { currentUserId: req.user._id });
+      console.log(`[RejectAppointment] Notification sent to fan ${appointmentForNotification.fanId?._id || appointmentForNotification.fanId} for rejected appointment ${updated._id}`);
     } catch (notificationError) {
       console.error('Error sending appointment rejection notification:', notificationError);
     }
@@ -1083,8 +1114,8 @@ export const cancelAppointment = async (req, res) => {
     if (!appt) return res.status(404).json({ success: false, message: 'Appointment not found' });
     if (appt.status === 'cancelled') return res.status(400).json({ success: false, message: 'Already cancelled' });
 
-    // Refund escrow if payment was pending
-    if (appt.paymentStatus === 'pending') {
+    // Refund escrow if payment was pending or completed
+    if (appt.paymentStatus === 'pending' || appt.paymentStatus === 'completed') {
       try {
         await refundEscrow(appt.starId, appt._id, null);
       } catch (escrowError) {
@@ -1092,13 +1123,30 @@ export const cancelAppointment = async (req, res) => {
       }
     }
     
-    // Cancel the transaction and refund coins if it's pending
-    if (appt.transactionId && appt.status === 'pending') {
+    // Cancel or refund the transaction, if any - check status first
+    if (appt.transactionId) {
       try {
-        await cancelTransaction(appt.transactionId);
+        const transaction = await Transaction.findById(appt.transactionId);
+        if (transaction) {
+          if (transaction.status === 'pending') {
+            // Cancel pending transaction
+            await cancelTransaction(appt.transactionId);
+            console.log(`[CancelAppointment] Successfully cancelled pending transaction ${appt.transactionId}`);
+          } else if (transaction.status === 'completed') {
+            // Refund completed transaction
+            const { refundTransaction } = await import('../services/transactionService.js');
+            await refundTransaction(appt.transactionId);
+            console.log(`[CancelAppointment] Successfully refunded completed transaction ${appt.transactionId}`);
+          } else if (transaction.status === 'cancelled' || transaction.status === 'refunded') {
+            // Already cancelled/refunded, nothing to do
+            console.log(`[CancelAppointment] Transaction ${appt.transactionId} is already ${transaction.status}, skipping`);
+          } else {
+            console.log(`[CancelAppointment] Transaction ${appt.transactionId} has status ${transaction.status}, cannot cancel/refund`);
+          }
+        }
       } catch (transactionError) {
-        console.error('Failed to cancel transaction:', transactionError);
-        // Continue with appointment cancellation even if transaction cancellation fails
+        console.error('Failed to cancel/refund transaction for cancelled appointment:', transactionError);
+        // Continue with appointment cancellation even if transaction cancellation/refund fails
       }
     }
 
@@ -1182,12 +1230,15 @@ export const rescheduleAppointment = async (req, res) => {
     session.startTransaction();
 
     try {
-      // Update the old appointment status to rescheduled
+      // Update the old appointment status to 'rescheduled'
+      // If it was 'missed', it becomes 'rescheduled'. If it was other status, it also becomes 'rescheduled'
+      const oldStatus = existingAppointment.status;
       await Appointment.findByIdAndUpdate(
         id,
         { status: 'rescheduled' },
         { session }
       );
+      console.log(`[RescheduleAppointment] Updated old appointment ${id} status from '${oldStatus}' to 'rescheduled'`);
 
       // Create new appointment with reschedule flags
       const newAppointment = await Appointment.create([{
@@ -1199,12 +1250,14 @@ export const rescheduleAppointment = async (req, res) => {
         time: newTimeSlot.slot,
         utcStartTime,
         price: existingAppointment.price, // Use same price as original
-        status: 'pending',
+        status: 'pending', // New appointment starts as 'pending' (not 'rescheduled')
         paymentStatus: 'completed', // No payment needed for reschedule
         transactionId: existingAppointment.transactionId, // Use same transaction
         isRescheduled: true,
-        parentAppointment: id
+        parentAppointment: id,
+        referenceAppointment: id // Reference to the appointment that was rescheduled
       }], { session });
+      console.log(`[RescheduleAppointment] Created new appointment ${newAppointment[0]._id} with status 'pending' and referenceAppointment ${id}`);
 
       // Reserve the new slot
       await Availability.updateOne(
