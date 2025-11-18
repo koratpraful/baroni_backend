@@ -137,8 +137,14 @@ export const createDedicationRequest = async (req, res) => {
           try {
             const { default: notificationService } = await import('../services/notificationService.js');
             const fanNotificationTemplate = {
-              title: 'Request Submitted',
-              body: "Your request is now on star's side for validation. please wait."
+              title: {
+                en: 'Request Submitted',
+                fr: 'Demande soumise'
+              },
+              body: {
+                en: "Your request is now on star's side for validation. please wait.",
+                fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+              }
             };
             const fanNotificationData = {
               type: 'dedication_payment_completed',
