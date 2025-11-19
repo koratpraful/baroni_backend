@@ -529,10 +529,11 @@ export const rejectDedicationRequest = async (req, res) => {
     item.status = 'rejected';
     item.rejectedAt = new Date();
 
-    // Refund escrow if payment was pending (before we set it to refunded)
-    if (item.paymentStatus === 'pending') {
+    // Refund escrow if payment was pending or completed (before we set it to refunded)
+    if (item.paymentStatus === 'pending' || item.paymentStatus === 'completed') {
       try {
         await refundEscrow(item.starId, null, item._id);
+        console.log(`[RejectDedicationRequest] Refunded escrow for dedication ${item._id}`);
       } catch (escrowError) {
         console.error('Failed to refund escrow for rejected dedication request:', escrowError);
       }
@@ -540,12 +541,29 @@ export const rejectDedicationRequest = async (req, res) => {
     
     item.paymentStatus = 'refunded';
 
-    // Cancel and refund the pending transaction, if any
+    // Cancel or refund the transaction based on its status
     if (item.transactionId) {
       try {
-        await cancelTransaction(item.transactionId);
+        const transaction = await Transaction.findById(item.transactionId);
+        if (transaction) {
+          if (transaction.status === 'pending') {
+            // Cancel pending transaction
+            await cancelTransaction(item.transactionId);
+            console.log(`[RejectDedicationRequest] Successfully cancelled pending transaction ${item.transactionId}`);
+          } else if (transaction.status === 'completed') {
+            // Refund completed transaction - this credits coins back to user wallet
+            const { refundTransaction } = await import('../services/transactionService.js');
+            await refundTransaction(item.transactionId);
+            console.log(`[RejectDedicationRequest] Successfully refunded completed transaction ${item.transactionId} - coins credited to user wallet`);
+          } else if (transaction.status === 'cancelled' || transaction.status === 'refunded') {
+            // Already cancelled/refunded, nothing to do
+            console.log(`[RejectDedicationRequest] Transaction ${item.transactionId} is already ${transaction.status}, skipping`);
+          } else {
+            console.log(`[RejectDedicationRequest] Transaction ${item.transactionId} has status ${transaction.status}, cannot cancel/refund`);
+          }
+        }
       } catch (transactionError) {
-        console.error('Failed to cancel transaction for rejected dedication request:', transactionError);
+        console.error('Failed to cancel/refund transaction for rejected dedication request:', transactionError);
         // Proceed with rejection even if refund fails; can be reconciled later
       }
     }

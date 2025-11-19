@@ -29,6 +29,8 @@ const appointmentSchema = new mongoose.Schema(
     isRescheduled: { type: Boolean, default: false, index: true },
     parentAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', default: null, index: true },
     referenceAppointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', default: null, index: true }, // Reference to the appointment that was rescheduled
+    // Review pending flag - true when appointment is completed but fan hasn't given review yet
+    is_appointment_pending: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

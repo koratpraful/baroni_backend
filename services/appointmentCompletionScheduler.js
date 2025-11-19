@@ -106,6 +106,7 @@ export const processCompletedAppointments = async () => {
           appointment.status = 'completed';
           appointment.paymentStatus = 'completed';
           appointment.completedAt = new Date();
+          appointment.is_appointment_pending = true; // Set to true when completed - fan hasn't given review yet
           await appointment.save();
 
           // Send completion notification (only if notification cron is enabled)

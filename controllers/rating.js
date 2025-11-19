@@ -125,6 +125,12 @@ export const submitAppointmentReview = async (req, res) => {
       isDefaultRating: false
     });
 
+    // Update appointment - mark review as submitted (is_appointment_pending = false)
+    await Appointment.findByIdAndUpdate(appointmentId, {
+      is_appointment_pending: false
+    });
+    console.log(`[Rating] Updated appointment ${appointmentId} - is_appointment_pending set to false after review submission`);
+
     // Update star's average rating
     await updateStarRating(appointment.starId);
 

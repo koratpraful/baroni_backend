@@ -12,6 +12,7 @@ import { moveEscrowToJackpot, refundEscrow } from '../services/starWalletService
 import mongoose from 'mongoose';
 import Conversation from '../models/Conversation.js';
 import { convertLocalToUTC } from '../utils/timezoneHelper.js';
+import Review from '../models/Review.js';
 
 const toUser = (u) => u ? sanitizeUserData(u) : null;
 
@@ -50,6 +51,8 @@ const sanitize = (doc) => {
     isRescheduled: doc.isRescheduled === true,
     ...(doc.parentAppointment ? { parentAppointment: doc.parentAppointment } : {}),
     ...(doc.referenceAppointment ? { referenceAppointment: doc.referenceAppointment } : {}),
+    // is_appointment_pending: true when appointment is completed but fan hasn't given review yet
+    is_appointment_pending: doc.is_appointment_pending === true,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -1460,6 +1463,19 @@ export const completeAppointment = async (req, res) => {
     // Get final duration in seconds (after atomic update)
     const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
     
+    // Check if review exists for this appointment (by fan)
+    let hasReview = false;
+    try {
+      const existingReview = await Review.findOne({
+        appointmentId: updated._id,
+        reviewerId: updated.fanId
+      });
+      hasReview = !!existingReview;
+    } catch (reviewError) {
+      console.error(`[CompleteAppointment] Error checking review for appointment ${updated._id}:`, reviewError);
+      // Continue even if review check fails
+    }
+    
     return res.json({ 
       success: true, 
       message: 'Call duration added successfully',
@@ -1469,7 +1485,9 @@ export const completeAppointment = async (req, res) => {
         totalDurationSeconds: finalDurationSeconds,
         callDuration: finalDurationSeconds, // Duration in seconds
         duration: finalDurationSeconds, // Duration in seconds (same as callDuration)
-        isFullyCompleted: finalDurationSeconds >= 300
+        isFullyCompleted: finalDurationSeconds >= 300,
+        // Review info - true if fan has already given review for this appointment
+        hasReview: hasReview
       }
     });
   } catch (err) {
