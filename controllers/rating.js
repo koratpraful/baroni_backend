@@ -77,14 +77,7 @@ export const submitAppointmentReview = async (req, res) => {
       });
     }
 
-    // Check if appointment is completed
-    if (appointmentExists.status !== 'completed') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Appointment is not completed. Current status: ${appointmentExists.status}` 
-      });
-    }
-
+    // Allow review for any appointment status - no status check required
     // Check if user is the fan who booked this appointment
     if (appointmentExists.fanId.toString() !== req.user._id.toString()) {
       console.log(`[Rating] User mismatch:`, {
@@ -182,17 +175,16 @@ export const submitDedicationReview = async (req, res) => {
 
     const { dedicationRequestId, rating, comment } = req.body;
 
-    // Validate dedication request exists and is completed
+    // Validate dedication request exists - allow review for any status
     const dedicationRequest = await DedicationRequest.findOne({
       _id: dedicationRequestId,
-      fanId: req.user._id,
-      status: 'completed'
+      fanId: req.user._id
     });
 
     if (!dedicationRequest) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Completed dedication request not found' 
+        message: 'Dedication request not found' 
       });
     }
 
