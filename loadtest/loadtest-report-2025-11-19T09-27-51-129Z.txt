@@ -1,0 +1,162 @@
+================================================================================
+BARONI BACKEND LOAD TEST REPORT
+================================================================================
+
+Test Configuration:
+- Base URL: http://localhost:4000
+- Concurrent Users: 10
+- Requests Per User: 50
+- Test Duration: 60 seconds
+- Ramp Up Time: 10 seconds
+- Admin Token: Not Provided
+- User Token: Not Provided
+
+Test Execution:
+- Start Time: 2025-11-19T09:26:50.099Z
+- End Time: 2025-11-19T09:27:51.108Z
+- Total Duration: 61.01 seconds
+
+================================================================================
+OVERALL STATISTICS
+================================================================================
+
+Total Requests: 4363
+Successful Requests: 2201 (50.45%)
+Failed Requests: 2162 (49.55%)
+Requests Per Second: 71.51
+
+Response Time Statistics (ms):
+- Minimum: 2.00 ms
+- Maximum: 1111.00 ms
+- Average: 21.89 ms
+- Median (p50): 6.00 ms
+- 95th Percentile (p95): 49.00 ms
+- 99th Percentile (p99): 147.00 ms
+
+HTTP Status Code Distribution:
+- 200: 2201 (50.45%)
+- 401: 2162 (49.55%)
+
+================================================================================
+ENDPOINT-SPECIFIC RESULTS
+================================================================================
+
+Endpoint: Get Global Config
+- Total Requests: 643
+- Successful: 643 (100.00%)
+- Failed: 0 (0.00%)
+- Response Times (ms):
+  * Min: 21.00
+  * Max: 1111.00
+  * Avg: 48.57
+  * Median: 33.00
+  * p95: 99.00
+  * p99: 408.00
+- Status Codes:
+  * 200: 643 (100.00%)
+
+Endpoint: Get Categories
+- Total Requests: 671
+- Successful: 671 (100.00%)
+- Failed: 0 (0.00%)
+- Response Times (ms):
+  * Min: 21.00
+  * Max: 1107.00
+  * Avg: 44.82
+  * Median: 34.00
+  * p95: 75.00
+  * p99: 307.00
+- Status Codes:
+  * 200: 671 (100.00%)
+
+Endpoint: Get Country Services
+- Total Requests: 543
+- Successful: 543 (100.00%)
+- Failed: 0 (0.00%)
+- Response Times (ms):
+  * Min: 22.00
+  * Max: 1081.00
+  * Avg: 41.49
+  * Median: 34.00
+  * p95: 61.00
+  * p99: 139.00
+- Status Codes:
+  * 200: 543 (100.00%)
+
+Endpoint: Health Check
+- Total Requests: 344
+- Successful: 344 (100.00%)
+- Failed: 0 (0.00%)
+- Response Times (ms):
+  * Min: 2.00
+  * Max: 18.00
+  * Avg: 4.70
+  * Median: 4.00
+  * p95: 8.00
+  * p99: 12.00
+- Status Codes:
+  * 200: 344 (100.00%)
+
+Endpoint: Get Stars List
+- Total Requests: 1021
+- Successful: 0 (0.00%)
+- Failed: 1021 (100.00%)
+- Response Times (ms):
+  * Min: 2.00
+  * Max: 50.00
+  * Avg: 4.70
+  * Median: 4.00
+  * p95: 9.00
+  * p99: 13.00
+- Status Codes:
+  * 401: 1021 (100.00%)
+
+Endpoint: Get Live Shows
+- Total Requests: 650
+- Successful: 0 (0.00%)
+- Failed: 650 (100.00%)
+- Response Times (ms):
+  * Min: 2.00
+  * Max: 21.00
+  * Avg: 4.57
+  * Median: 4.00
+  * p95: 8.00
+  * p99: 12.00
+- Status Codes:
+  * 401: 650 (100.00%)
+
+Endpoint: Get Services
+- Total Requests: 491
+- Successful: 0 (0.00%)
+- Failed: 491 (100.00%)
+- Response Times (ms):
+  * Min: 2.00
+  * Max: 52.00
+  * Avg: 4.63
+  * Median: 4.00
+  * p95: 8.00
+  * p99: 12.00
+- Status Codes:
+  * 401: 491 (100.00%)
+
+================================================================================
+ERROR SUMMARY
+================================================================================
+
+No errors encountered during the test.
+
+================================================================================
+PERFORMANCE ANALYSIS
+================================================================================
+
+Performance Assessment:
+- Average Response Time: EXCELLENT (< 200ms)
+- 95th Percentile: EXCELLENT (< 500ms)
+- Success Rate: NEEDS IMPROVEMENT (< 90%)
+
+Recommendations:
+- High error rate detected, investigate and fix failing endpoints
+
+================================================================================
+Report Generated: 2025-11-19T09:27:51.123Z
+================================================================================

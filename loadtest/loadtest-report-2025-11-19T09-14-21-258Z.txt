@@ -1,0 +1,62 @@
+================================================================================
+BARONI BACKEND LOAD TEST REPORT
+================================================================================
+
+Test Configuration:
+- Base URL: http://localhost:4000
+- Concurrent Users: 10
+- Requests Per User: 50
+- Test Duration: 60 seconds
+- Ramp Up Time: 10 seconds
+- Admin Token: Not Provided
+- User Token: Not Provided
+
+Test Execution:
+- Start Time: 2025-11-19T09:14:21.251Z
+- End Time: 2025-11-19T09:14:21.252Z
+- Total Duration: 0.00 seconds
+
+================================================================================
+OVERALL STATISTICS
+================================================================================
+
+Total Requests: 0
+Successful Requests: 0 (NaN%)
+Failed Requests: 0 (NaN%)
+Requests Per Second: 0.00
+
+Response Time Statistics (ms):
+- Minimum: 0.00 ms
+- Maximum: 0.00 ms
+- Average: 0.00 ms
+- Median (p50): 0.00 ms
+- 95th Percentile (p95): 0.00 ms
+- 99th Percentile (p99): 0.00 ms
+
+HTTP Status Code Distribution:
+
+================================================================================
+ENDPOINT-SPECIFIC RESULTS
+================================================================================
+
+================================================================================
+ERROR SUMMARY
+================================================================================
+
+No errors encountered during the test.
+
+================================================================================
+PERFORMANCE ANALYSIS
+================================================================================
+
+Performance Assessment:
+- Average Response Time: EXCELLENT (< 200ms)
+- 95th Percentile: EXCELLENT (< 500ms)
+- Success Rate: NEEDS IMPROVEMENT (< 90%)
+
+Recommendations:
+- Low throughput detected, consider optimizing database queries or adding caching
+
+================================================================================
+Report Generated: 2025-11-19T09:14:21.257Z
+================================================================================
