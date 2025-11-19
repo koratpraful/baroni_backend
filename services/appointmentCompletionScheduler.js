@@ -94,12 +94,29 @@ export const processCompletedAppointments = async () => {
           const appointment = await Appointment.findById(appt._id);
           if (!appointment) continue;
           
-          // Move escrow to jackpot for the star
+          // Move escrow to jackpot for the star (MUST happen before marking as completed)
+          // This moves the payment from escrow to jackpot when appointment is completed
           try {
-            await moveEscrowToJackpot(appointment.starId, appointment._id, null);
-            console.log(`[AppointmentCompletionScheduler] Moved escrow to jackpot for star ${appointment.starId}, appointment ${appointment._id}`);
+            console.log(`[AppointmentCompletionScheduler] Attempting to move escrow to jackpot for appointment ${appointment._id}, star ${appointment.starId}`);
+            const escrowResult = await moveEscrowToJackpot(appointment.starId, appointment._id, null);
+            if (escrowResult && escrowResult.wallet) {
+              console.log(`[AppointmentCompletionScheduler] ✅ Successfully moved escrow to jackpot for star ${appointment.starId}, appointment ${appointment._id}`);
+              console.log(`[AppointmentCompletionScheduler] Wallet details - Escrow: ${escrowResult.wallet.escrow}, Jackpot: ${escrowResult.wallet.jackpot}, Amount moved: ${escrowResult.starTransaction?.amount || 'N/A'}`);
+            } else {
+              console.warn(`[AppointmentCompletionScheduler] ⚠ moveEscrowToJackpot returned unexpected result for appointment ${appointment._id}`);
+            }
           } catch (walletError) {
-            console.error(`[AppointmentCompletionScheduler] Failed to move escrow to jackpot for appointment ${appointment._id}:`, walletError);
+            console.error(`[AppointmentCompletionScheduler] ❌ CRITICAL: Failed to move escrow to jackpot for appointment ${appointment._id}:`, walletError);
+            console.error(`[AppointmentCompletionScheduler] Error details:`, {
+              errorMessage: walletError.message,
+              errorStack: walletError.stack,
+              starId: appointment.starId,
+              appointmentId: appointment._id,
+              paymentStatus: appointment.paymentStatus,
+              transactionId: appointment.transactionId
+            });
+            // Continue with appointment completion even if escrow movement fails
+            // This allows the appointment to be marked as completed, but escrow issue needs manual resolution
           }
 
           // Update appointment status

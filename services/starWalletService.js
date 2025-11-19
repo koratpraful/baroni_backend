@@ -104,28 +104,51 @@ export const moveEscrowToJackpot = async (starId, appointmentId = null, dedicati
         filter.dedicationId = dedicationId;
       }
       
+      console.log(`[moveEscrowToJackpot] Looking for star transaction with filter:`, filter);
       const starTransaction = await StarTransaction.findOne(filter).session(session);
       
       if (!starTransaction) {
-        throw new Error('No pending star transaction found');
+        // Try to find any transaction for this appointment/dedication to provide better error message
+        let debugFilter = { starId };
+        if (appointmentId) {
+          debugFilter.appointmentId = appointmentId;
+        }
+        if (dedicationId) {
+          debugFilter.dedicationId = dedicationId;
+        }
+        const anyTransaction = await StarTransaction.findOne(debugFilter).session(session);
+        
+        if (anyTransaction) {
+          throw new Error(`Star transaction found but has status '${anyTransaction.status}' and escrowMovement '${anyTransaction.escrowMovement}' instead of 'pending'/'deposit'. Transaction ID: ${anyTransaction._id}`);
+        } else {
+          throw new Error(`No star transaction found for starId: ${starId}, appointmentId: ${appointmentId || 'null'}, dedicationId: ${dedicationId || 'null'}`);
+        }
       }
+      
+      console.log(`[moveEscrowToJackpot] Found star transaction ${starTransaction._id} with amount ${starTransaction.amount}`);
       
       const wallet = await StarWallet.findOne({ starId }).session(session);
       
       if (!wallet) {
-        throw new Error('Star wallet not found');
+        throw new Error(`Star wallet not found for starId: ${starId}`);
       }
+      
+      console.log(`[moveEscrowToJackpot] Current wallet state - Escrow: ${wallet.escrow}, Jackpot: ${wallet.jackpot}, Amount to move: ${starTransaction.amount}`);
       
       // Check if escrow has sufficient amount
       if (wallet.escrow < starTransaction.amount) {
-        throw new Error('Insufficient escrow balance');
+        throw new Error(`Insufficient escrow balance. Escrow: ${wallet.escrow}, Required: ${starTransaction.amount}`);
       }
       
       // Move from escrow to jackpot
+      const previousEscrow = wallet.escrow;
+      const previousJackpot = wallet.jackpot;
       wallet.escrow -= starTransaction.amount;
       wallet.jackpot += starTransaction.amount;
       
       await wallet.save({ session });
+      
+      console.log(`[moveEscrowToJackpot] Wallet updated - Escrow: ${previousEscrow} -> ${wallet.escrow}, Jackpot: ${previousJackpot} -> ${wallet.jackpot}`);
       
       // Update star transaction status
       starTransaction.status = 'completed';
@@ -133,6 +156,8 @@ export const moveEscrowToJackpot = async (starId, appointmentId = null, dedicati
       starTransaction.completedAt = new Date();
       
       await starTransaction.save({ session });
+      
+      console.log(`[moveEscrowToJackpot] Star transaction ${starTransaction._id} marked as completed`);
       
       result = {
         wallet,
@@ -142,7 +167,14 @@ export const moveEscrowToJackpot = async (starId, appointmentId = null, dedicati
     
     return result;
   } catch (error) {
-    console.error('Error moving escrow to jackpot:', error);
+    console.error('[moveEscrowToJackpot] Error moving escrow to jackpot:', error);
+    console.error('[moveEscrowToJackpot] Error details:', {
+      message: error.message,
+      stack: error.stack,
+      starId,
+      appointmentId,
+      dedicationId
+    });
     throw error;
   } finally {
     await session.endSession();
