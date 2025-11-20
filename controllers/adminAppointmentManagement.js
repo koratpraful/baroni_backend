@@ -476,6 +476,15 @@ export const getAppointmentDetails = async (req, res) => {
 
     const { appointmentId } = req.params;
 
+    // Additional safeguard: Check if appointmentId is a reserved route name
+    const reservedRoutes = ['dedications', 'live-shows', 'statistics'];
+    if (reservedRoutes.includes(appointmentId)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
     // Additional safeguard: Check if appointmentId is a valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
       return res.status(400).json({
