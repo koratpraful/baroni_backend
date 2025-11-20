@@ -420,7 +420,7 @@ export const getUserConversations = async (req, res) => {
                                 { fanId: userId, starId: otherParticipantId },
                                 { fanId: otherParticipantId, starId: userId }
                             ],
-                            status: { $in: ['pending', 'approved', 'in_progress', 'rescheduled'] }
+                            status: { $in: ['pending', 'approved', 'in_progress', 'rescheduled', 'missed'] }
                         }).select('utcStartTime date time').lean(),
                         DedicationRequest.findOne({
                             $or: [

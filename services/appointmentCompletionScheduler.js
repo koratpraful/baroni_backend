@@ -32,10 +32,10 @@ const parseAppointmentStartTime = (dateStr, timeStr) => {
 };
 
 /**
- * Process appointments that should be completed or rescheduled
+ * Process appointments that should be completed or marked as missed
  * 1. If duration >= 300 seconds (5 minutes) -> mark completed
  * 2. If call duration exists AND 10 minutes passed since scheduled time -> mark completed
- * 3. If 10 minutes passed since scheduled time with NO duration -> mark rescheduled
+ * 3. If 10 minutes passed since scheduled time with NO duration -> mark missed
  * @returns {Promise<Object>} Processing result
  */
 export const processCompletedAppointments = async () => {
@@ -55,7 +55,7 @@ export const processCompletedAppointments = async () => {
     console.log(`[AppointmentCompletionScheduler] Checking ${appointments.length} appointments`);
 
     let completedCount = 0;
-    let rescheduledCount = 0;
+    let missedCount = 0;
     let errorCount = 0;
 
     for (const appt of appointments) {
@@ -94,18 +94,36 @@ export const processCompletedAppointments = async () => {
           const appointment = await Appointment.findById(appt._id);
           if (!appointment) continue;
           
-          // Move escrow to jackpot for the star
+          // Move escrow to jackpot for the star (MUST happen before marking as completed)
+          // This moves the payment from escrow to jackpot when appointment is completed
           try {
-            await moveEscrowToJackpot(appointment.starId, appointment._id, null);
-            console.log(`[AppointmentCompletionScheduler] Moved escrow to jackpot for star ${appointment.starId}, appointment ${appointment._id}`);
+            console.log(`[AppointmentCompletionScheduler] Attempting to move escrow to jackpot for appointment ${appointment._id}, star ${appointment.starId}`);
+            const escrowResult = await moveEscrowToJackpot(appointment.starId, appointment._id, null);
+            if (escrowResult && escrowResult.wallet) {
+              console.log(`[AppointmentCompletionScheduler] ✅ Successfully moved escrow to jackpot for star ${appointment.starId}, appointment ${appointment._id}`);
+              console.log(`[AppointmentCompletionScheduler] Wallet details - Escrow: ${escrowResult.wallet.escrow}, Jackpot: ${escrowResult.wallet.jackpot}, Amount moved: ${escrowResult.starTransaction?.amount || 'N/A'}`);
+            } else {
+              console.warn(`[AppointmentCompletionScheduler] ⚠ moveEscrowToJackpot returned unexpected result for appointment ${appointment._id}`);
+            }
           } catch (walletError) {
-            console.error(`[AppointmentCompletionScheduler] Failed to move escrow to jackpot for appointment ${appointment._id}:`, walletError);
+            console.error(`[AppointmentCompletionScheduler] ❌ CRITICAL: Failed to move escrow to jackpot for appointment ${appointment._id}:`, walletError);
+            console.error(`[AppointmentCompletionScheduler] Error details:`, {
+              errorMessage: walletError.message,
+              errorStack: walletError.stack,
+              starId: appointment.starId,
+              appointmentId: appointment._id,
+              paymentStatus: appointment.paymentStatus,
+              transactionId: appointment.transactionId
+            });
+            // Continue with appointment completion even if escrow movement fails
+            // This allows the appointment to be marked as completed, but escrow issue needs manual resolution
           }
 
           // Update appointment status
           appointment.status = 'completed';
           appointment.paymentStatus = 'completed';
           appointment.completedAt = new Date();
+          appointment.is_appointment_pending = true; // Set to true when completed - fan hasn't given review yet
           await appointment.save();
 
           // Send completion notification (only if notification cron is enabled)
@@ -131,16 +149,16 @@ export const processCompletedAppointments = async () => {
           completedCount++;
           console.log(`[AppointmentCompletionScheduler] ✅ Completed appointment ${appointment._id} - Duration: ${appointment.callDuration || 0}s, Time since scheduled: ${minutesSinceScheduled.toFixed(2)} min`);
         }
-        // Case 2: Mark as rescheduled if 10+ minutes passed with NO duration
+        // Case 2: Mark as missed if 10+ minutes passed with NO duration
         else if (minutesSinceScheduled >= RESCHEDULE_TIMEOUT_MINUTES && !hasDuration) {
           const appointment = await Appointment.findById(appt._id);
           if (!appointment) continue;
           
-          appointment.status = 'rescheduled';
+          appointment.status = 'missed';
           await appointment.save();
           
-          rescheduledCount++;
-          console.log(`[AppointmentCompletionScheduler] Marked appointment ${appointment._id} as rescheduled - No duration recorded, ${minutesSinceScheduled.toFixed(2)} min since scheduled`);
+          missedCount++;
+          console.log(`[AppointmentCompletionScheduler] Marked appointment ${appointment._id} as missed - No duration recorded, ${minutesSinceScheduled.toFixed(2)} min since scheduled`);
         }
       } catch (error) {
         errorCount++;
@@ -150,9 +168,9 @@ export const processCompletedAppointments = async () => {
 
     return {
       success: true,
-      message: `Processed: ${completedCount} completed, ${rescheduledCount} rescheduled, ${errorCount} errors`,
+      message: `Processed: ${completedCount} completed, ${missedCount} missed, ${errorCount} errors`,
       completedCount,
-      rescheduledCount,
+      missedCount,
       errorCount
     };
   } catch (error) {

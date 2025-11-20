@@ -5,6 +5,8 @@ import Transaction from '../models/Transaction.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
 import mongoose from 'mongoose';
+import { validationResult } from 'express-validator';
+import { getFirstValidationError } from '../utils/validationHelper.js';
 
 // Get appointments with comprehensive admin filters
 export const getAppointmentsWithFilters = async (req, res) => {
@@ -462,7 +464,25 @@ export const cancelAppointment = async (req, res) => {
 // Get appointment details
 export const getAppointmentDetails = async (req, res) => {
   try {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      const errorMessage = getFirstValidationError(errors);
+      return res.status(400).json({
+        success: false,
+        message: errorMessage || 'Invalid appointment ID'
+      });
+    }
+
     const { appointmentId } = req.params;
+
+    // Additional safeguard: Check if appointmentId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid appointment ID format'
+      });
+    }
 
     const appointment = await Appointment.findById(appointmentId)
       .populate({

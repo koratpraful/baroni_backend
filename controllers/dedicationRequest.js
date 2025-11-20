@@ -117,14 +117,68 @@ export const createDedicationRequest = async (req, res) => {
       transactionId: transaction._id
     });
 
-    // Notify star ONLY if payment is already complete (pending status)
-    // If paymentStatus is 'initiated', wait for external payment to complete before notifying
-    try {
-      if (created.paymentStatus === 'pending') {
-        await NotificationHelper.sendDedicationNotification('DEDICATION_REQUEST_CREATED', created, { currentUserId: req.user._id });
+    // Handle coin-only payments immediately
+    if (txnResult.paymentMode === 'coin') {
+      try {
+        // Complete the transaction immediately for coin-only payments
+        // This adds funds to escrow before completion
+        // NOTE: completeTransaction does NOT send notification (removed to avoid duplicates)
+        await completeTransaction(transaction._id);
+        
+        // Verify transaction is completed before sending notification
+        const completedTransaction = await Transaction.findById(transaction._id);
+        if (completedTransaction && completedTransaction.status === 'completed') {
+          // Send notification to star for coin-only payments (only once, here)
+          console.log(`[DedicationRequestCreated] Sending notification for coin-only payment - dedication ${created._id}, transaction ${transaction._id}`);
+          await NotificationHelper.sendDedicationNotification('DEDICATION_REQUEST_CREATED', created, { currentUserId: req.user._id });
+          console.log(`[DedicationRequestCreated] ✓ Coin-only payment completed, notification sent for dedication ${created._id}`);
+          
+          // Send notification to fan that request is now on star's side for validation
+          try {
+            const { default: notificationService } = await import('../services/notificationService.js');
+            const fanNotificationTemplate = {
+              title: {
+                en: 'Request Submitted',
+                fr: 'Demande soumise'
+              },
+              body: {
+                en: "Your request is now on star's side for validation. please wait.",
+                fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+              }
+            };
+            const fanNotificationData = {
+              type: 'dedication_payment_completed',
+              dedicationId: created._id.toString(),
+              starId: created.starId?.toString?.() || String(created.starId || ''),
+              fanId: created.fanId?.toString?.() || String(created.fanId || ''),
+              navigateTo: 'dedication',
+              eventType: 'DEDICATION_PAYMENT_COMPLETED'
+            };
+            await notificationService.sendToUser(created.fanId, fanNotificationTemplate, fanNotificationData, {
+              relatedEntity: { type: 'dedication', id: created._id }
+            });
+            console.log(`[DedicationRequestCreated] ✓ Fan notification sent - request is on star's side for validation`);
+          } catch (fanNotificationError) {
+            console.error('[DedicationRequestCreated] Error sending fan notification:', fanNotificationError);
+            // Don't fail the request if fan notification fails
+          }
+        } else {
+          console.warn(`[DedicationRequestCreated] ⚠ Transaction ${transaction._id} not completed yet, skipping notification to avoid duplicates`);
+        }
+      } catch (error) {
+        console.error('[DedicationRequestCreated] ✗ Error handling coin-only payment:', error);
       }
-    } catch (notificationError) {
-      console.error('Error sending dedication notification:', notificationError);
+    } else {
+      // For hybrid payments, notification will be sent after payment completion in paymentCallbackService
+      // Notify star ONLY if payment is already complete (pending status)
+      // If paymentStatus is 'initiated', wait for external payment to complete before notifying
+      try {
+        if (created.paymentStatus === 'pending') {
+          await NotificationHelper.sendDedicationNotification('DEDICATION_REQUEST_CREATED', created, { currentUserId: req.user._id });
+        }
+      } catch (notificationError) {
+        console.error('Error sending dedication notification:', notificationError);
+      }
     }
 
     const responseBody = { 
@@ -475,10 +529,11 @@ export const rejectDedicationRequest = async (req, res) => {
     item.status = 'rejected';
     item.rejectedAt = new Date();
 
-    // Refund escrow if payment was pending (before we set it to refunded)
-    if (item.paymentStatus === 'pending') {
+    // Refund escrow if payment was pending or completed (before we set it to refunded)
+    if (item.paymentStatus === 'pending' || item.paymentStatus === 'completed') {
       try {
         await refundEscrow(item.starId, null, item._id);
+        console.log(`[RejectDedicationRequest] Refunded escrow for dedication ${item._id}`);
       } catch (escrowError) {
         console.error('Failed to refund escrow for rejected dedication request:', escrowError);
       }
@@ -486,12 +541,29 @@ export const rejectDedicationRequest = async (req, res) => {
     
     item.paymentStatus = 'refunded';
 
-    // Cancel and refund the pending transaction, if any
+    // Cancel or refund the transaction based on its status
     if (item.transactionId) {
       try {
-        await cancelTransaction(item.transactionId);
+        const transaction = await Transaction.findById(item.transactionId);
+        if (transaction) {
+          if (transaction.status === 'pending') {
+            // Cancel pending transaction
+            await cancelTransaction(item.transactionId);
+            console.log(`[RejectDedicationRequest] Successfully cancelled pending transaction ${item.transactionId}`);
+          } else if (transaction.status === 'completed') {
+            // Refund completed transaction - this credits coins back to user wallet
+            const { refundTransaction } = await import('../services/transactionService.js');
+            await refundTransaction(item.transactionId);
+            console.log(`[RejectDedicationRequest] Successfully refunded completed transaction ${item.transactionId} - coins credited to user wallet`);
+          } else if (transaction.status === 'cancelled' || transaction.status === 'refunded') {
+            // Already cancelled/refunded, nothing to do
+            console.log(`[RejectDedicationRequest] Transaction ${item.transactionId} is already ${transaction.status}, skipping`);
+          } else {
+            console.log(`[RejectDedicationRequest] Transaction ${item.transactionId} has status ${transaction.status}, cannot cancel/refund`);
+          }
+        }
       } catch (transactionError) {
-        console.error('Failed to cancel transaction for rejected dedication request:', transactionError);
+        console.error('Failed to cancel/refund transaction for rejected dedication request:', transactionError);
         // Proceed with rejection even if refund fails; can be reconciled later
       }
     }
@@ -547,8 +619,15 @@ export const uploadDedicationVideo = async (req, res) => {
     // Ensure transaction is completed (coin-only transactions are pending until completion)
     if (item.transactionId) {
       try {
-        await completeTransaction(item.transactionId);
-        console.log(`[UploadDedicationVideo] Completed transaction ${item.transactionId} before finalizing dedication`);
+        const transaction = await Transaction.findById(item.transactionId);
+        if (transaction && transaction.status === 'pending') {
+          await completeTransaction(item.transactionId);
+          console.log(`[UploadDedicationVideo] Completed transaction ${item.transactionId} before finalizing dedication`);
+        } else if (transaction && transaction.status === 'completed') {
+          console.log(`[UploadDedicationVideo] Transaction ${item.transactionId} is already completed`);
+        } else {
+          console.log(`[UploadDedicationVideo] Transaction ${item.transactionId} has status ${transaction?.status || 'unknown'}, skipping completion`);
+        }
       } catch (transactionError) {
         console.error('[UploadDedicationVideo] Failed to complete transaction before finalizing dedication:', transactionError);
         // Continue; reconciliation can be handled later
@@ -558,7 +637,7 @@ export const uploadDedicationVideo = async (req, res) => {
     // Move escrow to jackpot for the star after completion
     try {
       await moveEscrowToJackpot(item.starId, null, item._id);
-      console.log(`[UploadDedicationVideo] Moved escrow to jackpot for star ${item.starId}`);
+      console.log(`[UploadDedicationVideo] Moved escrow to jackpot for star ${item.starId}, dedication ${item._id}`);
     } catch (walletError) {
       console.error(`[UploadDedicationVideo] Failed to move escrow to jackpot:`, walletError);
       // Continue with dedication completion even if wallet update fails
@@ -614,16 +693,31 @@ export const completeDedicationByFan = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Video not uploaded yet' });
     }
 
-    // Complete the transaction and transfer coins to star
+    // Complete the transaction and transfer coins to star (if not already completed)
     if (item.transactionId) {
       try {
-        await completeTransaction(item.transactionId);
+        const transaction = await Transaction.findById(item.transactionId);
+        if (transaction && transaction.status === 'pending') {
+          await completeTransaction(item.transactionId);
+          console.log(`[CompleteDedicationByFan] Completed transaction ${item.transactionId}`);
+        } else if (transaction && transaction.status === 'completed') {
+          console.log(`[CompleteDedicationByFan] Transaction ${item.transactionId} is already completed`);
+        } else {
+          console.log(`[CompleteDedicationByFan] Transaction ${item.transactionId} has status ${transaction?.status || 'unknown'}, cannot complete`);
+        }
       } catch (transactionError) {
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to complete transaction: ' + transactionError.message
-        });
+        console.error('[CompleteDedicationByFan] Error processing transaction:', transactionError);
+        // Continue - escrow should already be there if transaction was completed earlier
       }
+    }
+
+    // Move escrow to jackpot for the star after completion
+    try {
+      await moveEscrowToJackpot(item.starId, null, item._id);
+      console.log(`[CompleteDedicationByFan] Moved escrow to jackpot for star ${item.starId}, dedication ${item._id}`);
+    } catch (walletError) {
+      console.error(`[CompleteDedicationByFan] Failed to move escrow to jackpot:`, walletError);
+      // Continue with dedication completion even if wallet update fails
     }
 
     item.status = 'completed';
