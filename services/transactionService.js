@@ -314,6 +314,24 @@ const completeTransactionInternal = async (transactionId, session) => {
         },
         session
       );
+      
+      // For coin-only payments, update appointment or dedication paymentStatus to 'completed'
+      if (appointment && transaction.paymentMode === PAYMENT_MODES.COIN) {
+        await Appointment.findByIdAndUpdate(
+          appointment._id,
+          { $set: { paymentStatus: 'completed' } },
+          { session }
+        );
+        console.log(`[CompleteTransaction] Updated appointment ${appointment._id} paymentStatus to 'completed' for coin payment`);
+      }
+      if (dedicationRequest && transaction.paymentMode === PAYMENT_MODES.COIN) {
+        await DedicationRequest.findByIdAndUpdate(
+          dedicationRequest._id,
+          { $set: { paymentStatus: 'completed' } },
+          { session }
+        );
+        console.log(`[CompleteTransaction] Updated dedication request ${dedicationRequest._id} paymentStatus to 'completed' for coin payment`);
+      }
     } catch (escrowError) {
       console.error('Error adding to escrow, falling back to coin balance:', escrowError);
       // Fallback to old behavior if escrow fails

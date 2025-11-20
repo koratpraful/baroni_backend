@@ -136,15 +136,34 @@ class NotificationHelper {
 
     // Fan message
     const fanTemplate = {
-      ...baseTemplate,
-      ...(type === 'APPOINTMENT_CREATED' ? { body: `Your appointment request has been sent to ${starName}.` } : {})
+      ...baseTemplate
     };
+    if (type === 'APPOINTMENT_CREATED') {
+      // For fan, use different message
+      fanTemplate.title = {
+        en: 'Request Submitted',
+        fr: 'Demande soumise'
+      };
+      fanTemplate.body = {
+        en: "Your request is now on star's side for validation. please wait.",
+        fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+      };
+    }
 
     // Star message
     const starTemplate = {
-      ...baseTemplate,
-      ...(type === 'APPOINTMENT_CREATED' ? { title: 'New Appointment Request', body: `You have a new appointment request from ${fanName}.` } : {})
+      ...baseTemplate
     };
+    if (type === 'APPOINTMENT_CREATED') {
+      starTemplate.title = {
+        en: 'New Appointment Request',
+        fr: 'Nouvelle demande de rendez-vous'
+      };
+      starTemplate.body = {
+        en: `You have a new appointment request from ${fanName}.`,
+        fr: `Vous avez une nouvelle demande de rendez-vous de ${fanName}.`
+      };
+    }
 
     // For APPOINTMENT_REMINDER, send to both star and fan regardless of currentUserId
     // For other types, send to star if star is not the current user
@@ -172,24 +191,48 @@ class NotificationHelper {
         if (type === 'APPOINTMENT_REMINDER') {
           const minutesUntil = additionalData.minutesUntil || 10;
           if (additionalData.isStartTime || additionalData.isStartingNow) {
-            starNote.title = 'Appointment Starting Now';
-            starNote.body = `Your appointment with ${fanName} is starting now! Please join.`;
-            console.log(`[AppointmentNotification] Sending START notification to star ${starId} (${fanName}): "${starNote.body}"`);
+            starNote.title = {
+              en: 'Appointment Starting Now',
+              fr: 'Le rendez-vous commence maintenant'
+            };
+            starNote.body = {
+              en: `Your appointment with ${fanName} is starting now! Please join.`,
+              fr: `Votre rendez-vous avec ${fanName} commence maintenant ! Veuillez rejoindre.`
+            };
+            console.log(`[AppointmentNotification] Sending START notification to star ${starId} (${fanName})`);
           } else {
-            starNote.title = 'Appointment Reminder';
-            starNote.body = `Your appointment with ${fanName} starts in ${minutesUntil} minutes.`;
-            console.log(`[AppointmentNotification] Sending reminder to star ${starId} (${fanName}): "${starNote.body}"`);
+            starNote.title = {
+              en: 'Appointment Reminder',
+              fr: 'Rappel de rendez-vous'
+            };
+            starNote.body = {
+              en: `Your appointment with ${fanName} starts in ${minutesUntil} minutes.`,
+              fr: `Votre rendez-vous avec ${fanName} commence dans ${minutesUntil} minutes.`
+            };
+            console.log(`[AppointmentNotification] Sending reminder to star ${starId} (${fanName})`);
           }
         } else if (type === 'APPOINTMENT_CANCELLED' && String(currentUserId) === String(fanId)) {
-          starNote.title = 'Appointment Cancelled';
-          starNote.body = `${fanName} has cancelled the appointment.`;
+          starNote.title = {
+            en: 'Appointment Cancelled',
+            fr: 'Rendez-vous annulé'
+          };
+          starNote.body = {
+            en: `${fanName} has cancelled the appointment.`,
+            fr: `${fanName} a annulé le rendez-vous.`
+          };
         } else if (type === 'APPOINTMENT_RESCHEDULED') {
           // Get new appointment details for reschedule notification
           const newDate = appointment.date || '';
           const newTime = appointment.time || '';
-          starNote.title = 'Appointment Rescheduled';
-          starNote.body = `${fanName} has rescheduled the appointment${newDate || newTime ? ` to ${newDate} ${newTime}` : ''}.`;
-          console.log(`[AppointmentNotification] Sending reschedule notification to star ${starId} (${fanName}): "${starNote.body}"`);
+          starNote.title = {
+            en: 'Appointment Rescheduled',
+            fr: 'Rendez-vous reprogrammé'
+          };
+          starNote.body = {
+            en: `${fanName} has rescheduled the appointment${newDate || newTime ? ` to ${newDate} ${newTime}` : ''}.`,
+            fr: `${fanName} a reprogrammé le rendez-vous${newDate || newTime ? ` au ${newDate} ${newTime}` : ''}.`
+          };
+          console.log(`[AppointmentNotification] Sending reschedule notification to star ${starId} (${fanName})`);
         }
         
         try {
@@ -239,13 +282,25 @@ class NotificationHelper {
       } else {
         // Customize fan template based on action type
         if (type === 'APPOINTMENT_APPROVED' || type === 'APPOINTMENT_ACCEPTED') {
-          fanTemplate.title = 'Appointment Approved';
-          fanTemplate.body = `${starName} has approved your appointment request.`;
+          fanTemplate.title = {
+            en: 'Appointment Approved',
+            fr: 'Rendez-vous approuvé'
+          };
+          fanTemplate.body = {
+            en: `${starName} has approved your appointment request.`,
+            fr: `${starName} a approuvé votre demande de rendez-vous.`
+          };
           // Set isMessage to true when appointment is accepted
           data.isMessage = true;
         } else if (type === 'APPOINTMENT_REJECTED') {
-          fanTemplate.title = 'Appointment Rejected';
-          fanTemplate.body = `${starName} has rejected your appointment request.`;
+          fanTemplate.title = {
+            en: 'Appointment Rejected',
+            fr: 'Rendez-vous rejeté'
+          };
+          fanTemplate.body = {
+            en: `${starName} has rejected your appointment request.`,
+            fr: `${starName} a rejeté votre demande de rendez-vous.`
+          };
           // For iOS devices, we need to send special payload to cut/reject the call
           // This will be handled in notificationService based on deviceType
           // Only set isRejectCall for iOS to cut the call, not for Android
@@ -253,29 +308,53 @@ class NotificationHelper {
           data.isRejectCall = true; // Flag to indicate this is a call rejection (for iOS only)
           data.isAppointmentReject = true; // Flag to prevent VoIP call notification on Android
         } else if (type === 'APPOINTMENT_CANCELLED') {
-          fanTemplate.title = 'Appointment Cancelled';
+          fanTemplate.title = {
+            en: 'Appointment Cancelled',
+            fr: 'Rendez-vous annulé'
+          };
           // Notify fan only when cancelled by star
           if (String(currentUserId) === String(starId)) {
-            fanTemplate.body = `${starName} has cancelled your appointment.`;
+            fanTemplate.body = {
+              en: `${starName} has cancelled your appointment.`,
+              fr: `${starName} a annulé votre rendez-vous.`
+            };
           } else {
             // If fan cancelled themselves, don't notify the fan
             return;
           }
         } else if (type === 'APPOINTMENT_COMPLETED') {
-          fanTemplate.title = 'Appointment Completed';
-          fanTemplate.body = `Your appointment with ${starName} has been completed.`;
+          fanTemplate.title = {
+            en: 'Appointment Completed',
+            fr: 'Rendez-vous terminé'
+          };
+          fanTemplate.body = {
+            en: `Your appointment with ${starName} has been completed.`,
+            fr: `Votre rendez-vous avec ${starName} a été terminé.`
+          };
           // Set isMessage to false when appointment is completed
           data.isMessage = false;
         } else if (type === 'APPOINTMENT_REMINDER') {
           const minutesUntil = additionalData.minutesUntil || 10;
           if (additionalData.isStartTime || additionalData.isStartingNow) {
-            fanTemplate.title = 'Appointment Starting Now';
-            fanTemplate.body = `Your appointment with ${starName} is starting now! Please join.`;
-            console.log(`[AppointmentNotification] Sending START notification to fan ${fanId} (${starName}): "${fanTemplate.body}"`);
+            fanTemplate.title = {
+              en: 'Appointment Starting Now',
+              fr: 'Le rendez-vous commence maintenant'
+            };
+            fanTemplate.body = {
+              en: `Your appointment with ${starName} is starting now! Please join.`,
+              fr: `Votre rendez-vous avec ${starName} commence maintenant ! Veuillez rejoindre.`
+            };
+            console.log(`[AppointmentNotification] Sending START notification to fan ${fanId} (${starName})`);
           } else {
-            fanTemplate.title = 'Appointment Reminder';
-            fanTemplate.body = `Your appointment with ${starName} starts in ${minutesUntil} minutes.`;
-            console.log(`[AppointmentNotification] Sending reminder to fan ${fanId} (${starName}): "${fanTemplate.body}"`);
+            fanTemplate.title = {
+              en: 'Appointment Reminder',
+              fr: 'Rappel de rendez-vous'
+            };
+            fanTemplate.body = {
+              en: `Your appointment with ${starName} starts in ${minutesUntil} minutes.`,
+              fr: `Votre rendez-vous avec ${starName} commence dans ${minutesUntil} minutes.`
+            };
+            console.log(`[AppointmentNotification] Sending reminder to fan ${fanId} (${starName})`);
           }
         }
         
@@ -403,27 +482,51 @@ class NotificationHelper {
       const showTitle = meta.showTitle ? `"${meta.showTitle}"` : 'Live Show';
       template = {
         ...baseTemplate,
-        title: 'Live Show booked',
-        body: `You booked ${showTitle}${amountStr ? ` • ${amountStr} ${currency}` : ''}.`
+        title: {
+          en: 'Live Show booked',
+          fr: 'Émission en direct réservée'
+        },
+        body: {
+          en: `You booked ${showTitle}${amountStr ? ` • ${amountStr} ${currency}` : ''}.`,
+          fr: `Vous avez réservé ${showTitle}${amountStr ? ` • ${amountStr} ${currency}` : ''}.`
+        }
       };
     } else if (tType === 'live_show_hosting_payment') {
       const showTitle = meta.showTitle ? `"${meta.showTitle}"` : 'your Live Show';
       template = {
         ...baseTemplate,
-        title: 'Hosting fee paid',
-        body: `Your hosting fee for ${showTitle} was paid${amountStr ? ` • ${amountStr} ${currency}` : ''}.`
+        title: {
+          en: 'Hosting fee paid',
+          fr: 'Frais d\'hébergement payés'
+        },
+        body: {
+          en: `Your hosting fee for ${showTitle} was paid${amountStr ? ` • ${amountStr} ${currency}` : ''}.`,
+          fr: `Vos frais d'hébergement pour ${showTitle} ont été payés${amountStr ? ` • ${amountStr} ${currency}` : ''}.`
+        }
       };
     } else if (type === 'PAYMENT_SUCCESS') {
       template = {
         ...baseTemplate,
-        title: 'Payment successful',
-        body: `Payment completed${amountStr ? ` • ${amountStr} ${currency}` : ''}.`
+        title: {
+          en: 'Payment successful',
+          fr: 'Paiement réussi'
+        },
+        body: {
+          en: `Payment completed${amountStr ? ` • ${amountStr} ${currency}` : ''}.`,
+          fr: `Paiement terminé${amountStr ? ` • ${amountStr} ${currency}` : ''}.`
+        }
       };
     } else if (type === 'PAYMENT_FAILED') {
       template = {
         ...baseTemplate,
-        title: 'Payment failed',
-        body: 'Your payment could not be processed. Please try again.'
+        title: {
+          en: 'Payment failed',
+          fr: 'Échec du paiement'
+        },
+        body: {
+          en: 'Your payment could not be processed. Please try again.',
+          fr: 'Votre paiement n\'a pas pu être traité. Veuillez réessayer.'
+        }
       };
     }
 
@@ -475,8 +578,17 @@ class NotificationHelper {
                           reviewType === 'live_show' ? 'live show' : 'service';
 
     // Build personalized notification message
-    const notificationTitle = 'New Review Received';
-    const notificationBody = `${fanName} has left you a ${rating.rating}-star review for your ${reviewTypeText}${rating.comment ? ' with a comment' : ''}.`;
+    const notificationTitle = {
+      en: 'New Review Received',
+      fr: 'Nouvelle note reçue'
+    };
+    const reviewTypeTextFr = reviewType === 'appointment' ? 'rendez-vous' : 
+                              reviewType === 'dedication' ? 'dédicace' : 
+                              reviewType === 'live_show' ? 'émission en direct' : 'service';
+    const notificationBody = {
+      en: `${fanName} has left you a ${rating.rating}-star review for your ${reviewTypeText}${rating.comment ? ' with a comment' : ''}.`,
+      fr: `${fanName} vous a laissé une note de ${rating.rating} étoiles pour votre ${reviewTypeTextFr}${rating.comment ? ' avec un commentaire' : ''}.`
+    };
 
     const data = {
       type: template.type,
@@ -669,7 +781,10 @@ class NotificationHelper {
     if (type === 'DEDICATION_ACCEPTED') {
       const customTemplate = {
         ...template,
-        body: `Your dedication Request was accepted by ${starName}`
+        body: {
+          en: `Your dedication Request was accepted by ${starName}`,
+          fr: `Votre demande de dédicace a été acceptée par ${starName}`
+        }
       };
       // Set isMessage to true when dedication is accepted
       data.isMessage = true;
@@ -702,8 +817,14 @@ class NotificationHelper {
       if (dedication.fanId && String(dedication.fanId) !== String(currentUserId)) {
         const completionTemplate = {
           ...template,
-          title: 'Dedication Completed',
-          body: `Your dedication request has been completed by ${starName}`
+          title: {
+            en: 'Dedication Completed',
+            fr: 'Dédicace terminée'
+          },
+          body: {
+            en: `Your dedication request has been completed by ${starName}`,
+            fr: `Votre demande de dédicace a été terminée par ${starName}`
+          }
         };
         
         await notificationService.sendToUser(dedication.fanId, completionTemplate, data, {
@@ -727,13 +848,33 @@ class NotificationHelper {
       const notifyStar = dedication.starId && String(currentUserId) === String(dedication.fanId);
 
       if (notifyFan && String(dedication.fanId) !== String(currentUserId)) {
-        const custom = { ...template, title: 'Dedication Cancelled', body: 'Your dedication request was cancelled by the star.' };
+        const custom = {
+          ...template,
+          title: {
+            en: 'Dedication Cancelled',
+            fr: 'Dédicace annulée'
+          },
+          body: {
+            en: 'Your dedication request was cancelled by the star.',
+            fr: 'Votre demande de dédicace a été annulée par la star.'
+          }
+        };
         await notificationService.sendToUser(dedication.fanId, custom, data, {
           relatedEntity: { type: 'dedication', id: dedication._id }
         });
       }
       if (notifyStar && String(dedication.starId) !== String(currentUserId)) {
-        const custom = { ...template, title: 'Dedication Cancelled', body: 'The fan cancelled their dedication request.' };
+        const custom = {
+          ...template,
+          title: {
+            en: 'Dedication Cancelled',
+            fr: 'Dédicace annulée'
+          },
+          body: {
+            en: 'The fan cancelled their dedication request.',
+            fr: 'Le fan a annulé sa demande de dédicace.'
+          }
+        };
         await notificationService.sendToUser(dedication.starId, custom, data, {
           relatedEntity: { type: 'dedication', id: dedication._id }
         });
@@ -742,7 +883,10 @@ class NotificationHelper {
       // Notify fan about video upload
       const customTemplate = {
         ...template,
-        body: `Your dedication video was uploaded by ${starName}.`
+        body: {
+          en: `Your dedication video was uploaded by ${starName}.`,
+          fr: `Votre vidéo de dédicace a été téléchargée par ${starName}.`
+        }
       };
       if (dedication.fanId && String(dedication.fanId) !== String(currentUserId)) {
         console.log('[DedicationNotification] send to fan (video_uploaded)', {
@@ -792,16 +936,26 @@ class NotificationHelper {
     // Determine notification body
     let notificationBody;
     if (isImage) {
-      notificationBody = 'Sent an image';
+      notificationBody = {
+        en: 'Sent an image',
+        fr: 'A envoyé une image'
+      };
     } else if (messageText) {
+      // For text messages, use the actual message text (same for both languages)
       notificationBody = messageText;
     } else {
-      notificationBody = 'Sent a message';
+      notificationBody = {
+        en: 'Sent a message',
+        fr: 'A envoyé un message'
+      };
     }
 
     const template = {
       ...baseTemplate,
-      title: `New message from ${senderName}`,
+      title: {
+        en: `New message from ${senderName}`,
+        fr: `Nouveau message de ${senderName}`
+      },
       body: notificationBody
     };
 

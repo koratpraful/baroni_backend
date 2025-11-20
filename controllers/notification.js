@@ -466,23 +466,59 @@ export const sendNotificationToLiveShowAttendees = async (req, res) => {
     let title, body;
     
     if (liveShow.status === 'cancelled') {
-      title = 'Live Show Cancelled';
-      body = `"${liveShow.sessionTitle}" by ${liveShow.starId.name} has been cancelled.`;
+      title = {
+        en: 'Live Show Cancelled',
+        fr: 'Émission en direct annulée'
+      };
+      body = {
+        en: `"${liveShow.sessionTitle}" by ${liveShow.starId.name} has been cancelled.`,
+        fr: `"${liveShow.sessionTitle}" de ${liveShow.starId.name} a été annulée.`
+      };
     } else if (liveShow.status === 'completed') {
-      title = 'Live Show Completed';
-      body = `"${liveShow.sessionTitle}" by ${liveShow.starId.name} has ended. Thank you for joining!`;
+      title = {
+        en: 'Live Show Completed',
+        fr: 'Émission en direct terminée'
+      };
+      body = {
+        en: `"${liveShow.sessionTitle}" by ${liveShow.starId.name} has ended. Thank you for joining!`,
+        fr: `"${liveShow.sessionTitle}" de ${liveShow.starId.name} est terminée. Merci d'avoir participé !`
+      };
     } else if (hoursUntilShow <= 0 && minutesUntilShow <= 0) {
-      title = 'Live Show Starting Now!';
-      body = `"${liveShow.sessionTitle}" by ${liveShow.starId.name} is starting right now! Join now!`;
+      title = {
+        en: 'Live Show Starting Now!',
+        fr: 'Émission en direct qui commence maintenant !'
+      };
+      body = {
+        en: `"${liveShow.sessionTitle}" by ${liveShow.starId.name} is starting right now! Join now!`,
+        fr: `"${liveShow.sessionTitle}" de ${liveShow.starId.name} commence maintenant ! Rejoignez maintenant !`
+      };
     } else if (hoursUntilShow < 1) {
-      title = 'Live Show Starting Soon!';
-      body = `"${liveShow.sessionTitle}" by ${liveShow.starId.name} starts in ${minutesUntilShow} minutes!`;
+      title = {
+        en: 'Live Show Starting Soon!',
+        fr: 'Émission en direct qui commence bientôt !'
+      };
+      body = {
+        en: `"${liveShow.sessionTitle}" by ${liveShow.starId.name} starts in ${minutesUntilShow} minutes!`,
+        fr: `"${liveShow.sessionTitle}" de ${liveShow.starId.name} commence dans ${minutesUntilShow} minutes !`
+      };
     } else if (hoursUntilShow < 24) {
-      title = 'Live Show Reminder';
-      body = `"${liveShow.sessionTitle}" by ${liveShow.starId.name} starts in ${hoursUntilShow} hours!`;
+      title = {
+        en: 'Live Show Reminder',
+        fr: 'Rappel d\'émission en direct'
+      };
+      body = {
+        en: `"${liveShow.sessionTitle}" by ${liveShow.starId.name} starts in ${hoursUntilShow} hours!`,
+        fr: `"${liveShow.sessionTitle}" de ${liveShow.starId.name} commence dans ${hoursUntilShow} heures !`
+      };
     } else {
-      title = 'Live Show Update';
-      body = `Update about "${liveShow.sessionTitle}" by ${liveShow.starId.name}`;
+      title = {
+        en: 'Live Show Update',
+        fr: 'Mise à jour de l\'émission en direct'
+      };
+      body = {
+        en: `Update about "${liveShow.sessionTitle}" by ${liveShow.starId.name}`,
+        fr: `Mise à jour concernant "${liveShow.sessionTitle}" de ${liveShow.starId.name}`
+      };
     }
 
     // Prepare live show data for frontend

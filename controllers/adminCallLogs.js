@@ -736,6 +736,7 @@ export const updateCallLogStatus = async (req, res) => {
       // Convert minutes to seconds for storage
       appointment.callDuration = actualDuration * 60;
       appointment.completedAt = new Date();
+      appointment.is_appointment_pending = true; // Set to true when completed - fan hasn't given review yet
     } else if (status === 'missed') {
       appointment.status = 'cancelled';
     }

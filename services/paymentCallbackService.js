@@ -524,6 +524,36 @@ const sendAppointmentNotificationAfterPayment = async (transaction, session) => 
           await NotificationHelper.sendAppointmentNotification('APPOINTMENT_CREATED', appointment, { 
             currentUserId: appointment.fanId 
           });
+          
+          // Send notification to fan that request is now on star's side for validation
+          try {
+            const { default: notificationService } = await import('../services/notificationService.js');
+            const fanNotificationTemplate = {
+              title: {
+                en: 'Request Submitted',
+                fr: 'Demande soumise'
+              },
+              body: {
+                en: "Your request is now on star's side for validation. please wait.",
+                fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+              }
+            };
+            const fanNotificationData = {
+              type: 'appointment_payment_completed',
+              appointmentId: appointment._id.toString(),
+              starId: appointment.starId?.toString?.() || String(appointment.starId || ''),
+              fanId: appointment.fanId?.toString?.() || String(appointment.fanId || ''),
+              navigateTo: 'appointment',
+              eventType: 'APPOINTMENT_PAYMENT_COMPLETED'
+            };
+            await notificationService.sendToUser(appointment.fanId, fanNotificationTemplate, fanNotificationData, {
+              relatedEntity: { type: 'appointment', id: appointment._id }
+            });
+            console.log(`[PaymentCallback] ✓ Fan notification sent - request is on star's side for validation`);
+          } catch (fanNotificationError) {
+            console.error('[PaymentCallback] Error sending fan notification:', fanNotificationError);
+            // Don't fail the payment callback if fan notification fails
+          }
         } else if (isRecentlyCreatedCoinOnly) {
           console.log(`[PaymentCallback] Skipping notification - coin-only payment already processed (created ${appointmentAge}ms ago, paymentStatus: ${appointment.paymentStatus}) - transaction ${transaction._id}, appointment ${appointment._id}`);
         } else {
@@ -564,6 +594,36 @@ const sendDedicationRequestNotificationAfterPayment = async (transaction, sessio
           await NotificationHelper.sendDedicationNotification('DEDICATION_REQUEST_CREATED', dedicationRequest, { 
             currentUserId: dedicationRequest.fanId 
           });
+          
+          // Send notification to fan that request is now on star's side for validation
+          try {
+            const { default: notificationService } = await import('../services/notificationService.js');
+            const fanNotificationTemplate = {
+              title: {
+                en: 'Request Submitted',
+                fr: 'Demande soumise'
+              },
+              body: {
+                en: "Your request is now on star's side for validation. please wait.",
+                fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+              }
+            };
+            const fanNotificationData = {
+              type: 'dedication_payment_completed',
+              dedicationId: dedicationRequest._id.toString(),
+              starId: dedicationRequest.starId?.toString?.() || String(dedicationRequest.starId || ''),
+              fanId: dedicationRequest.fanId?.toString?.() || String(dedicationRequest.fanId || ''),
+              navigateTo: 'dedication',
+              eventType: 'DEDICATION_PAYMENT_COMPLETED'
+            };
+            await notificationService.sendToUser(dedicationRequest.fanId, fanNotificationTemplate, fanNotificationData, {
+              relatedEntity: { type: 'dedication', id: dedicationRequest._id }
+            });
+            console.log(`[PaymentCallback] ✓ Fan notification sent for dedication - request is on star's side for validation`);
+          } catch (fanNotificationError) {
+            console.error('[PaymentCallback] Error sending fan notification for dedication:', fanNotificationError);
+            // Don't fail the payment callback if fan notification fails
+          }
         } else {
           console.log(`[PaymentCallback] Skipping notification for coin-only payment - transaction ${transaction._id}, dedicationRequest ${dedicationRequest._id}`);
         }

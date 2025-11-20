@@ -345,10 +345,11 @@ class NotificationService {
       };
     }
 
-    // Fetch user name to include in notification data
+    // Fetch user name and preferred language to include in notification data
     let userName = 'User';
+    let userLanguage = 'en'; // Default to English
     try {
-      const user = await User.findById(userId).select('name pseudo');
+      const user = await User.findById(userId).select('name pseudo preferredLanguage');
       if (!user) {
         const errorMsg = `User not found with id: ${userId}`;
         console.error(`[NOTIFICATION ERROR] ${errorMsg}`);
@@ -359,6 +360,15 @@ class NotificationService {
         };
       }
       userName = user?.name || user?.pseudo || userName;
+      // Map preferredLanguage from user collection to notification language code
+      // User collection has "French" or "English", we need to map to 'fr' or 'en'
+      const preferredLang = (user?.preferredLanguage || 'English').trim();
+      if (preferredLang.toLowerCase() === 'french') {
+        userLanguage = 'fr';
+      } else {
+        // Default to English for "English" or any other value
+        userLanguage = 'en';
+      }
     } catch (error) {
       console.error(`[NOTIFICATION ERROR] Error fetching user ${userId}:`, error);
       return {
@@ -366,6 +376,14 @@ class NotificationService {
         error: error.message || 'Error fetching user',
         message: error.message || 'Error fetching user'
       };
+    }
+    
+    // Select language-specific notification content if available
+    if (notificationData.title && typeof notificationData.title === 'object' && (notificationData.title.en || notificationData.title.fr)) {
+      notificationData.title = notificationData.title[userLanguage] || notificationData.title.en || notificationData.title;
+    }
+    if (notificationData.body && typeof notificationData.body === 'object' && (notificationData.body.en || notificationData.body.fr)) {
+      notificationData.body = notificationData.body[userLanguage] || notificationData.body.en || notificationData.body;
     }
 
     // Add user name to notification data
@@ -1954,154 +1972,335 @@ class NotificationService {
   }
 
   // Notification templates for different types
+  // Each template has both English (en) and French (fr) strings
   static getNotificationTemplates() {
     return {
       // Appointment notifications
       APPOINTMENT_CREATED: {
-        title: 'New Appointment Request',
-        body: 'You have a new appointment request waiting for your response.',
+        title: {
+          en: 'New Appointment Request',
+          fr: 'Nouvelle demande de rendez-vous'
+        },
+        body: {
+          en: 'You have a new appointment request waiting for your response.',
+          fr: 'Vous avez une nouvelle demande de rendez-vous en attente de votre réponse.'
+        },
         type: 'appointment'
       },
       APPOINTMENT_ACCEPTED: {
-        title: 'Appointment Accepted',
-        body: 'Your appointment request has been accepted!',
+        title: {
+          en: 'Appointment Accepted',
+          fr: 'Rendez-vous accepté'
+        },
+        body: {
+          en: 'Your appointment request has been accepted!',
+          fr: 'Votre demande de rendez-vous a été acceptée !'
+        },
         type: 'appointment'
       },
       APPOINTMENT_REJECTED: {
-        title: 'Appointment Rejected',
-        body: 'Your appointment request has been rejected.',
+        title: {
+          en: 'Appointment Rejected',
+          fr: 'Rendez-vous rejeté'
+        },
+        body: {
+          en: 'Your appointment request has been rejected.',
+          fr: 'Votre demande de rendez-vous a été rejetée.'
+        },
         type: 'appointment'
       },
       APPOINTMENT_CANCELLED: {
-        title: 'Appointment Cancelled',
-        body: 'An appointment has been cancelled.',
+        title: {
+          en: 'Appointment Cancelled',
+          fr: 'Rendez-vous annulé'
+        },
+        body: {
+          en: 'An appointment has been cancelled.',
+          fr: 'Un rendez-vous a été annulé.'
+        },
         type: 'appointment'
       },
       APPOINTMENT_RESCHEDULED: {
-        title: 'Appointment Rescheduled',
-        body: 'An appointment has been rescheduled.',
+        title: {
+          en: 'Appointment Rescheduled',
+          fr: 'Rendez-vous reprogrammé'
+        },
+        body: {
+          en: 'An appointment has been rescheduled.',
+          fr: 'Un rendez-vous a été reprogrammé.'
+        },
         type: 'appointment'
       },
       APPOINTMENT_REMINDER: {
-        title: 'Appointment Reminder',
-        body: 'Your appointment is starting soon. Please be ready!',
+        title: {
+          en: 'Appointment Reminder',
+          fr: 'Rappel de rendez-vous'
+        },
+        body: {
+          en: 'Your appointment is starting soon. Please be ready!',
+          fr: 'Votre rendez-vous commence bientôt. Veuillez être prêt !'
+        },
         type: 'appointment'
       },
       VIDEO_CALL_REMINDER: {
-        title: 'Video Call Reminder',
-        body: 'Your video call begins in 10 minutes. Please check your network and be ready to join.',
+        title: {
+          en: 'Video Call Reminder',
+          fr: 'Rappel d\'appel vidéo'
+        },
+        body: {
+          en: 'Your video call begins in 10 minutes. Please check your network and be ready to join.',
+          fr: 'Votre appel vidéo commence dans 10 minutes. Veuillez vérifier votre réseau et être prêt à rejoindre.'
+        },
         type: 'appointment'
       },
 
       // Payment notifications
       PAYMENT_SUCCESS: {
-        title: 'Payment Successful',
-        body: 'Your payment has been processed successfully.',
+        title: {
+          en: 'Payment Successful',
+          fr: 'Paiement réussi'
+        },
+        body: {
+          en: 'Your payment has been processed successfully.',
+          fr: 'Votre paiement a été traité avec succès.'
+        },
         type: 'payment'
       },
       PAYMENT_FAILED: {
-        title: 'Payment Failed',
-        body: 'Your payment could not be processed. Please try again.',
+        title: {
+          en: 'Payment Failed',
+          fr: 'Échec du paiement'
+        },
+        body: {
+          en: 'Your payment could not be processed. Please try again.',
+          fr: 'Votre paiement n\'a pas pu être traité. Veuillez réessayer.'
+        },
         type: 'payment'
       },
       COINS_RECEIVED: {
-        title: 'Coins Received',
-        body: 'You have received coins from your live show!',
+        title: {
+          en: 'Coins Received',
+          fr: 'Pièces reçues'
+        },
+        body: {
+          en: 'You have received coins from your live show!',
+          fr: 'Vous avez reçu des pièces de votre émission en direct !'
+        },
         type: 'payment'
       },
 
       // Rating notifications
       NEW_RATING: {
-        title: 'New Rating Received',
-        body: 'You have received a new rating from a fan.',
+        title: {
+          en: 'New Rating Received',
+          fr: 'Nouvelle note reçue'
+        },
+        body: {
+          en: 'You have received a new rating from a fan.',
+          fr: 'Vous avez reçu une nouvelle note d\'un fan.'
+        },
         type: 'rating'
       },
       RATING_THANKS: {
-        title: 'Thanks for Rating!',
-        body: 'Thanks for rating your last call!',
+        title: {
+          en: 'Thanks for Rating!',
+          fr: 'Merci pour votre note !'
+        },
+        body: {
+          en: 'Thanks for rating your last call!',
+          fr: 'Merci d\'avoir noté votre dernier appel !'
+        },
         type: 'rating'
       },
 
       // Live Show notifications
       LIVE_SHOW_CREATED: {
-        title: 'New Live Show',
-        body: 'A new live show has been created by your favorite star!',
+        title: {
+          en: 'New Live Show',
+          fr: 'Nouvelle émission en direct'
+        },
+        body: {
+          en: 'A new live show has been created by your favorite star!',
+          fr: 'Une nouvelle émission en direct a été créée par votre star préférée !'
+        },
         type: 'live_show'
       },
       LIVE_SHOW_STARTING: {
-        title: 'Live Show Starting',
-        body: 'A live show you joined is starting soon!',
+        title: {
+          en: 'Live Show Starting',
+          fr: 'Émission en direct qui commence'
+        },
+        body: {
+          en: 'A live show you joined is starting soon!',
+          fr: 'Une émission en direct à laquelle vous avez participé commence bientôt !'
+        },
         type: 'live_show'
       },
       LIVE_SHOW_CANCELLED: {
-        title: 'Live Show Cancelled',
-        body: 'A live show has been cancelled.',
+        title: {
+          en: 'Live Show Cancelled',
+          fr: 'Émission en direct annulée'
+        },
+        body: {
+          en: 'A live show has been cancelled.',
+          fr: 'Une émission en direct a été annulée.'
+        },
         type: 'live_show'
       },
       LIVE_SHOW_RESCHEDULED: {
-        title: 'Live Show Rescheduled',
-        body: 'A live show has been rescheduled.',
+        title: {
+          en: 'Live Show Rescheduled',
+          fr: 'Émission en direct reprogrammée'
+        },
+        body: {
+          en: 'A live show has been rescheduled.',
+          fr: 'Une émission en direct a été reprogrammée.'
+        },
         type: 'live_show'
       },
 
       // Dedication notifications
       DEDICATION_REQUEST: {
-        title: 'New Dedication Request',
-        body: 'You have a new dedication request.',
+        title: {
+          en: 'New Dedication Request',
+          fr: 'Nouvelle demande de dédicace'
+        },
+        body: {
+          en: 'You have a new dedication request.',
+          fr: 'Vous avez une nouvelle demande de dédicace.'
+        },
         type: 'dedication'
       },
       DEDICATION_REQUEST_CREATED: {
-        title: 'New Dedication Request',
-        body: 'You have a new dedication request.',
+        title: {
+          en: 'New Dedication Request',
+          fr: 'Nouvelle demande de dédicace'
+        },
+        body: {
+          en: 'You have a new dedication request.',
+          fr: 'Vous avez une nouvelle demande de dédicace.'
+        },
         type: 'dedication'
       },
       DEDICATION_ACCEPTED: {
-        title: 'Dedication Request Accepted',
-        body: 'Your dedication request was accepted!',
+        title: {
+          en: 'Dedication Request Accepted',
+          fr: 'Demande de dédicace acceptée'
+        },
+        body: {
+          en: 'Your dedication request was accepted!',
+          fr: 'Votre demande de dédicace a été acceptée !'
+        },
         type: 'dedication'
       },
       DEDICATION_REJECTED: {
-        title: 'Dedication Request Rejected',
-        body: 'Your dedication request was rejected.',
+        title: {
+          en: 'Dedication Request Rejected',
+          fr: 'Demande de dédicace rejetée'
+        },
+        body: {
+          en: 'Your dedication request was rejected.',
+          fr: 'Votre demande de dédicace a été rejetée.'
+        },
         type: 'dedication'
       },
       DEDICATION_CANCELLED: {
-        title: 'Dedication Cancelled',
-        body: 'A dedication request has been cancelled.',
+        title: {
+          en: 'Dedication Cancelled',
+          fr: 'Dédicace annulée'
+        },
+        body: {
+          en: 'A dedication request has been cancelled.',
+          fr: 'Une demande de dédicace a été annulée.'
+        },
         type: 'dedication'
       },
       DEDICATION_VIDEO_UPLOADED: {
-        title: 'Dedication Video Uploaded',
-        body: 'Your dedication video has been uploaded.',
+        title: {
+          en: 'Dedication Video Uploaded',
+          fr: 'Vidéo de dédicace téléchargée'
+        },
+        body: {
+          en: 'Your dedication video has been uploaded.',
+          fr: 'Votre vidéo de dédicace a été téléchargée.'
+        },
         type: 'dedication'
       },
 
       // Message notifications
       NEW_MESSAGE: {
-        title: 'New Message',
-        body: 'You have received a new message.',
+        title: {
+          en: 'New Message',
+          fr: 'Nouveau message'
+        },
+        body: {
+          en: 'You have received a new message.',
+          fr: 'Vous avez reçu un nouveau message.'
+        },
         type: 'message'
       },
 
       // Star promotion notifications
       STAR_PROMOTION_COMPLETED: {
-        title: 'Congratulations! You are now a Baroni Star 🌟',
-        body: 'Welcome to the stars! You can now receive bookings and create content for your fans.',
+        title: {
+          en: 'Congratulations! You are now a Baroni Star 🌟',
+          fr: 'Félicitations ! Vous êtes maintenant une star Baroni 🌟'
+        },
+        body: {
+          en: 'Welcome to the stars! You can now receive bookings and create content for your fans.',
+          fr: 'Bienvenue parmi les stars ! Vous pouvez maintenant recevoir des réservations et créer du contenu pour vos fans.'
+        },
         type: 'star_promotion'
       },
 
       // Live show notifications
       LIVE_SHOW_CREATED_SUCCESS: {
-        title: 'Your Live Show event has been set successfully',
-        body: 'Your live show has been created and is now open for fans to join!',
+        title: {
+          en: 'Your Live Show event has been set successfully',
+          fr: 'Votre événement d\'émission en direct a été configuré avec succès'
+        },
+        body: {
+          en: 'Your live show has been created and is now open for fans to join!',
+          fr: 'Votre émission en direct a été créée et est maintenant ouverte aux fans pour rejoindre !'
+        },
         type: 'live_show'
       },
 
       // General notifications
       GENERAL: {
-        title: 'Notification',
-        body: 'You have a new notification.',
+        title: {
+          en: 'Notification',
+          fr: 'Notification'
+        },
+        body: {
+          en: 'You have a new notification.',
+          fr: 'Vous avez une nouvelle notification.'
+        },
         type: 'general'
+      },
+      
+      // Additional notification types for custom messages
+      APPOINTMENT_REQUEST_SENT: {
+        title: {
+          en: 'Request Submitted',
+          fr: 'Demande soumise'
+        },
+        body: {
+          en: "Your request is now on star's side for validation. please wait.",
+          fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+        },
+        type: 'appointment'
+      },
+      DEDICATION_REQUEST_SENT: {
+        title: {
+          en: 'Request Submitted',
+          fr: 'Demande soumise'
+        },
+        body: {
+          en: "Your request is now on star's side for validation. please wait.",
+          fr: 'Votre demande est maintenant du côté de la star pour validation. Veuillez patienter.'
+        },
+        type: 'dedication'
       }
     };
   }

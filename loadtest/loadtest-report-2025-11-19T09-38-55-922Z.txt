@@ -1,0 +1,874 @@
+================================================================================
+BARONI BACKEND LOAD TEST REPORT
+================================================================================
+
+Test Configuration:
+- Base URL: http://localhost:4000
+- Concurrent Users: 10000
+- Requests Per User: 100
+- Test Duration: 300 seconds
+- Ramp Up Time: 60 seconds
+- Admin Token: Not Provided
+- User Token: Not Provided
+
+Test Execution:
+- Start Time: 2025-11-19T09:33:15.115Z
+- End Time: 2025-11-19T09:38:55.702Z
+- Total Duration: 340.59 seconds
+
+================================================================================
+OVERALL STATISTICS
+================================================================================
+
+Total Requests: 53,247
+Successful Requests: 5,733 (10.77%)
+Failed Requests: 47,514 (89.23%)
+Requests Per Second: 156.34
+Total Endpoints Tested: 14
+Total Endpoints Available: 27
+
+Response Time Statistics (ms):
+- Minimum: 8.00 ms
+- Maximum: 129799.00 ms
+- Average: 55043.20 ms
+- Median (p50): 35001.00 ms
+- 95th Percentile (p95): 122664.00 ms
+- 99th Percentile (p99): 126439.00 ms
+
+HTTP Status Code Distribution:
+- 0 : 36,095 (67.79%)
+- 200 (OK): 5,733 (10.77%)
+- 401 (Unauthorized): 11,419 (21.45%)
+
+Test Coverage:
+- Endpoints Tested: 14 / 27 (51.9%)
+- Untested Endpoints: 13
+
+================================================================================
+ENDPOINT-SPECIFIC RESULTS (GROUPED BY CATEGORY)
+================================================================================
+
+Category Summary:
+- Admin: 0 requests, 0.00% success rate
+- Analytics: 0 requests, 0.00% success rate
+- Appointment: 0 requests, 0.00% success rate
+- Auth: 3383 requests, 33.20% success rate
+- Availability: 3001 requests, 0.00% success rate
+- Category: 3421 requests, 0.00% success rate
+- Config: 12048 requests, 32.57% success rate
+- Dashboard: 0 requests, 0.00% success rate
+- Dedication: 5974 requests, 0.00% success rate
+- Favorite: 0 requests, 0.00% success rate
+- LiveShow: 5234 requests, 0.00% success rate
+- Notification: 0 requests, 0.00% success rate
+- Rating: 3051 requests, 0.00% success rate
+- Service: 4320 requests, 0.00% success rate
+- Star: 10683 requests, 0.00% success rate
+- System: 2132 requests, 32.18% success rate
+- Transaction: 0 requests, 0.00% success rate
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Admin
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Admin Dashboard Summary
+  Path: GET /api/admin/dashboard/summary
+  Status: NOT TESTED (Requires Auth)
+  Reason: admin token not provided
+
+Endpoint: Admin Dashboard Complete
+  Path: GET /api/admin/dashboard/complete
+  Status: NOT TESTED (Requires Auth)
+  Reason: admin token not provided
+
+Endpoint: Admin Dashboard Revenue
+  Path: GET /api/admin/dashboard/revenue
+  Status: NOT TESTED (Requires Auth)
+  Reason: admin token not provided
+
+Endpoint: Admin Dashboard Active Users
+  Path: GET /api/admin/dashboard/active-users-by-country
+  Status: NOT TESTED (Requires Auth)
+  Reason: admin token not provided
+
+Endpoint: Admin Dashboard Top Stars
+  Path: GET /api/admin/dashboard/top-stars
+  Status: NOT TESTED (Requires Auth)
+  Reason: admin token not provided
+
+Endpoint: Admin Profile
+  Path: GET /api/admin/profile
+  Status: NOT TESTED (Requires Auth)
+  Reason: admin token not provided
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Analytics
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Analytics
+  Path: GET /api/analytics
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Appointment
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: List Appointments
+  Path: GET /api/appointments
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Auth
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get User Profile (me)
+  Path: GET /api/auth/me
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+Endpoint: Check User
+  Path: POST /api/auth/check-user
+  Category: Auth
+  Authentication: Public
+  Total Requests: 3,383
+  Requests Per Second: 9.93
+  Successful: 1,123 (33.20%)
+  Failed: 2,260 (66.80%)
+  Response Times (ms):
+    * Minimum: 254.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 55140.80 ms
+    * Median (p50): 34544.00 ms
+    * 95th Percentile (p95): 122438.00 ms
+    * 99th Percentile (p99): 126379.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,260 (66.80%)
+    * 200 (OK): 1,123 (33.20%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:20.400Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.403Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.538Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.541Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.547Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.740Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.745Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.073Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.232Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.241Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.869Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.882Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.882Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.899Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.915Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.584Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.593Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.604Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.609Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.036Z] Status 0: ETIMEDOUT
+    * ... and 2240 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Availability
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Availabilities
+  Path: GET /api/availabilities
+  Category: Availability
+  Authentication: Public
+  Total Requests: 3,001
+  Requests Per Second: 8.81
+  Successful: 0 (0.00%)
+  Failed: 3,001 (100.00%)
+  Response Times (ms):
+    * Minimum: 130.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 55466.79 ms
+    * Median (p50): 35478.00 ms
+    * 95th Percentile (p95): 122686.00 ms
+    * 99th Percentile (p99): 126485.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,068 (68.91%)
+    * 401 (Unauthorized): 933 (31.09%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:20.556Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.734Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.228Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.233Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.249Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.888Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.893Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.903Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.587Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.610Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.038Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.045Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.057Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.059Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.668Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.678Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.691Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.706Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.723Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.333Z] Status 0: ETIMEDOUT
+    * ... and 2048 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Category
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Categories (Category API)
+  Path: GET /api/category
+  Category: Category
+  Authentication: Public
+  Total Requests: 3,421
+  Requests Per Second: 10.04
+  Successful: 0 (0.00%)
+  Failed: 3,421 (100.00%)
+  Response Times (ms):
+    * Minimum: 17.00 ms
+    * Maximum: 129797.00 ms
+    * Average: 54208.85 ms
+    * Median (p50): 34984.00 ms
+    * 95th Percentile (p95): 122692.00 ms
+    * 99th Percentile (p99): 126440.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,302 (67.29%)
+    * 401 (Unauthorized): 1,119 (32.71%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:21.079Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.228Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.230Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.874Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.879Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.883Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.886Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.897Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.912Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.918Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.592Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.592Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.594Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.607Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.035Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.045Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.052Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.053Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.054Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.060Z] Status 0: ETIMEDOUT
+    * ... and 2282 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Config
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Global Config
+  Path: GET /api/config/
+  Category: Config
+  Authentication: Public
+  Total Requests: 4,324
+  Requests Per Second: 12.70
+  Successful: 1,439 (33.28%)
+  Failed: 2,885 (66.72%)
+  Response Times (ms):
+    * Minimum: 269.00 ms
+    * Maximum: 129799.00 ms
+    * Average: 56097.72 ms
+    * Median (p50): 34725.00 ms
+    * 95th Percentile (p95): 122577.00 ms
+    * 99th Percentile (p99): 126459.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,885 (66.72%)
+    * 200 (OK): 1,439 (33.28%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.940Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.554Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.227Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.231Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.235Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.887Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.898Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.914Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.604Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.041Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.050Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.059Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.064Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.671Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.676Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.697Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.698Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.710Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.711Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.718Z] Status 0: ETIMEDOUT
+    * ... and 2865 more errors
+
+Endpoint: Get Categories
+  Path: GET /api/config/categories
+  Category: Config
+  Authentication: Public
+  Total Requests: 4,266
+  Requests Per Second: 12.53
+  Successful: 1,386 (32.49%)
+  Failed: 2,880 (67.51%)
+  Response Times (ms):
+    * Minimum: 317.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 56960.46 ms
+    * Median (p50): 34556.00 ms
+    * 95th Percentile (p95): 122842.00 ms
+    * 99th Percentile (p99): 126420.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,880 (67.51%)
+    * 200 (OK): 1,386 (32.49%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.948Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.401Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.749Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.073Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.221Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.234Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.243Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.870Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.890Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.892Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.893Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.904Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.913Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.588Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.603Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.603Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.608Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.613Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.048Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.051Z] Status 0: ETIMEDOUT
+    * ... and 2860 more errors
+
+Endpoint: Get Country Services
+  Path: GET /api/config/country-services
+  Category: Config
+  Authentication: Public
+  Total Requests: 3,458
+  Requests Per Second: 10.15
+  Successful: 1,099 (31.78%)
+  Failed: 2,359 (68.22%)
+  Response Times (ms):
+    * Minimum: 264.00 ms
+    * Maximum: 129799.00 ms
+    * Average: 57263.18 ms
+    * Median (p50): 35108.00 ms
+    * 95th Percentile (p95): 122706.00 ms
+    * 99th Percentile (p99): 126439.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,359 (68.22%)
+    * 200 (OK): 1,099 (31.78%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.947Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.539Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.541Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.550Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.559Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.223Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.236Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.246Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.251Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.871Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.900Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.586Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.609Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.032Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.033Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.034Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.039Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.699Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.724Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.726Z] Status 0: ETIMEDOUT
+    * ... and 2339 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Dashboard
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get User Dashboard
+  Path: GET /api/dashboard
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Dedication
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Dedications
+  Path: GET /api/dedications
+  Category: Dedication
+  Authentication: Public
+  Total Requests: 3,383
+  Requests Per Second: 9.93
+  Successful: 0 (0.00%)
+  Failed: 3,383 (100.00%)
+  Response Times (ms):
+    * Minimum: 15.00 ms
+    * Maximum: 129799.00 ms
+    * Average: 55137.61 ms
+    * Median (p50): 35597.00 ms
+    * 95th Percentile (p95): 122685.00 ms
+    * 99th Percentile (p99): 126460.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,307 (68.19%)
+    * 401 (Unauthorized): 1,076 (31.81%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:20.404Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.543Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.736Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.742Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.069Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.244Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.250Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.253Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.872Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.891Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.901Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.911Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.914Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.062Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.708Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.722Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.729Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.285Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.290Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.294Z] Status 0: ETIMEDOUT
+    * ... and 2287 more errors
+
+Endpoint: Get Dedication Samples
+  Path: GET /api/dedication-samples
+  Category: Dedication
+  Authentication: Public
+  Total Requests: 2,591
+  Requests Per Second: 7.61
+  Successful: 0 (0.00%)
+  Failed: 2,591 (100.00%)
+  Response Times (ms):
+    * Minimum: 98.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 55831.46 ms
+    * Median (p50): 35145.00 ms
+    * 95th Percentile (p95): 122633.00 ms
+    * 99th Percentile (p99): 126479.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 1,774 (68.47%)
+    * 401 (Unauthorized): 817 (31.53%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:20.547Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.735Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.245Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.909Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.910Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.583Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.591Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.606Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.044Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.056Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.063Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.680Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.681Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.684Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.700Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.706Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.709Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.725Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.286Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.291Z] Status 0: ETIMEDOUT
+    * ... and 1754 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Favorite
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Favorites
+  Path: GET /api/favorites
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: LiveShow
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Live Shows
+  Path: GET /api/live-shows
+  Category: LiveShow
+  Authentication: Public
+  Total Requests: 5,234
+  Requests Per Second: 15.37
+  Successful: 0 (0.00%)
+  Failed: 5,234 (100.00%)
+  Response Times (ms):
+    * Minimum: 49.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 55562.42 ms
+    * Median (p50): 35826.00 ms
+    * 95th Percentile (p95): 122721.00 ms
+    * 99th Percentile (p99): 126457.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 3,597 (68.72%)
+    * 401 (Unauthorized): 1,637 (31.28%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.949Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.554Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.556Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.738Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.743Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.744Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.745Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.748Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.748Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.070Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.072Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.072Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.223Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.230Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.232Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.245Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.880Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.902Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.585Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.595Z] Status 0: ETIMEDOUT
+    * ... and 3577 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Notification
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Notifications
+  Path: GET /api/notifications
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Rating
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Ratings
+  Path: GET /api/ratings
+  Category: Rating
+  Authentication: Public
+  Total Requests: 3,051
+  Requests Per Second: 8.96
+  Successful: 0 (0.00%)
+  Failed: 3,051 (100.00%)
+  Response Times (ms):
+    * Minimum: 17.00 ms
+    * Maximum: 129792.00 ms
+    * Average: 53698.12 ms
+    * Median (p50): 34529.00 ms
+    * 95th Percentile (p95): 122563.00 ms
+    * 99th Percentile (p99): 126384.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,049 (67.16%)
+    * 401 (Unauthorized): 1,002 (32.84%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.950Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.558Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.737Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.738Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.238Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.245Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.884Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.886Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.904Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.915Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.594Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.037Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.048Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.062Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.673Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.676Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.680Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.716Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.717Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.727Z] Status 0: ETIMEDOUT
+    * ... and 2029 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Service
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Services
+  Path: GET /api/services
+  Category: Service
+  Authentication: Public
+  Total Requests: 4,320
+  Requests Per Second: 12.68
+  Successful: 0 (0.00%)
+  Failed: 4,320 (100.00%)
+  Response Times (ms):
+    * Minimum: 15.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 53589.80 ms
+    * Median (p50): 34871.00 ms
+    * 95th Percentile (p95): 122558.00 ms
+    * 99th Percentile (p99): 126427.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 2,934 (67.92%)
+    * 401 (Unauthorized): 1,386 (32.08%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.950Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.545Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.546Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.549Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.553Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.553Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.558Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.070Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.235Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.237Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.240Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.246Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.248Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.888Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.582Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.583Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.063Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.066Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.674Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.678Z] Status 0: ECONNREFUSED
+    * ... and 2914 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Star
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get All Stars
+  Path: GET /api/star
+  Category: Star
+  Authentication: Public
+  Total Requests: 8,516
+  Requests Per Second: 25.00
+  Successful: 0 (0.00%)
+  Failed: 8,516 (100.00%)
+  Response Times (ms):
+    * Minimum: 9.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 53792.03 ms
+    * Median (p50): 34847.00 ms
+    * 95th Percentile (p95): 122663.00 ms
+    * 99th Percentile (p99): 126436.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 5,775 (67.81%)
+    * 401 (Unauthorized): 2,741 (32.19%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:19.952Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.399Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.549Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.737Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.739Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.740Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:20.747Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.074Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.076Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.230Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.233Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.240Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.247Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.248Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.250Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.251Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.253Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.254Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.876Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.889Z] Status 0: ECONNREFUSED
+    * ... and 5755 more errors
+
+Endpoint: Get Star Patterns
+  Path: GET /api/star/patterns
+  Category: Star
+  Authentication: Public
+  Total Requests: 2,167
+  Requests Per Second: 6.36
+  Successful: 0 (0.00%)
+  Failed: 2,167 (100.00%)
+  Response Times (ms):
+    * Minimum: 14.00 ms
+    * Maximum: 129798.00 ms
+    * Average: 53869.65 ms
+    * Median (p50): 34559.00 ms
+    * 95th Percentile (p95): 122879.00 ms
+    * 99th Percentile (p99): 126468.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 1,459 (67.33%)
+    * 401 (Unauthorized): 708 (32.67%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:21.894Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.901Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.913Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.599Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:22.602Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.031Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.046Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.050Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.063Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.674Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.714Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.298Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.316Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.324Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.962Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.963Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.986Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.990Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:25.828Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:25.835Z] Status 0: ETIMEDOUT
+    * ... and 1439 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: System
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Health Check
+  Path: GET /
+  Category: System
+  Authentication: Public
+  Total Requests: 2,132
+  Requests Per Second: 6.26
+  Successful: 686 (32.18%)
+  Failed: 1,446 (67.82%)
+  Response Times (ms):
+    * Minimum: 8.00 ms
+    * Maximum: 129796.00 ms
+    * Average: 54733.16 ms
+    * Median (p50): 35784.00 ms
+    * 95th Percentile (p95): 122637.00 ms
+    * 99th Percentile (p99): 126467.00 ms
+  Performance Rating: NEEDS IMPROVEMENT
+  Status Code Distribution:
+    * 0 : 1,446 (67.82%)
+    * 200 (OK): 686 (32.18%)
+  Errors (showing first 20):
+    * [2025-11-19T09:33:20.551Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.077Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.225Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.253Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.911Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:21.917Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:22.584Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.673Z] Status 0: ECONNREFUSED
+    * [2025-11-19T09:33:23.688Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.713Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:23.715Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.292Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.340Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.941Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.943Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.954Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.958Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.970Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.991Z] Status 0: ETIMEDOUT
+    * [2025-11-19T09:33:24.992Z] Status 0: ETIMEDOUT
+    * ... and 1426 more errors
+
+
+────────────────────────────────────────────────────────────────────────────────
+CATEGORY: Transaction
+────────────────────────────────────────────────────────────────────────────────
+
+Endpoint: Get Transactions
+  Path: GET /api/transactions
+  Status: NOT TESTED (Requires Auth)
+  Reason: user token not provided
+
+================================================================================
+ERROR SUMMARY
+================================================================================
+
+Total Errors: 36095
+
+Error: timeout of 30000ms exceeded
+- Status Code: N/A
+- Occurrences: 29178
+- Affected Endpoints: Get Star Patterns, Get Availabilities, Get All Stars, Get Live Shows, Check User, Get Global Config, Health Check, Get Dedications, Get Ratings, Get Country Services, Get Services, Get Categories, Get Categories (Category API), Get Dedication Samples
+
+Error: ETIMEDOUT
+- Status Code: N/A
+- Occurrences: 6648
+- Affected Endpoints: Get Services, Get Dedication Samples, Check User, Health Check, Get Live Shows, Get All Stars, Get Country Services, Get Availabilities, Get Categories, Get Categories (Category API), Get Ratings, Get Star Patterns, Get Global Config, Get Dedications
+
+Error: ECONNREFUSED
+- Status Code: N/A
+- Occurrences: 189
+- Affected Endpoints: Get Global Config, Get Country Services, Get Categories, Get Live Shows, Get Ratings, Get Services, Get All Stars, Check User, Get Dedications, Get Dedication Samples, Health Check, Get Availabilities, Get Categories (Category API), Get Star Patterns
+
+Error: read ECONNRESET
+- Status Code: N/A
+- Occurrences: 80
+- Affected Endpoints: Get Services, Get Country Services, Get Categories (Category API), Get Categories, Check User, Get Dedication Samples, Get Ratings, Get Live Shows, Get All Stars, Get Dedications, Get Global Config, Get Star Patterns, Get Availabilities
+
+================================================================================
+PERFORMANCE ANALYSIS
+================================================================================
+
+Performance Assessment:
+- Average Response Time: NEEDS IMPROVEMENT (> 1s)
+- 95th Percentile: NEEDS IMPROVEMENT (> 2s)
+- Success Rate: NEEDS IMPROVEMENT (< 90%)
+
+Recommendations:
+- Consider optimizing slow endpoints to reduce average response time
+- Some requests are taking too long (p95 > 2s), investigate slow endpoints
+- High error rate detected, investigate and fix failing endpoints
+- Review error logs above to identify and fix issues
+
+================================================================================
+EXECUTIVE SUMMARY
+================================================================================
+
+Load Test Summary for 10,000 Concurrent Users:
+
+✓ Total Requests Processed: 53,247
+✓ Average Throughput: 156.34 requests/second
+✓ Success Rate: 10.77%
+✓ Average Response Time: 55043.20 ms
+✓ 95th Percentile Response Time: 122664.00 ms
+✓ 99th Percentile Response Time: 126439.00 ms
+
+Overall Performance Rating: NEEDS IMPROVEMENT - System is struggling under load
+
+Key Findings:
+⚠ High error rate detected (89.23% failures)
+⚠ Slow average response time (55043.20 ms)
+⚠ High p95 response time (122664.00 ms) - some requests are very slow
+⚠ 36,095 errors encountered during testing
+
+================================================================================
+Report Generated: 2025-11-19T09:38:55.903Z
+Test Duration: 340.59 seconds
+Concurrent Users: 10,000
+================================================================================
