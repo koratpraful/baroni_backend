@@ -9,6 +9,7 @@
     "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "create:admin": "node scripts/createAdmin.js",
+    "create:hiren-admin": "node scripts/createHirenAdmin.js",
     "migrate:baroni-ids": "node scripts/migrateBaroniIds.js",
     "migrate:transaction-status": "node scripts/migrateTransactionStatus.js",
     "migrate:agora-keys": "node scripts/runAgoraKeyMigration.js",

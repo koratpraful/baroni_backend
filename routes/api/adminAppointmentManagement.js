@@ -66,6 +66,18 @@ const cancelAppointmentValidator = [
   body('adminNotes').optional().isString().withMessage('Admin notes must be a string')
 ];
 
+// Middleware to prevent reserved route names from being treated as appointment IDs
+const checkReservedRoutes = (req, res, next) => {
+  const reservedRoutes = ['dedications', 'live-shows', 'statistics'];
+  if (reservedRoutes.includes(req.params.appointmentId)) {
+    return res.status(404).json({
+      success: false,
+      message: 'Appointment not found'
+    });
+  }
+  next();
+};
+
 // Routes
 
 // GET /api/admin/appointments - Get appointments with filters
@@ -83,18 +95,19 @@ router.get('/live-shows', appointmentFiltersValidator, getLiveShowAppointments);
 router.get('/dedications', appointmentFiltersValidator, getDedicationAppointments);
 
 // GET /api/admin/appointments/:appointmentId - Get appointment details
-router.get('/:appointmentId', appointmentIdValidator, getAppointmentDetails);
+
+router.get('/:appointmentId', checkReservedRoutes, appointmentIdValidator, getAppointmentDetails);
 
 // PUT /api/admin/appointments/:appointmentId/approve - Approve appointment
-router.put('/:appointmentId/approve', approveAppointmentValidator, approveAppointment);
+router.put('/:appointmentId/approve', checkReservedRoutes, approveAppointmentValidator, approveAppointment);
 
 // PUT /api/admin/appointments/:appointmentId/reject - Reject appointment
-router.put('/:appointmentId/reject', rejectAppointmentValidator, rejectAppointment);
+router.put('/:appointmentId/reject', checkReservedRoutes, rejectAppointmentValidator, rejectAppointment);
 
 // PUT /api/admin/appointments/:appointmentId/reschedule - Reschedule appointment
-router.put('/:appointmentId/reschedule', rescheduleAppointmentValidator, rescheduleAppointment);
+router.put('/:appointmentId/reschedule', checkReservedRoutes, rescheduleAppointmentValidator, rescheduleAppointment);
 
 // PUT /api/admin/appointments/:appointmentId/cancel - Cancel appointment
-router.put('/:appointmentId/cancel', cancelAppointmentValidator, cancelAppointment);
+router.put('/:appointmentId/cancel', checkReservedRoutes, cancelAppointmentValidator, cancelAppointment);
 
 export default router;

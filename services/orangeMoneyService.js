@@ -21,7 +21,7 @@ class OrangeMoneyService {
       
       // Test token endpoint
       const tokenResponse = await axios.get(`${ORANGE_MONEY_BASE_URL}/token`, {
-        timeout: 10000 // 10 second timeout
+        timeout: 0 // No timeout - requests will wait indefinitely
       });
       
       console.log('Token endpoint test:', {
@@ -66,7 +66,9 @@ class OrangeMoneyService {
         return this.token;
       }
 
-      const response = await axios.get(`${ORANGE_MONEY_BASE_URL}/token`);
+      const response = await axios.get(`${ORANGE_MONEY_BASE_URL}/token`, {
+        timeout: 0 // No timeout - requests will wait indefinitely
+      });
       console.log("Orange Money Token Response:", {
         status: response.status,
         data: response.data,
@@ -155,7 +157,8 @@ class OrangeMoneyService {
             // Support both raw token and pre-prefixed Bearer tokens
             'Authorization': token?.toLowerCase?.().startsWith('bearer ') ? token : `Bearer ${token}`,
             'Content-Type': 'application/json'
-          }
+          },
+          timeout: 0 // No timeout - requests will wait indefinitely
         }
       );
 
