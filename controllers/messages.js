@@ -127,7 +127,7 @@ async function registerUserWithAgoraChat(username, password = null) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${adminToken}`
       },
-      timeout: 10000
+      timeout: 0 // No timeout - requests will wait indefinitely
     });
     
     console.log('Agora Chat registration successful:', response.data);
