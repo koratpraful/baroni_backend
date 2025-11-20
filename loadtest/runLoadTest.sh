@@ -38,3 +38,4 @@ export RAMP_UP_TIME="$RAMP_UP_TIME"
 node loadTest.js
 
 
+

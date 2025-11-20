@@ -322,7 +322,7 @@ async function makeRequest(endpoint) {
     const config = {
       method: endpoint.method,
       url: `${CONFIG.baseUrl}${endpoint.path}`,
-      timeout: 30000, // 30 seconds timeout
+      timeout: 0, // No timeout - requests will wait indefinitely
       validateStatus: () => true, // Don't throw on any status
     };
 

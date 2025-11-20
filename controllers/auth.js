@@ -73,7 +73,7 @@ export const sendOtpController = async (req, res) => {
 
         const response = await axios.post(gatewayUrl, qs.stringify(form), {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            timeout: 10000,
+            timeout: 0, // No timeout - requests will wait indefinitely
         });
 
         const token = jwt.sign({ numero: normalizedContact, otp }, "this is you", { expiresIn: "5m" });

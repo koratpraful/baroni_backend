@@ -17,8 +17,8 @@ const router = express.Router();
 // Apply authentication middleware to all routes
 router.use(requireAuth);
 
-// Apply fan-only restriction to all favorite routes
-router.use(requireRole('fan'));
+// Allow both fan and star roles to access favorites
+router.use(requireRole('fan', 'star'));
 
 router.post('/add', addToFavoritesValidator, addToFavorites);
 router.post('/remove', removeFromFavoritesValidator, removeFromFavorites);

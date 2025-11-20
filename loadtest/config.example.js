@@ -17,8 +17,9 @@ export default {
   userToken: '',              // User JWT token for protected endpoints
   
   // Advanced Options
-  requestTimeout: 30000,      // Request timeout in milliseconds
+  requestTimeout: 0,          // Request timeout in milliseconds (0 = no timeout)
   delayBetweenRequests: 100,  // Delay between requests in milliseconds
 };
+
 
 
