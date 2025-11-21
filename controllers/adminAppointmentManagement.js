@@ -9,50 +9,70 @@ import { validationResult } from 'express-validator';
 import { getFirstValidationError } from '../utils/validationHelper.js';
 
 // Get appointments with comprehensive admin filters
+/**
+ * Get appointments with comprehensive admin filters
+ * 
+ * Query Parameters (all optional):
+ * - page: Page number (default: 1)
+ * - limit: Items per page (default: 20)
+ * - search: Search by star name, user name, or Baroni ID
+ * - category: Filter by category - 'all', 'video_calls', 'dedications', 'live_shows' (default: 'all')
+ * - status: Filter by status - 'all', 'pending', 'approved', 'rejected', 'completed', 'cancelled' (default: 'all')
+ * - startDate: Start date for date range filter (ISO 8601 format)
+ * - endDate: End date for date range filter (ISO 8601 format)
+ * - sortBy: Sort field - 'createdAt', 'updatedAt', 'date', 'price' (default: 'createdAt')
+ * - sortOrder: Sort order - 'asc' or 'desc' (default: 'desc')
+ * 
+ * If no filters are provided, returns all appointments
+ */
 export const getAppointmentsWithFilters = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 20,
-      search = '',
-      category = 'all', // video_calls, dedications, live_shows, all
-      status = 'all', // pending, approved, rejected, completed, cancelled, all
-      startDate = '',
-      endDate = '',
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
+      page,
+      limit,
+      search,
+      category,
+      status,
+      startDate,
+      endDate,
+      sortBy,
+      sortOrder
     } = req.query;
 
-    // Build base filter
+    // Build base filter - start with empty to get all appointments
     let filter = {};
     
-    // Category filtering
-    if (category === 'video_calls') {
-      // All appointments are video calls - no additional filter needed
-      // Keep filter as {} to get all appointments
-    } else if (category === 'dedications') {
-      // This would need to be handled differently if you have a separate dedication model
-      filter = { type: 'dedication' };
-    } else if (category === 'live_shows') {
-      filter = { type: 'live_show' };
+    // Category filtering (only apply if category is provided and not 'all')
+    if (category && category !== 'all' && category.trim() !== '') {
+      if (category === 'video_calls') {
+        // All appointments are video calls - no additional filter needed
+        // Keep filter as {} to get all appointments
+      } else if (category === 'dedications') {
+        filter = { type: 'dedication' };
+      } else if (category === 'live_shows') {
+        filter = { type: 'live_show' };
+      }
     }
-    // If category is 'all', filter stays as {} which is correct
+    // If category is 'all' or not provided, filter stays as {} which returns all
 
-    // Status filtering
-    if (status !== 'all') {
+    // Status filtering (only apply if status is provided and not 'all')
+    if (status && status !== 'all' && status.trim() !== '') {
       filter.status = status;
     }
 
-    // Date range filtering
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    // Date range filtering (only apply if dates are provided and not empty)
+    if (startDate && startDate.trim() !== '') {
+      if (!filter.createdAt) filter.createdAt = {};
+      filter.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate && endDate.trim() !== '') {
+      if (!filter.createdAt) filter.createdAt = {};
+      filter.createdAt.$lte = new Date(endDate);
     }
 
     // Search filtering (by star name, user name, or Baroni ID)
-    if (search) {
-      const searchRegex = new RegExp(search, 'i');
+    if (search && search.trim() !== '') {
+      const searchRegex = new RegExp(search.trim(), 'i');
       const starIds = await User.find({
         $or: [
           { name: searchRegex },
@@ -70,20 +90,33 @@ export const getAppointmentsWithFilters = async (req, res) => {
         ]
       }).select('_id');
 
-      filter.$or = [
-        { starId: { $in: starIds.map(s => s._id) } },
-        { fanId: { $in: userIds.map(u => u._id) } }
+      const searchIds = [
+        ...starIds.map(s => s._id),
+        ...userIds.map(u => u._id)
       ];
+
+      if (searchIds.length > 0) {
+        filter.$or = [
+          { starId: { $in: searchIds } },
+          { fanId: { $in: searchIds } }
+        ];
+      } else {
+        // If no users found, return empty result
+        filter.$or = [{ _id: null }]; // This will match nothing
+      }
     }
 
-    // Pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    // Pagination with defaults
+    const pageNum = page && !isNaN(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
+    const limitNum = limit && !isNaN(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 20;
     const skip = (pageNum - 1) * limitNum;
 
-    // Sorting
+    // Sorting with defaults and validation
+    const validSortFields = ['createdAt', 'updatedAt', 'date', 'price'];
+    const sortField = sortBy && validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
     const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    sort[sortField] = sortDirection;
 
     // Get appointments with populated data
     const appointments = await Appointment.find(filter)
@@ -108,48 +141,65 @@ export const getAppointmentsWithFilters = async (req, res) => {
     const totalCount = await Appointment.countDocuments(filter);
     const totalPages = Math.ceil(totalCount / limitNum);
 
-    // Format response data
+    // Format response data with null checks
     const formattedAppointments = appointments.map(appointment => {
       const star = appointment.starId;
       const user = appointment.fanId;
       
+      // Handle null star or user gracefully
+      const starData = star ? {
+        id: star._id,
+        name: star.name || null,
+        baroniId: star.baroniId || null,
+        profilePic: star.profilePic || null,
+        isVerified: star.isVerified || false,
+        role: star.profession || 'Singer',
+        professionId: star.profession?._id || star.profession || null,
+        professionName: star.profession?.name || null,
+        email: star.email || null,
+        contact: star.contact || null
+      } : null;
+
+      const userData = user ? {
+        id: user._id,
+        name: user.name || null,
+        baroniId: user.baroniId || null,
+        profilePic: user.profilePic || null,
+        email: user.email || null,
+        contact: user.contact || null
+      } : null;
+
+      // Handle date and time safely
+      let scheduledDateTime = null;
+      if (appointment.date && appointment.time) {
+        try {
+          scheduledDateTime = new Date(`${appointment.date}T${appointment.time}`);
+        } catch (e) {
+          scheduledDateTime = appointment.createdAt || new Date();
+        }
+      } else {
+        scheduledDateTime = appointment.createdAt || new Date();
+      }
+      
       return {
         id: appointment._id,
         category: 'video_calls', // Default for now
-        status: appointment.status,
-        star: {
-          id: star._id,
-          name: star.name,
-          baroniId: star.baroniId,
-          profilePic: star.profilePic,
-          isVerified: star.isVerified,
-          role: star.profession || 'Singer',
-          professionId: star.profession?._id || star.profession || null,
-          professionName: star.profession?.name || null,
-          email: star.email,
-          contact: star.contact
-        },
-        user: {
-          id: user._id,
-          name: user.name,
-          baroniId: user.baroniId,
-          profilePic: user.profilePic,
-          email: user.email,
-          contact: user.contact
-        },
+        status: appointment.status || 'pending',
+        star: starData,
+        user: userData,
         service: {
           type: 'Video Call',
           duration: '15 min', // Default or from availability
-          price: appointment.price
+          price: appointment.price || 0
         },
-        scheduledDateTime: new Date(`${appointment.date}T${appointment.time}`),
-        createdAt: appointment.createdAt,
-        updatedAt: appointment.updatedAt,
-        callDuration: appointment.callDuration,
+        scheduledDateTime: scheduledDateTime,
+        createdAt: appointment.createdAt || new Date(),
+        updatedAt: appointment.updatedAt || new Date(),
+        callDuration: appointment.callDuration || 0,
         // Duration in seconds: 0 if pending/not completed, actual duration if completed
         duration: appointment.status === 'completed' && typeof appointment.callDuration === 'number' ? appointment.callDuration : 0,
-        paymentStatus: appointment.paymentStatus,
-        actions: getAvailableActions(appointment.status),
+        paymentStatus: appointment.paymentStatus || 'pending',
+        actions: getAvailableActions(appointment.status || 'pending'),
         earnings: calculateEarnings(appointment)
       };
     });
@@ -163,7 +213,17 @@ export const getAppointmentsWithFilters = async (req, res) => {
           totalPages,
           totalCount,
           hasNextPage: pageNum < totalPages,
-          hasPrevPage: pageNum > 1
+          hasPrevPage: pageNum > 1,
+          limit: limitNum
+        },
+        filters: {
+          category: category || 'all',
+          status: status || 'all',
+          search: search || '',
+          startDate: startDate || null,
+          endDate: endDate || null,
+          sortBy: sortField,
+          sortOrder: sortOrder || 'desc'
         }
       }
     });
@@ -173,7 +233,7 @@ export const getAppointmentsWithFilters = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get appointments',
-      error: error.message
+      error: error.message || 'Unknown error occurred'
     });
   }
 };
@@ -525,48 +585,65 @@ export const getAppointmentDetails = async (req, res) => {
     const star = appointment.starId;
     const user = appointment.fanId;
 
+    // Handle null star or user gracefully
+    const starData = star ? {
+      id: star._id,
+      name: star.name || null,
+      baroniId: star.baroniId || null,
+      profilePic: star.profilePic || null,
+      isVerified: star.isVerified || false,
+      role: star.profession || 'Singer',
+      professionId: star.profession?._id || star.profession || null,
+      professionName: star.profession?.name || null,
+      email: star.email || null,
+      contact: star.contact || null
+    } : null;
+
+    const userData = user ? {
+      id: user._id,
+      name: user.name || null,
+      baroniId: user.baroniId || null,
+      profilePic: user.profilePic || null,
+      email: user.email || null,
+      contact: user.contact || null
+    } : null;
+
+    // Handle date and time safely
+    let scheduledDateTime = null;
+    if (appointment.date && appointment.time) {
+      try {
+        scheduledDateTime = new Date(`${appointment.date}T${appointment.time}`);
+      } catch (e) {
+        scheduledDateTime = appointment.createdAt || new Date();
+      }
+    } else {
+      scheduledDateTime = appointment.createdAt || new Date();
+    }
+
     res.json({
       success: true,
       data: {
         appointment: {
           id: appointment._id,
           category: 'video_calls',
-          status: appointment.status,
-          star: {
-            id: star._id,
-            name: star.name,
-            baroniId: star.baroniId,
-            profilePic: star.profilePic,
-            isVerified: star.isVerified,
-            role: star.profession || 'Singer',
-            professionId: star.profession?._id || star.profession || null,
-            professionName: star.profession?.name || null,
-            email: star.email,
-            contact: star.contact
-          },
-          user: {
-            id: user._id,
-            name: user.name,
-            baroniId: user.baroniId,
-            profilePic: user.profilePic,
-            email: user.email,
-            contact: user.contact
-          },
+          status: appointment.status || 'pending',
+          star: starData,
+          user: userData,
           service: {
             type: 'Video Call',
             duration: '15 min',
-            price: appointment.price
+            price: appointment.price || 0
           },
-          scheduledDateTime: new Date(`${appointment.date}T${appointment.time}`),
-          createdAt: appointment.createdAt,
-          updatedAt: appointment.updatedAt,
-          callDuration: appointment.callDuration,
+          scheduledDateTime: scheduledDateTime,
+          createdAt: appointment.createdAt || new Date(),
+          updatedAt: appointment.updatedAt || new Date(),
+          callDuration: appointment.callDuration || 0,
           // Duration in seconds: 0 if pending/not completed, actual duration if completed
           duration: appointment.status === 'completed' && typeof appointment.callDuration === 'number' ? appointment.callDuration : 0,
-          paymentStatus: appointment.paymentStatus,
-          transaction: appointment.transactionId,
-          adminNotes: appointment.adminNotes,
-          actions: getAvailableActions(appointment.status),
+          paymentStatus: appointment.paymentStatus || 'pending',
+          transaction: appointment.transactionId || null,
+          adminNotes: appointment.adminNotes || null,
+          actions: getAvailableActions(appointment.status || 'pending'),
           earnings: calculateEarnings(appointment)
         }
       }
@@ -582,36 +659,52 @@ export const getAppointmentDetails = async (req, res) => {
   }
 };
 
-// Get live show appointments
+/**
+ * Get live show appointments
+ * 
+ * Query Parameters (all optional):
+ * - page: Page number (default: 1)
+ * - limit: Items per page (default: 20)
+ * - status: Filter by status - 'all', 'pending', 'completed', 'cancelled' (default: 'all')
+ * - startDate: Start date for date range filter (ISO 8601 format, optional)
+ * - endDate: End date for date range filter (ISO 8601 format, optional)
+ * 
+ * If no filters are provided, returns all live shows
+ */
 export const getLiveShowAppointments = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 20,
-      status = 'all',
-      startDate = '',
-      endDate = ''
+      page,
+      limit,
+      status,
+      startDate,
+      endDate
     } = req.query;
 
-    // For now, we'll use LiveShow model if it exists
-    // This is a placeholder implementation
+    // Build filter - start with empty to get all live shows
     let filter = {};
 
-    if (status !== 'all') {
+    // Status filtering (only apply if status is provided and not 'all')
+    if (status && status !== 'all' && status.trim() !== '') {
       filter.status = status;
     }
 
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    // Date range filtering (only apply if dates are provided and not empty)
+    if (startDate && startDate.trim() !== '') {
+      if (!filter.createdAt) filter.createdAt = {};
+      filter.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate && endDate.trim() !== '') {
+      if (!filter.createdAt) filter.createdAt = {};
+      filter.createdAt.$lte = new Date(endDate);
     }
 
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    // Pagination with defaults
+    const pageNum = page && !isNaN(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
+    const limitNum = limit && !isNaN(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 20;
     const skip = (pageNum - 1) * limitNum;
 
-    // Placeholder data - replace with actual LiveShow queries
+    // Get live shows with populated data
     const liveShows = await LiveShow.find(filter)
       .populate({
         path: 'starId',
@@ -633,22 +726,41 @@ export const getLiveShowAppointments = async (req, res) => {
       data: {
         liveShows: liveShows.map(show => {
           const star = show.starId;
+          
+          // Handle null star gracefully
+          const starData = star ? {
+            id: star._id,
+            name: star.name || null,
+            baroniId: star.baroniId || null,
+            profilePic: star.profilePic || null,
+            professionId: star.profession?._id || star.profession || null,
+            professionName: star.profession?.name || null
+          } : null;
+
+          // Handle date and time safely
+          let scheduledDateTime = null;
+          if (show.date && show.time) {
+            try {
+              const dateStr = show.date instanceof Date 
+                ? show.date.toISOString().split('T')[0] 
+                : show.date;
+              scheduledDateTime = new Date(`${dateStr}T${show.time}`);
+            } catch (e) {
+              scheduledDateTime = show.createdAt || new Date();
+            }
+          } else {
+            scheduledDateTime = show.createdAt || new Date();
+          }
+
           return {
             id: show._id,
-            title: show.sessionTitle,
-            description: show.description,
-            star: {
-              id: star._id,
-              name: star.name,
-              baroniId: star.baroniId,
-              profilePic: star.profilePic,
-              professionId: star.profession?._id || star.profession || null,
-              professionName: star.profession?.name || null
-            },
-            scheduledDateTime: new Date(`${show.date.toISOString().split('T')[0]}T${show.time}`),
-            status: show.status,
+            title: show.sessionTitle || null,
+            description: show.description || null,
+            star: starData,
+            scheduledDateTime: scheduledDateTime,
+            status: show.status || 'pending',
             attendees: show.currentAttendees || 0,
-            maxAttendees: show.maxCapacity === -1 ? 10000 : show.maxCapacity,
+            maxAttendees: show.maxCapacity === -1 ? 10000 : (show.maxCapacity || 10000),
             earnings: show.earnings || 0,
             ticketPrice: show.attendanceFee || 2000
           };
@@ -658,7 +770,13 @@ export const getLiveShowAppointments = async (req, res) => {
           totalPages,
           totalCount,
           hasNextPage: pageNum < totalPages,
-          hasPrevPage: pageNum > 1
+          hasPrevPage: pageNum > 1,
+          limit: limitNum
+        },
+        filters: {
+          status: status || 'all',
+          startDate: startDate || null,
+          endDate: endDate || null
         }
       }
     });
@@ -668,38 +786,57 @@ export const getLiveShowAppointments = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get live show appointments',
-      error: error.message
+      error: error.message || 'Unknown error occurred'
     });
   }
 };
 
-// Get dedication appointments
+/**
+ * Get dedication appointments
+ * 
+ * Query Parameters (all optional):
+ * - page: Page number (default: 1)
+ * - limit: Items per page (default: 20)
+ * - status: Filter by status - 'all', 'pending', 'approved', 'cancelled', 'rejected', 'completed' (default: 'all')
+ * - startDate: Start date for date range filter (ISO 8601 format, optional)
+ * - endDate: End date for date range filter (ISO 8601 format, optional)
+ * 
+ * If no filters are provided, returns all dedications
+ */
 export const getDedicationAppointments = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 20,
-      status = 'all',
-      startDate = '',
-      endDate = ''
+      page,
+      limit,
+      status,
+      startDate,
+      endDate
     } = req.query;
 
+    // Build filter - start with empty to get all dedications
     let filter = {};
 
-    if (status !== 'all') {
+    // Status filtering (only apply if status is provided and not 'all')
+    if (status && status !== 'all' && status.trim() !== '') {
       filter.status = status;
     }
 
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    // Date range filtering (only apply if dates are provided and not empty)
+    if (startDate && startDate.trim() !== '') {
+      if (!filter.createdAt) filter.createdAt = {};
+      filter.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate && endDate.trim() !== '') {
+      if (!filter.createdAt) filter.createdAt = {};
+      filter.createdAt.$lte = new Date(endDate);
     }
 
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    // Pagination with defaults
+    const pageNum = page && !isNaN(parseInt(page)) && parseInt(page) > 0 ? parseInt(page) : 1;
+    const limitNum = limit && !isNaN(parseInt(limit)) && parseInt(limit) > 0 ? parseInt(limit) : 20;
     const skip = (pageNum - 1) * limitNum;
 
+    // Get dedications with populated data
     const dedications = await DedicationRequest.find(filter)
       .populate({
         path: 'starId',
@@ -722,25 +859,52 @@ export const getDedicationAppointments = async (req, res) => {
       data: {
         dedications: dedications.map(dedication => {
           const star = dedication.starId;
+          const user = dedication.fanId;
+          
+          // Handle null star gracefully
+          const starData = star ? {
+            id: star._id,
+            name: star.name || null,
+            baroniId: star.baroniId || null,
+            profilePic: star.profilePic || null,
+            professionId: star.profession?._id || star.profession || null,
+            professionName: star.profession?.name || null
+          } : null;
+
+          // Handle null user gracefully
+          const userData = user ? {
+            id: user._id,
+            name: user.name || null,
+            baroniId: user.baroniId || null,
+            profilePic: user.profilePic || null
+          } : null;
+
+          // Handle event date safely
+          let scheduledDateTime = null;
+          if (dedication.eventDate) {
+            try {
+              scheduledDateTime = dedication.eventDate instanceof Date 
+                ? dedication.eventDate 
+                : new Date(dedication.eventDate);
+            } catch (e) {
+              scheduledDateTime = dedication.createdAt || new Date();
+            }
+          } else {
+            scheduledDateTime = dedication.createdAt || new Date();
+          }
+
           return {
             id: dedication._id,
             dedicationId: dedication._id,
-            dedicationType: dedication.occasion,
-            type: dedication.occasion,
-            message: dedication.description,
-            star: {
-              id: star._id,
-              name: star.name,
-              baroniId: star.baroniId,
-              profilePic: star.profilePic,
-              professionId: star.profession?._id || star.profession || null,
-              professionName: star.profession?.name || null
-            },
-            user: dedication.fanId,
-            scheduledDateTime: dedication.eventDate,
-            status: dedication.status,
-            price: dedication.price,
-            videoUrl: dedication.videoUrl
+            dedicationType: dedication.occasion || null,
+            type: dedication.occasion || null,
+            message: dedication.description || null,
+            star: starData,
+            user: userData,
+            scheduledDateTime: scheduledDateTime,
+            status: dedication.status || 'pending',
+            price: dedication.price || 0,
+            videoUrl: dedication.videoUrl || null
           };
         }),
         pagination: {
@@ -748,7 +912,13 @@ export const getDedicationAppointments = async (req, res) => {
           totalPages,
           totalCount,
           hasNextPage: pageNum < totalPages,
-          hasPrevPage: pageNum > 1
+          hasPrevPage: pageNum > 1,
+          limit: limitNum
+        },
+        filters: {
+          status: status || 'all',
+          startDate: startDate || null,
+          endDate: endDate || null
         }
       }
     });
@@ -758,7 +928,7 @@ export const getDedicationAppointments = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get dedication appointments',
-      error: error.message
+      error: error.message || 'Unknown error occurred'
     });
   }
 };
