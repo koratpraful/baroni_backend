@@ -1949,7 +1949,7 @@ function generateReport() {
   // Calculate response times for tested endpoints (including those with auth errors)
   let totalResponseTimeForTested = 0;
   let totalTestedRequests = 0;
-  testedEndpointsFinal.forEach(endpointName => {
+  testedEndpointsFinalSummary.forEach(endpointName => {
     const result = results.endpointResults[endpointName];
     if (result && result.responseTimes.length > 0) {
       totalResponseTimeForTested += result.responseTimes.reduce((a, b) => a + b, 0);
