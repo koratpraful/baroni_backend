@@ -89,7 +89,11 @@ export const getAppointmentsWithFilters = async (req, res) => {
     const appointments = await Appointment.find(filter)
       .populate({
         path: 'starId',
-        select: 'name pseudo profilePic baroniId email contact role isVerified profession'
+        select: 'name pseudo profilePic baroniId email contact role isVerified profession',
+        populate: {
+          path: 'profession',
+          select: 'name'
+        }
       })
       .populate({
         path: 'fanId',
@@ -120,6 +124,8 @@ export const getAppointmentsWithFilters = async (req, res) => {
           profilePic: star.profilePic,
           isVerified: star.isVerified,
           role: star.profession || 'Singer',
+          professionId: star.profession?._id || star.profession || null,
+          professionName: star.profession?.name || null,
           email: star.email,
           contact: star.contact
         },
@@ -496,7 +502,11 @@ export const getAppointmentDetails = async (req, res) => {
     const appointment = await Appointment.findById(appointmentId)
       .populate({
         path: 'starId',
-        select: 'name pseudo profilePic baroniId email contact role isVerified profession'
+        select: 'name pseudo profilePic baroniId email contact role isVerified profession',
+        populate: {
+          path: 'profession',
+          select: 'name'
+        }
       })
       .populate({
         path: 'fanId',
@@ -529,6 +539,8 @@ export const getAppointmentDetails = async (req, res) => {
             profilePic: star.profilePic,
             isVerified: star.isVerified,
             role: star.profession || 'Singer',
+            professionId: star.profession?._id || star.profession || null,
+            professionName: star.profession?.name || null,
             email: star.email,
             contact: star.contact
           },
@@ -601,7 +613,14 @@ export const getLiveShowAppointments = async (req, res) => {
 
     // Placeholder data - replace with actual LiveShow queries
     const liveShows = await LiveShow.find(filter)
-      .populate('starId', 'name baroniId profilePic')
+      .populate({
+        path: 'starId',
+        select: 'name baroniId profilePic profession',
+        populate: {
+          path: 'profession',
+          select: 'name'
+        }
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -612,18 +631,28 @@ export const getLiveShowAppointments = async (req, res) => {
     res.json({
       success: true,
       data: {
-        liveShows: liveShows.map(show => ({
-          id: show._id,
-          title: show.title,
-          description: show.description,
-          star: show.starId,
-          scheduledDateTime: show.scheduledDateTime,
-          status: show.status,
-          attendees: show.attendees || 0,
-          maxAttendees: show.maxAttendees || 10000,
-          earnings: show.earnings || 0,
-          ticketPrice: show.ticketPrice || 2000
-        })),
+        liveShows: liveShows.map(show => {
+          const star = show.starId;
+          return {
+            id: show._id,
+            title: show.sessionTitle,
+            description: show.description,
+            star: {
+              id: star._id,
+              name: star.name,
+              baroniId: star.baroniId,
+              profilePic: star.profilePic,
+              professionId: star.profession?._id || star.profession || null,
+              professionName: star.profession?.name || null
+            },
+            scheduledDateTime: new Date(`${show.date.toISOString().split('T')[0]}T${show.time}`),
+            status: show.status,
+            attendees: show.currentAttendees || 0,
+            maxAttendees: show.maxCapacity === -1 ? 10000 : show.maxCapacity,
+            earnings: show.earnings || 0,
+            ticketPrice: show.attendanceFee || 2000
+          };
+        }),
         pagination: {
           currentPage: pageNum,
           totalPages,
@@ -672,7 +701,14 @@ export const getDedicationAppointments = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     const dedications = await DedicationRequest.find(filter)
-      .populate('starId', 'name baroniId profilePic')
+      .populate({
+        path: 'starId',
+        select: 'name baroniId profilePic profession',
+        populate: {
+          path: 'profession',
+          select: 'name'
+        }
+      })
       .populate('fanId', 'name baroniId profilePic')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -684,17 +720,29 @@ export const getDedicationAppointments = async (req, res) => {
     res.json({
       success: true,
       data: {
-        dedications: dedications.map(dedication => ({
-          id: dedication._id,
-          type: dedication.type,
-          message: dedication.message,
-          star: dedication.starId,
-          user: dedication.fanId,
-          scheduledDateTime: dedication.scheduledDateTime,
-          status: dedication.status,
-          price: dedication.price,
-          videoUrl: dedication.videoUrl
-        })),
+        dedications: dedications.map(dedication => {
+          const star = dedication.starId;
+          return {
+            id: dedication._id,
+            dedicationId: dedication._id,
+            dedicationType: dedication.occasion,
+            type: dedication.occasion,
+            message: dedication.description,
+            star: {
+              id: star._id,
+              name: star.name,
+              baroniId: star.baroniId,
+              profilePic: star.profilePic,
+              professionId: star.profession?._id || star.profession || null,
+              professionName: star.profession?.name || null
+            },
+            user: dedication.fanId,
+            scheduledDateTime: dedication.eventDate,
+            status: dedication.status,
+            price: dedication.price,
+            videoUrl: dedication.videoUrl
+          };
+        }),
         pagination: {
           currentPage: pageNum,
           totalPages,
