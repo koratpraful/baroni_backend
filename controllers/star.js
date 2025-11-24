@@ -78,49 +78,186 @@ export const becomeStar = async (req, res) => {
         // Check for pending commitments - fan must complete or cancel all before becoming star
         const userId = req.user._id;
 
-        // Allow users to make multiple payment attempts
-        // Don't cancel existing pending payments - fans can retry anytime
-        const existingStarPayment = await Transaction.findOne({
+        // Cancel ALL existing pending/initiated star payments and create a fresh one
+        // This ensures user always gets a new payment link, even if previous payment was initiated
+        // User can retry payment anytime - we always create a fresh payment link
+        const existingStarPayments = await Transaction.find({
             payerId: userId,
             type: TRANSACTION_TYPES.BECOME_STAR_PAYMENT,
             status: { $in: ['initiated', 'pending'] }
-        });
+        }).sort({ createdAt: -1 });
 
-        if (existingStarPayment) {
-            console.log(`[BecomeStar] User ${userId} already has a pending payment ${existingStarPayment._id}, creating new one anyway`);
+        if (existingStarPayments.length > 0) {
+            console.log(`[BecomeStar] User ${userId} has ${existingStarPayments.length} existing pending payment(s), cancelling them to create a fresh payment`);
+            
+            // Cancel all existing payments
+            for (const existingPayment of existingStarPayments) {
+                try {
+                    // Cancel the existing transaction (works for both 'pending' and 'initiated')
+                    await cancelTransaction(existingPayment._id);
+                    console.log(`[BecomeStar] Successfully cancelled existing payment ${existingPayment._id}`);
+                } catch (cancelError) {
+                    console.error(`[BecomeStar] Error cancelling existing payment ${existingPayment._id}:`, cancelError);
+                    // Continue with other payments even if one fails
+                }
+            }
         }
         
-        const [pendingDedications, pendingAppointments, pendingLiveShows] = await Promise.all([
-            // Check for pending or approved dedication requests where user is the fan
+        // Check for pending commitments and automatically cancel them if payment allows
+        // If payment is 'initiated', allow user to complete payment first (don't block)
+        // If payment is 'pending' or 'completed', automatically cancel and refund
+        
+        // Get all pending appointments that can be cancelled
+        const pendingAppointmentsList = await Appointment.find({
+            fanId: userId,
+            status: { $in: ['pending', 'approved'] },
+            paymentStatus: { $in: ['pending', 'completed'] } // Only cancel if payment is in escrow or released
+        });
+
+        // Get all pending dedications that can be cancelled
+        const pendingDedicationsList = await DedicationRequest.find({
+            fanId: userId,
+            status: { $in: ['pending', 'approved'] },
+            paymentStatus: { $in: ['pending', 'completed'] } // Only cancel if payment is in escrow or released
+        });
+
+        // Get all pending live show attendances that can be cancelled
+        const pendingLiveShowsList = await LiveShowAttendance.find({
+            fanId: userId,
+            status: { $in: ['pending', 'approved'] },
+            paymentStatus: { $in: ['pending', 'completed'] } // Only cancel if payment is in escrow or released
+        });
+
+        // Automatically cancel and refund pending appointments
+        for (const appointment of pendingAppointmentsList) {
+            try {
+                // Refund escrow if payment was pending or completed
+                if (appointment.paymentStatus === 'pending' || appointment.paymentStatus === 'completed') {
+                    const { refundEscrow } = await import('../services/starWalletService.js');
+                    await refundEscrow(appointment.starId, appointment._id, null);
+                }
+                
+                // Cancel or refund the transaction
+                if (appointment.transactionId) {
+                    const transaction = await Transaction.findById(appointment.transactionId);
+                    if (transaction) {
+                        if (transaction.status === 'pending') {
+                            await cancelTransaction(appointment.transactionId);
+                        } else if (transaction.status === 'completed') {
+                            const { refundTransaction } = await import('../services/transactionService.js');
+                            await refundTransaction(appointment.transactionId);
+                        }
+                    }
+                }
+                
+                // Free the reserved slot
+                await Availability.updateOne(
+                    { _id: appointment.availabilityId, userId: appointment.starId, 'timeSlots._id': appointment.timeSlotId },
+                    { $set: { 'timeSlots.$.status': 'available' } }
+                );
+                
+                // Mark appointment as cancelled
+                appointment.status = 'cancelled';
+                appointment.paymentStatus = 'refunded';
+                await appointment.save();
+                
+                console.log(`[BecomeStar] Auto-cancelled appointment ${appointment._id} for user ${userId}`);
+            } catch (error) {
+                console.error(`[BecomeStar] Error auto-cancelling appointment ${appointment._id}:`, error);
+                // Continue with other appointments even if one fails
+            }
+        }
+
+        // Automatically cancel and refund pending dedications
+        for (const dedication of pendingDedicationsList) {
+            try {
+                // Refund escrow if payment was pending
+                if (dedication.paymentStatus === 'pending' || dedication.paymentStatus === 'completed') {
+                    const { refundEscrow } = await import('../services/starWalletService.js');
+                    await refundEscrow(dedication.starId, null, dedication._id);
+                }
+                
+                // Cancel the transaction
+                if (dedication.transactionId) {
+                    await cancelTransaction(dedication.transactionId);
+                }
+                
+                // Mark dedication as cancelled
+                dedication.status = 'cancelled';
+                dedication.paymentStatus = 'refunded';
+                dedication.cancelledAt = new Date();
+                await dedication.save();
+                
+                console.log(`[BecomeStar] Auto-cancelled dedication ${dedication._id} for user ${userId}`);
+            } catch (error) {
+                console.error(`[BecomeStar] Error auto-cancelling dedication ${dedication._id}:`, error);
+                // Continue with other dedications even if one fails
+            }
+        }
+
+        // Automatically cancel and refund pending live show attendances
+        for (const attendance of pendingLiveShowsList) {
+            try {
+                // Refund escrow if payment was pending (live shows don't use escrow the same way, but check transaction)
+                // Cancel the transaction first
+                if (attendance.transactionId) {
+                    const transaction = await Transaction.findById(attendance.transactionId);
+                    if (transaction) {
+                        if (transaction.status === 'pending') {
+                            await cancelTransaction(attendance.transactionId);
+                        } else if (transaction.status === 'completed') {
+                            const { refundTransaction } = await import('../services/transactionService.js');
+                            await refundTransaction(attendance.transactionId);
+                        }
+                    }
+                }
+                
+                // Mark attendance as cancelled
+                attendance.status = 'cancelled';
+                attendance.paymentStatus = 'refunded';
+                attendance.cancelledAt = new Date();
+                await attendance.save();
+                
+                console.log(`[BecomeStar] Auto-cancelled live show attendance ${attendance._id} for user ${userId}`);
+            } catch (error) {
+                console.error(`[BecomeStar] Error auto-cancelling live show attendance ${attendance._id}:`, error);
+                // Continue with other attendances even if one fails
+            }
+        }
+
+        // Now check again for any remaining commitments (only those with 'initiated' payment status)
+        // These can't be auto-cancelled because payment is not complete - user must complete or cancel manually
+        const [remainingDedications, remainingAppointments, remainingLiveShows] = await Promise.all([
             DedicationRequest.countDocuments({
                 fanId: userId,
-                status: { $in: ['pending', 'approved'] }
+                status: { $in: ['pending', 'approved'] },
+                paymentStatus: 'initiated' // Only block if payment is still initiated (not completed)
             }),
 
-            // Check for pending or approved appointments where user is the fan
             Appointment.countDocuments({
                 fanId: userId,
-                status: { $in: ['pending', 'approved'] }
+                status: { $in: ['pending', 'approved'] },
+                paymentStatus: 'initiated' // Only block if payment is still initiated (not completed)
             }),
 
-            // Check for pending live show attendances where user is the fan
             LiveShowAttendance.countDocuments({
                 fanId: userId,
-                status: { $in: ['pending', 'approved'] }
+                status: { $in: ['pending', 'approved'] },
+                paymentStatus: 'initiated' // Only block if payment is still initiated (not completed)
             })
         ]);
 
-        const totalPendingCommitments = pendingDedications + pendingAppointments + pendingLiveShows;
+        const totalRemainingCommitments = remainingDedications + remainingAppointments + remainingLiveShows;
 
-        if (totalPendingCommitments > 0) {
+        if (totalRemainingCommitments > 0) {
             const commitmentDetails = [];
-            if (pendingDedications > 0) commitmentDetails.push(`${pendingDedications} dedication request`);
-            if (pendingAppointments > 0) commitmentDetails.push(`${pendingAppointments} appointment`);
-            if (pendingLiveShows > 0) commitmentDetails.push(`${pendingLiveShows} live show attendance`);
+            if (remainingDedications > 0) commitmentDetails.push(`${remainingDedications} dedication request`);
+            if (remainingAppointments > 0) commitmentDetails.push(`${remainingAppointments} appointment`);
+            if (remainingLiveShows > 0) commitmentDetails.push(`${remainingLiveShows} live show attendance`);
 
             return res.status(400).json({
                 success: false,
-                message: `You have ${totalPendingCommitments} pending commitment that must be completed or cancelled before becoming a star: ${commitmentDetails.join(', ')}. Please complete or cancel all your pending commitments first.`
+                message: `You have ${totalRemainingCommitments} pending commitment with incomplete payment that must be completed or cancelled before becoming a star: ${commitmentDetails.join(', ')}. Please complete or cancel the payment for these commitments first.`
             });
         }
 
