@@ -15,13 +15,29 @@ const CONFIG = {
   requestsPerUser: parseInt(process.env.REQUESTS_PER_USER || '50'), // Reduced default for faster testing
   testDuration: parseInt(process.env.TEST_DURATION || '120'), // 2 minutes default (reduced from 5)
   rampUpTime: parseInt(process.env.RAMP_UP_TIME || '30'), // 30 seconds ramp up (reduced from 60)
-  adminToken: process.env.ADMIN_TOKEN || '',
-  userToken: process.env.USER_TOKEN || '',
+  // Tokens will be obtained via login - not from env (tokens expire and change)
+  adminToken: '', // Will be set after admin login
+  userToken: '', // Will be set after star/fan login
+  starToken: '', // Will be set after star login
+  fanToken: '', // Will be set after fan login
   batchSize: parseInt(process.env.BATCH_SIZE || '200'), // Increased batch size for better performance
   requestDelay: parseInt(process.env.REQUEST_DELAY || '50'), // Delay between requests in ms (reduced from 100)
   requestTimeout: parseInt(process.env.REQUEST_TIMEOUT || '15000'), // 15 seconds timeout (was 0 = infinite)
   maxRetries: parseInt(process.env.MAX_RETRIES || '2'), // Retry failed requests up to 2 times
   retryDelay: parseInt(process.env.RETRY_DELAY || '100'), // Delay before retry in ms
+  // Login credentials
+  starCredentials: {
+    contact: process.env.STAR_CONTACT || '+917201940692',
+    password: process.env.STAR_PASSWORD || 'Kp@123456'
+  },
+  fanCredentials: {
+    contact: process.env.FAN_CONTACT || '+917201940693',
+    password: process.env.FAN_PASSWORD || 'Kp@123456'
+  },
+  adminCredentials: {
+    email: process.env.ADMIN_EMAIL || 'hiren@admin.com', // Admin login uses email, not phone
+    password: process.env.ADMIN_PASSWORD || '12345678'
+  }
 };
 
 // Test results storage
@@ -940,8 +956,12 @@ async function makeRequest(endpoint, retryCount = 0) {
     if (endpoint.auth) {
       if (endpoint.requiresToken === 'admin' && CONFIG.adminToken) {
         config.headers = { Authorization: `Bearer ${CONFIG.adminToken}` };
-      } else if (endpoint.requiresToken === 'user' && CONFIG.userToken) {
-        config.headers = { Authorization: `Bearer ${CONFIG.userToken}` };
+      } else if (endpoint.requiresToken === 'user') {
+        // Prefer star token, fallback to fan token, then userToken
+        const token = CONFIG.starToken || CONFIG.fanToken || CONFIG.userToken;
+        if (token) {
+          config.headers = { Authorization: `Bearer ${token}` };
+        }
       }
       // If token is missing, proceed without header - API will return auth error which is valid test result
     }
@@ -977,6 +997,11 @@ async function makeRequest(endpoint, retryCount = 0) {
     isTimeout = err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED' || error.includes('timeout');
     isConnectionError = err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || 
                        err.code === 'EPIPE' || error.includes('ECONNRESET') || error.includes('ECONNREFUSED');
+
+    // Cap response time at timeout value to avoid inflating averages
+    if (isTimeout && responseTime > CONFIG.requestTimeout) {
+      responseTime = CONFIG.requestTimeout;
+    }
 
     // Retry logic for transient errors (timeouts and connection errors)
     if (retryCount < CONFIG.maxRetries && (isTimeout || isConnectionError)) {
@@ -1252,6 +1277,10 @@ function generateReport() {
   const duration = Math.max((results.endTime - results.startTime) / 1000, 0.01); // seconds (min 0.01 to avoid division by zero)
   const requestsPerSecond = results.totalRequests / duration;
   const successRate = results.totalRequests > 0 ? (results.successfulRequests / results.totalRequests) * 100 : 0;
+  
+  // Check token availability
+  const hasUserToken = CONFIG.starToken || CONFIG.fanToken || CONFIG.userToken;
+  const hasAdminToken = CONFIG.adminToken;
 
   let report = '';
   report += '='.repeat(80) + '\n';
@@ -1269,9 +1298,12 @@ function generateReport() {
   report += `- Request Timeout: ${CONFIG.requestTimeout} ms (${(CONFIG.requestTimeout / 1000).toFixed(1)} seconds)\n`;
   report += `- Max Retries: ${CONFIG.maxRetries} (for timeout/connection errors)\n`;
   report += `- Total Endpoints Configured: ${testEndpoints.length}\n`;
-  report += `- Admin Token: ${CONFIG.adminToken ? 'Provided ✓' : 'Not Provided ✗ (Admin endpoints will return 401/403)'}\n`;
-  report += `- User Token: ${CONFIG.userToken ? 'Provided ✓' : 'Not Provided ✗ (User endpoints will return 401/403)'}\n`;
-  report += `\nNote: All endpoints are tested regardless of token availability. Missing tokens result in 401/403 errors, which are valid test results.\n\n`;
+  report += `- Admin Token: ${CONFIG.adminToken ? 'Provided ✓ (from login)' : 'Not Provided ✗ (Admin endpoints will return 401/403)'}\n`;
+  report += `- Star Token: ${CONFIG.starToken ? 'Provided ✓ (from login)' : 'Not Provided ✗'}\n`;
+  report += `- Fan Token: ${CONFIG.fanToken ? 'Provided ✓ (from login)' : 'Not Provided ✗'}\n`;
+  report += `- User Token: ${CONFIG.userToken ? 'Provided ✓ (from login)' : 'Not Provided ✗ (User endpoints will return 401/403)'}\n`;
+  report += `\nNote: All endpoints are tested regardless of token availability. Missing tokens result in 401/403 errors, which are valid test results.\n`;
+  report += `Tokens were automatically obtained via login before the test started.\n\n`;
 
   report += `Test Execution:\n`;
   report += `- Start Time: ${new Date(results.startTime).toISOString()}\n`;
@@ -1302,7 +1334,7 @@ function generateReport() {
     ? (results.successfulRequests / nonAuthRequestsTotal) * 100 
     : 0;
   
-  if (results.authErrors > 0 && !CONFIG.userToken && !CONFIG.adminToken) {
+  if (results.authErrors > 0 && !hasUserToken && !hasAdminToken) {
     report += `\n📊 Success Rate Analysis:\n`;
     report += `  - Overall Success Rate: ${successRate.toFixed(2)}% (includes auth-protected endpoints)\n`;
     report += `  - Success Rate (excluding auth errors): ${successRateExcludingAuthTotal.toFixed(2)}%\n`;
@@ -1327,7 +1359,7 @@ function generateReport() {
     }
     if (results.authErrors > 0) {
       const authPct = (results.authErrors / results.totalRequests) * 100;
-      const isExpected = !CONFIG.userToken && !CONFIG.adminToken;
+      const isExpected = !hasUserToken && !hasAdminToken;
       report += `  - Authentication Errors (401/403): ${results.authErrors.toLocaleString()} (${authPct.toFixed(2)}%) ${isExpected ? '✓ Expected (no tokens provided)' : '⚠️'}\n`;
     }
     const otherErrors = results.failedRequests - results.timeoutErrors - results.connectionErrors - results.authErrors;
@@ -1405,15 +1437,15 @@ function generateReport() {
   if (totalAuthErrors > 0) {
     report += `⚠ Authentication Issues Detected:\n`;
     report += `  - Total 401/403 Errors: ${totalAuthErrors.toLocaleString()} (${authErrorPercentage}% of all requests)\n`;
-    if (!CONFIG.userToken && !CONFIG.adminToken) {
+    if (!hasUserToken && !hasAdminToken) {
       report += `  - Reason: No authentication tokens provided\n`;
-      report += `  - Recommendation: Provide USER_TOKEN and/or ADMIN_TOKEN environment variables\n`;
-    } else if (!CONFIG.userToken) {
+      report += `  - Recommendation: Login credentials should be configured in the script\n`;
+    } else if (!hasUserToken) {
       report += `  - Reason: User token not provided (some endpoints require user authentication)\n`;
-      report += `  - Recommendation: Provide USER_TOKEN environment variable\n`;
-    } else if (!CONFIG.adminToken) {
+      report += `  - Recommendation: Check star/fan login credentials\n`;
+    } else if (!hasAdminToken) {
       report += `  - Reason: Admin token not provided (some endpoints require admin authentication)\n`;
-      report += `  - Recommendation: Provide ADMIN_TOKEN environment variable\n`;
+      report += `  - Recommendation: Check admin login credentials\n`;
     }
     report += `  - Note: Auth errors are expected when tokens are missing. This is valid test data.\n\n`;
   }
@@ -1431,9 +1463,11 @@ function generateReport() {
     report += `Untested Endpoints Details:\n`;
     if (untestedEndpoints.length <= 20) {
       untestedEndpoints.forEach(ep => {
-        const reason = ep.auth && ep.requiresToken && !CONFIG[`${ep.requiresToken}Token`] 
-          ? ` (Missing ${ep.requiresToken} token)` 
-          : ep.auth && !CONFIG.userToken && !CONFIG.adminToken
+        const reason = ep.auth && ep.requiresToken === 'admin' && !hasAdminToken
+          ? ` (Missing admin token)` 
+          : ep.auth && ep.requiresToken === 'user' && !hasUserToken
+          ? ` (Missing user token)`
+          : ep.auth && !hasUserToken && !hasAdminToken
           ? ` (Missing authentication token)`
           : '';
         report += `  * ${ep.name} - ${ep.method} ${ep.path}${reason}\n`;
@@ -1444,9 +1478,11 @@ function generateReport() {
       const groupedByReason = {};
       untestedEndpoints.forEach(ep => {
         let reason = 'Unknown';
-        if (ep.auth && ep.requiresToken && !CONFIG[`${ep.requiresToken}Token`]) {
-          reason = `Missing ${ep.requiresToken} token`;
-        } else if (ep.auth && !CONFIG.userToken && !CONFIG.adminToken) {
+        if (ep.auth && ep.requiresToken === 'admin' && !hasAdminToken) {
+          reason = `Missing admin token`;
+        } else if (ep.auth && ep.requiresToken === 'user' && !hasUserToken) {
+          reason = 'Missing user token';
+        } else if (ep.auth && !hasUserToken && !hasAdminToken) {
           reason = 'Missing authentication token';
         } else {
           reason = 'Not selected during test';
@@ -1512,8 +1548,10 @@ function generateReport() {
         report += `Endpoint: ${endpoint.name}\n`;
         report += `  Path: ${endpoint.method} ${endpoint.path}\n`;
         report += `  Status: NOT TESTED (${endpoint.auth ? 'Requires Auth' : 'Public'})\n`;
-        if (endpoint.requiresToken && !CONFIG[`${endpoint.requiresToken}Token`]) {
-          report += `  Reason: ${endpoint.requiresToken} token not provided\n`;
+        if (endpoint.requiresToken === 'admin' && !hasAdminToken) {
+          report += `  Reason: Admin token not provided\n`;
+        } else if (endpoint.requiresToken === 'user' && !hasUserToken) {
+          report += `  Reason: User token not provided\n`;
         }
         report += '\n';
         return;
@@ -1786,7 +1824,7 @@ function generateReport() {
   if (requestsPerSecond < 10) {
     report += `- Low throughput (${requestsPerSecond.toFixed(1)} RPS): Consider optimizing database queries or adding caching\n`;
   }
-  if (results.authErrors > 0 && !CONFIG.userToken && !CONFIG.adminToken) {
+  if (results.authErrors > 0 && !hasUserToken && !hasAdminToken) {
     report += `- Provide authentication tokens to test protected endpoints properly\n`;
   }
   if (results.errors.length > 0) {
@@ -1808,7 +1846,7 @@ function generateReport() {
   report += `✓ Total Requests Processed: ${results.totalRequests.toLocaleString()}\n`;
   report += `✓ Average Throughput: ${requestsPerSecond.toFixed(2)} requests/second\n`;
   report += `✓ Overall Success Rate: ${successRate.toFixed(2)}%\n`;
-  if (results.authErrors > 0 && !CONFIG.userToken && !CONFIG.adminToken) {
+  if (results.authErrors > 0 && !hasUserToken && !hasAdminToken) {
     report += `✓ Success Rate (excluding auth errors): ${successRateExcludingAuthSummary.toFixed(2)}%\n`;
     report += `  (${results.authErrors.toLocaleString()} auth errors are expected when tokens not provided)\n`;
   }
@@ -1893,11 +1931,11 @@ function generateReport() {
           status = `✓ TESTED (${endpointResult.totalRequests} requests, ${successRate}% success)`;
         }
       } else {
-        if (endpoint.auth && endpoint.requiresToken === 'admin' && !CONFIG.adminToken) {
+        if (endpoint.auth && endpoint.requiresToken === 'admin' && !hasAdminToken) {
           status = `✗ NOT TESTED (Missing admin token - would return 401/403)`;
-        } else if (endpoint.auth && endpoint.requiresToken === 'user' && !CONFIG.userToken) {
+        } else if (endpoint.auth && endpoint.requiresToken === 'user' && !hasUserToken) {
           status = `✗ NOT TESTED (Missing user token - would return 401/403)`;
-        } else if (endpoint.auth && !CONFIG.userToken && !CONFIG.adminToken) {
+        } else if (endpoint.auth && !hasUserToken && !hasAdminToken) {
           status = `✗ NOT TESTED (Missing authentication token - would return 401/403)`;
         } else {
           status = `✗ NOT TESTED (Not selected during test)`;
@@ -1972,7 +2010,7 @@ function generateReport() {
 
   report += `🔐 AUTHENTICATION STATUS\n`;
   report += `${'─'.repeat(80)}\n\n`;
-  if (!CONFIG.userToken && !CONFIG.adminToken) {
+  if (!hasUserToken && !hasAdminToken) {
     report += `Authentication Tokens: NOT PROVIDED\n\n`;
     report += `Important Note:\n`;
     report += `  ✓ All ${testEndpoints.length} endpoints were tested regardless of authentication status\n`;
@@ -1991,8 +2029,10 @@ function generateReport() {
     report += `      → These are EXPECTED and indicate proper security implementation\n\n`;
   } else {
     report += `Authentication Tokens: PROVIDED\n`;
-    if (CONFIG.userToken) report += `  • User Token: ✓ Provided\n`;
-    if (CONFIG.adminToken) report += `  • Admin Token: ✓ Provided\n\n`;
+    if (CONFIG.starToken) report += `  • Star Token: ✓ Provided (from login)\n`;
+    if (CONFIG.fanToken) report += `  • Fan Token: ✓ Provided (from login)\n`;
+    if (CONFIG.userToken) report += `  • User Token: ✓ Provided (from login)\n`;
+    if (CONFIG.adminToken) report += `  • Admin Token: ✓ Provided (from login)\n\n`;
   }
 
   report += `✅ ENDPOINT TESTING STATUS\n`;
@@ -2093,13 +2133,13 @@ function generateReport() {
   report += `\n`;
 
   report += `3. Authentication & Security:\n`;
-  if (results.authErrors > 0 && !CONFIG.userToken && !CONFIG.adminToken) {
+  if (results.authErrors > 0 && !hasUserToken && !hasAdminToken) {
     report += `   ✓ Authentication system is working correctly\n`;
     report += `   ✓ ${results.authErrors.toLocaleString()} protected endpoints properly rejected unauthorized requests\n`;
     report += `   ✓ All protected endpoints returned appropriate 401/403 status codes\n`;
     report += `   ✓ Security middleware is functioning as expected\n`;
-  } else if (CONFIG.userToken || CONFIG.adminToken) {
-    report += `   ✓ Authentication tokens were provided and tested\n`;
+  } else if (hasUserToken || hasAdminToken) {
+    report += `   ✓ Authentication tokens were obtained via login and tested\n`;
     report += `   ✓ Protected endpoints were tested with valid credentials\n`;
   }
   report += `\n`;
@@ -2146,15 +2186,17 @@ function generateReport() {
   report += `  • All endpoints are accessible and responding\n\n`;
 
   report += `Authentication Status:\n`;
-  if (!CONFIG.userToken && !CONFIG.adminToken) {
+  if (!hasUserToken && !hasAdminToken) {
     report += `  • Status: No authentication tokens provided\n`;
     report += `  • Impact: Protected endpoints return 401/403 (EXPECTED behavior)\n`;
     report += `  • Verification: ${results.authErrors.toLocaleString()} auth errors confirm security is working\n`;
     report += `  • Conclusion: APIs are properly secured and authentication is enforced\n\n`;
   } else {
     report += `  • Status: Authentication tokens provided\n`;
-    if (CONFIG.userToken) report += `  • User Token: ✓ Active\n`;
-    if (CONFIG.adminToken) report += `  • Admin Token: ✓ Active\n`;
+    if (CONFIG.starToken) report += `  • Star Token: ✓ Active (from login)\n`;
+    if (CONFIG.fanToken) report += `  • Fan Token: ✓ Active (from login)\n`;
+    if (CONFIG.userToken) report += `  • User Token: ✓ Active (from login)\n`;
+    if (CONFIG.adminToken) report += `  • Admin Token: ✓ Active (from login)\n`;
     report += `  • Protected endpoints tested with valid credentials\n\n`;
   }
 
@@ -2162,7 +2204,7 @@ function generateReport() {
   report += `  • Response Time: ${overallStats.avg.toFixed(2)}ms average (${(overallStats.avg / 1000).toFixed(2)}s)\n`;
   report += `  • Throughput: ${requestsPerSecond.toFixed(2)} requests/second\n`;
   report += `  • Success Rate: ${successRate.toFixed(2)}% overall\n`;
-  if (results.authErrors > 0 && !CONFIG.userToken && !CONFIG.adminToken) {
+  if (results.authErrors > 0 && !hasUserToken && !hasAdminToken) {
     report += `  • Success Rate (excluding auth): ${successRateExcludingAuthFinal.toFixed(2)}%\n`;
   }
   report += `  • System Stability: ${results.timeoutErrors === 0 && results.connectionErrors === 0 ? '✓ Stable' : '⚠ Issues detected'}\n\n`;
@@ -2171,7 +2213,7 @@ function generateReport() {
   report += `${'─'.repeat(80)}\n\n`;
   report += `All ${testEndpoints.length} API endpoints were tested under load of ${CONFIG.concurrentUsers.toLocaleString()} concurrent users.\n\n`;
   
-  if (!CONFIG.userToken && !CONFIG.adminToken) {
+  if (!hasUserToken && !hasAdminToken) {
     report += `Even without authentication tokens:\n`;
     report += `  ✓ All endpoints were successfully tested and responded\n`;
     report += `  ✓ Response times (avg ${overallStats.avg.toFixed(2)}ms) confirm APIs are working\n`;
@@ -2203,7 +2245,7 @@ function generateReport() {
   report += `Test Coverage: ${((testedEndpointsFinalSummary.length / testEndpoints.length) * 100).toFixed(1)}%\n`;
   report += `Total Requests: ${results.totalRequests.toLocaleString()}\n`;
   report += `Success Rate: ${successRate.toFixed(2)}%\n`;
-  if (results.authErrors > 0 && !CONFIG.userToken && !CONFIG.adminToken) {
+  if (results.authErrors > 0 && !hasUserToken && !hasAdminToken) {
     report += `Success Rate (excluding auth): ${successRateExcludingAuthFinal.toFixed(2)}%\n`;
   }
   report += '='.repeat(80) + '\n';
@@ -2220,6 +2262,175 @@ function saveReport(report) {
   fs.writeFileSync(filepath, report, 'utf8');
   console.log(`\nReport saved to: ${filepath}`);
   return filepath;
+}
+
+// Login functions
+async function loginStar() {
+  try {
+    console.log('Logging in as Star...');
+    const response = await axios.post(`${CONFIG.baseUrl}/api/auth/login`, {
+      contact: CONFIG.starCredentials.contact,
+      password: CONFIG.starCredentials.password,
+      isMobile: true
+    }, {
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    if (response.status === 200 && response.data.success && response.data.tokens?.accessToken) {
+      CONFIG.starToken = response.data.tokens.accessToken;
+      CONFIG.userToken = response.data.tokens.accessToken; // Use star token as user token too
+      console.log('✓ Star login successful');
+      console.log(`  Token stored in CONFIG (not env file)`);
+      return true;
+    } else {
+      console.error(`✗ Star login failed: ${response.data?.message || 'Unknown error'}`);
+      console.error(`  Status: ${response.status}`);
+      if (response.data) {
+        console.error(`  Response:`, JSON.stringify(response.data, null, 2));
+      }
+      return false;
+    }
+  } catch (error) {
+    console.error(`✗ Star login error: ${error.message || error.code || 'Unknown error'}`);
+    if (error.response) {
+      console.error(`  Response status: ${error.response.status}`);
+      console.error(`  Response data:`, JSON.stringify(error.response.data, null, 2));
+    }
+    return false;
+  }
+}
+
+async function loginFan() {
+  try {
+    console.log('Logging in as Fan...');
+    console.log(`  Using contact: ${CONFIG.fanCredentials.contact}`);
+    const response = await axios.post(`${CONFIG.baseUrl}/api/auth/login`, {
+      contact: CONFIG.fanCredentials.contact,
+      password: CONFIG.fanCredentials.password,
+      isMobile: true
+    }, {
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    if (response.status === 200 && response.data.success && response.data.tokens?.accessToken) {
+      CONFIG.fanToken = response.data.tokens.accessToken;
+      // If userToken is not set, use fan token
+      if (!CONFIG.userToken) {
+        CONFIG.userToken = response.data.tokens.accessToken;
+      }
+      console.log('✓ Fan login successful');
+      console.log(`  Token stored in CONFIG (not env file)`);
+      return true;
+    } else {
+      console.error(`✗ Fan login failed: ${response.data?.message || 'Unknown error'}`);
+      console.error(`  Status: ${response.status}`);
+      if (response.data) {
+        console.error(`  Response:`, JSON.stringify(response.data, null, 2));
+      }
+      return false;
+    }
+  } catch (error) {
+    console.error(`✗ Fan login error: ${error.message || error.code || 'Unknown error'}`);
+    if (error.response) {
+      console.error(`  Response status: ${error.response.status}`);
+      console.error(`  Response data:`, JSON.stringify(error.response.data, null, 2));
+    }
+    return false;
+  }
+}
+
+async function loginAdmin() {
+  try {
+    console.log('Logging in as Admin...');
+    console.log(`  Using email: ${CONFIG.adminCredentials.email}`);
+    const response = await axios.post(`${CONFIG.baseUrl}/api/admin/signin`, {
+      email: CONFIG.adminCredentials.email,
+      password: CONFIG.adminCredentials.password
+    }, {
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    // Debug: Log response for troubleshooting
+    if (response.status !== 200) {
+      console.error(`  Response status: ${response.status}`);
+      console.error(`  Response data:`, JSON.stringify(response.data, null, 2));
+    }
+
+    // Check different response structures
+    let accessToken = null;
+    if (response.status === 200 && response.data.success) {
+      // Try different possible response structures
+      accessToken = response.data.data?.tokens?.accessToken || 
+                   response.data.tokens?.accessToken ||
+                   response.data.accessToken;
+    }
+
+    if (accessToken) {
+      CONFIG.adminToken = accessToken;
+      console.log('✓ Admin login successful');
+      console.log(`  Token stored in CONFIG (not env file)`);
+      return true;
+    } else {
+      console.error(`✗ Admin login failed: ${response.data?.message || 'Unknown error'}`);
+      console.error(`  Status: ${response.status}`);
+      console.error(`  Response:`, JSON.stringify(response.data, null, 2));
+      return false;
+    }
+  } catch (error) {
+    console.error(`✗ Admin login error: ${error.message || error.code || 'Unknown error'}`);
+    if (error.response) {
+      console.error(`  Response status: ${error.response.status}`);
+      console.error(`  Response data:`, JSON.stringify(error.response.data, null, 2));
+    }
+    return false;
+  }
+}
+
+// Login all users before starting load test
+async function loginAllUsers() {
+  console.log('\n' + '='.repeat(80));
+  console.log('AUTHENTICATION');
+  console.log('='.repeat(80));
+  
+  const results = {
+    star: false,
+    fan: false,
+    admin: false
+  };
+
+  // Login star
+  results.star = await loginStar();
+  
+  // Login fan
+  results.fan = await loginFan();
+  
+  // Login admin
+  results.admin = await loginAdmin();
+
+  console.log('\n' + '='.repeat(80));
+  console.log('LOGIN SUMMARY');
+  console.log('='.repeat(80));
+  console.log(`Star Login: ${results.star ? '✓ Success' : '✗ Failed'}`);
+  console.log(`Fan Login: ${results.fan ? '✓ Success' : '✗ Failed'}`);
+  console.log(`Admin Login: ${results.admin ? '✓ Success' : '✗ Failed'}`);
+  console.log('='.repeat(80) + '\n');
+
+  // Use tokens
+  if (CONFIG.starToken) {
+    console.log('✓ Using Star token for user endpoints');
+  }
+  if (CONFIG.fanToken) {
+    console.log('✓ Using Fan token as backup for user endpoints');
+  }
+  if (CONFIG.adminToken) {
+    console.log('✓ Using Admin token for admin endpoints');
+  }
+  console.log('');
+
+  return results;
 }
 
 // Test server connection
@@ -2268,6 +2479,17 @@ async function runLoadTest() {
   if (!connected) {
     console.error('Cannot proceed with load test. Server is not accessible.');
     process.exit(1);
+  }
+
+  // Login all users before starting load test
+  const loginResults = await loginAllUsers();
+  
+  // Warn if some logins failed, but continue anyway
+  if (!loginResults.star && !loginResults.fan) {
+    console.warn('⚠️  Warning: Both Star and Fan login failed. User endpoints will return 401/403 errors.');
+  }
+  if (!loginResults.admin) {
+    console.warn('⚠️  Warning: Admin login failed. Admin endpoints will return 401/403 errors.');
   }
 
   results.startTime = Date.now();
