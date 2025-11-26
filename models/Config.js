@@ -50,10 +50,15 @@ const configSchema = new mongoose.Schema(
 );
 
 // Ensure only a single config document is used operationally
+// Always returns the same singleton config document
 configSchema.statics.getSingleton = async function () {
-  const existing = await this.findOne();
-  if (existing) return existing;
-  return this.create({});
+  let existing = await this.findOne();
+  if (existing) {
+    return existing;
+  }
+  // Create new config with defaults if none exists
+  existing = await this.create({});
+  return existing;
 };
 
 const Config = mongoose.model('Config', configSchema);

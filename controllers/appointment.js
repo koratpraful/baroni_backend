@@ -776,18 +776,21 @@ export const listAppointments = async (req, res) => {
     });
 
     // Apply proper sorting logic: by status priority, then by date ascending
-    // Status priority: (1) pending, (2) approved, (3) completed, (4) cancelled/rejected
+    // Status priority: (1) pending, (2) approved/in_progress, (3) missed, (4) completed, (5) cancelled/rejected
     // Within each status group, sort by date ascending (nearest to furthest)
+    // MISSED status always comes before COMPLETED status
     
     const getStatusPriority = (status) => {
       switch (status) {
         case 'pending': return 1;
         case 'approved': 
         case 'in_progress': return 2;
-        case 'completed': return 3;
+        case 'missed': return 3; // Missed comes before completed
+        case 'completed': return 4;
         case 'cancelled':
-        case 'rejected': return 4;
-        default: return 5;
+        case 'rejected': return 5;
+        case 'rescheduled': return 6;
+        default: return 7;
       }
     };
     
