@@ -137,6 +137,44 @@ export const getAppointmentsWithFilters = async (req, res) => {
       .skip(skip)
       .limit(limitNum);
 
+    // Apply status priority sorting after fetching (missed comes before completed)
+    // Status priority: (1) pending, (2) approved/in_progress, (3) missed, (4) completed, (5) cancelled/rejected
+    const getStatusPriority = (status) => {
+      switch (status) {
+        case 'pending': return 1;
+        case 'approved': 
+        case 'in_progress': return 2;
+        case 'missed': return 3; // Missed comes before completed
+        case 'completed': return 4;
+        case 'cancelled':
+        case 'rejected': return 5;
+        case 'rescheduled': return 6;
+        default: return 7;
+      }
+    };
+
+    // Sort appointments: first by status priority (missed before completed), then by the original sort field
+    appointments.sort((a, b) => {
+      const statusPriorityA = getStatusPriority(a.status);
+      const statusPriorityB = getStatusPriority(b.status);
+      
+      // If status priorities are different, sort by status priority first
+      if (statusPriorityA !== statusPriorityB) {
+        return statusPriorityA - statusPriorityB;
+      }
+      
+      // If same status priority, use the original sort field
+      const valueA = a[sortField] ? (a[sortField] instanceof Date ? a[sortField].getTime() : a[sortField]) : 0;
+      const valueB = b[sortField] ? (b[sortField] instanceof Date ? b[sortField].getTime() : b[sortField]) : 0;
+      
+      if (valueA !== valueB) {
+        return sortDirection === 1 ? valueA - valueB : valueB - valueA;
+      }
+      
+      // Tertiary sort by _id for stable sorting
+      return String(a._id).localeCompare(String(b._id));
+    });
+
     // Get total count for pagination
     const totalCount = await Appointment.countDocuments(filter);
     const totalPages = Math.ceil(totalCount / limitNum);
