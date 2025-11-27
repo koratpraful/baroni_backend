@@ -3,6 +3,7 @@ import { getFirstValidationError } from '../utils/validationHelper.js';
 import JackpotWithdrawalRequest from '../models/JackpotWithdrawalRequest.js';
 import StarWallet from '../models/StarWallet.js';
 import { getOrCreateStarWallet } from '../services/starWalletService.js';
+import mongoose from 'mongoose';
 
 /**
  * Create jackpot withdrawal request (Star side)
@@ -76,27 +77,67 @@ export const createWithdrawalRequest = async (req, res) => {
       });
     }
 
-    // Create withdrawal request with pending status
-    const withdrawalRequest = await JackpotWithdrawalRequest.create({
-      starId,
-      amount: numericAmount,
-      status: 'pending',
-      note: note || undefined
-    });
+    // IMPORTANT: Deduct amount from jackpot IMMEDIATELY when creating pending request
+    // This reserves/holds the amount so it can't be used for other withdrawals
+    const session = await mongoose.startSession();
+    let withdrawalRequest;
+    const previousJackpot = wallet.jackpot;
+    
+    try {
+      await session.withTransaction(async () => {
+        // Get fresh wallet within transaction to verify balance
+        const walletDoc = await StarWallet.findOne({ starId }).session(session);
+        if (!walletDoc) {
+          throw new Error('Star wallet not found');
+        }
+        
+        // Verify balance again within transaction (double-check)
+        const walletJackpot = walletDoc.jackpot || 0;
+        if (walletJackpot < numericAmount) {
+          throw new Error(`Insufficient jackpot balance. Available: ${walletJackpot}, Requested: ${numericAmount}`);
+        }
+        
+        // Deduct from jackpot immediately (reserve the amount)
+        walletDoc.jackpot = walletJackpot - numericAmount;
+        await walletDoc.save({ session });
+        
+        console.log(`[StarJackpot] Deducted ${numericAmount} from jackpot. Old: ${walletJackpot}, New: ${walletDoc.jackpot}`);
+
+        // Create withdrawal request with pending status
+        withdrawalRequest = await JackpotWithdrawalRequest.create([{
+          starId,
+          amount: numericAmount,
+          status: 'pending',
+          note: note || undefined
+        }], { session });
+
+        withdrawalRequest = withdrawalRequest[0];
+      });
+    } catch (transactionError) {
+      console.error('[StarJackpot] Transaction error:', transactionError);
+      throw transactionError;
+    } finally {
+      await session.endSession();
+    }
 
     // Populate star details
     await withdrawalRequest.populate('starId', 'name pseudo profilePic baroniId country contact');
 
+    // Get updated wallet balance
+    const updatedWallet = await getOrCreateStarWallet(starId);
+
     return res.status(201).json({
       success: true,
-      message: 'Withdrawal request created successfully. Waiting for admin approval.',
+      message: 'Withdrawal request created successfully. Amount deducted from jackpot. Waiting for admin approval.',
       data: {
         id: withdrawalRequest._id,
         amount: withdrawalRequest.amount,
         status: withdrawalRequest.status,
         note: withdrawalRequest.note,
         createdAt: withdrawalRequest.createdAt,
-        availableBalance: wallet.jackpot
+        previousBalance: previousJackpot,
+        availableBalance: updatedWallet.jackpot,
+        deductedAmount: numericAmount
       }
     });
   } catch (err) {
