@@ -103,33 +103,34 @@ export const becomeStar = async (req, res) => {
             }
         }
         
-        // Check for pending commitments and automatically cancel them if payment allows
+        // Check for approved commitments and automatically cancel them if payment allows
+        // NOTE: Pending appointments do NOT block becoming a star - only approved appointments block
         // If payment is 'initiated', allow user to complete payment first (don't block)
         // If payment is 'pending' or 'completed', automatically cancel and refund
         
-        // Get all pending appointments that can be cancelled
-        const pendingAppointmentsList = await Appointment.find({
+        // Get all approved appointments that can be cancelled (NOT pending - pending appointments don't block)
+        const approvedAppointmentsList = await Appointment.find({
             fanId: userId,
-            status: { $in: ['pending', 'approved'] },
+            status: 'approved', // Only check approved status, not pending
             paymentStatus: { $in: ['pending', 'completed'] } // Only cancel if payment is in escrow or released
         });
 
-        // Get all pending dedications that can be cancelled
-        const pendingDedicationsList = await DedicationRequest.find({
+        // Get all approved dedications that can be cancelled (NOT pending - pending dedications don't block)
+        const approvedDedicationsList = await DedicationRequest.find({
             fanId: userId,
-            status: { $in: ['pending', 'approved'] },
+            status: 'approved', // Only check approved status, not pending
             paymentStatus: { $in: ['pending', 'completed'] } // Only cancel if payment is in escrow or released
         });
 
-        // Get all pending live show attendances that can be cancelled
-        const pendingLiveShowsList = await LiveShowAttendance.find({
+        // Get all approved live show attendances that can be cancelled (NOT pending - pending attendances don't block)
+        const approvedLiveShowsList = await LiveShowAttendance.find({
             fanId: userId,
-            status: { $in: ['pending', 'approved'] },
+            status: 'approved', // Only check approved status, not pending
             paymentStatus: { $in: ['pending', 'completed'] } // Only cancel if payment is in escrow or released
         });
 
-        // Automatically cancel and refund pending appointments
-        for (const appointment of pendingAppointmentsList) {
+        // Automatically cancel and refund approved appointments
+        for (const appointment of approvedAppointmentsList) {
             try {
                 // Refund escrow if payment was pending or completed
                 if (appointment.paymentStatus === 'pending' || appointment.paymentStatus === 'completed') {
@@ -168,8 +169,8 @@ export const becomeStar = async (req, res) => {
             }
         }
 
-        // Automatically cancel and refund pending dedications
-        for (const dedication of pendingDedicationsList) {
+        // Automatically cancel and refund approved dedications
+        for (const dedication of approvedDedicationsList) {
             try {
                 // Refund escrow if payment was pending
                 if (dedication.paymentStatus === 'pending' || dedication.paymentStatus === 'completed') {
@@ -195,8 +196,8 @@ export const becomeStar = async (req, res) => {
             }
         }
 
-        // Automatically cancel and refund pending live show attendances
-        for (const attendance of pendingLiveShowsList) {
+        // Automatically cancel and refund approved live show attendances
+        for (const attendance of approvedLiveShowsList) {
             try {
                 // Refund escrow if payment was pending (live shows don't use escrow the same way, but check transaction)
                 // Cancel the transaction first
@@ -225,24 +226,25 @@ export const becomeStar = async (req, res) => {
             }
         }
 
-        // Now check again for any remaining commitments (only those with 'initiated' payment status)
+        // Now check again for any remaining approved commitments (only those with 'initiated' payment status)
         // These can't be auto-cancelled because payment is not complete - user must complete or cancel manually
+        // NOTE: Only check 'approved' status - 'pending' status appointments do NOT block becoming a star
         const [remainingDedications, remainingAppointments, remainingLiveShows] = await Promise.all([
             DedicationRequest.countDocuments({
                 fanId: userId,
-                status: { $in: ['pending', 'approved'] },
+                status: 'approved', // Only check approved status, not pending
                 paymentStatus: 'initiated' // Only block if payment is still initiated (not completed)
             }),
 
             Appointment.countDocuments({
                 fanId: userId,
-                status: { $in: ['pending', 'approved'] },
+                status: 'approved', // Only check approved status, not pending
                 paymentStatus: 'initiated' // Only block if payment is still initiated (not completed)
             }),
 
             LiveShowAttendance.countDocuments({
                 fanId: userId,
-                status: { $in: ['pending', 'approved'] },
+                status: 'approved', // Only check approved status, not pending
                 paymentStatus: 'initiated' // Only block if payment is still initiated (not completed)
             })
         ]);
@@ -257,7 +259,7 @@ export const becomeStar = async (req, res) => {
 
             return res.status(400).json({
                 success: false,
-                message: `You have ${totalRemainingCommitments} pending commitment with incomplete payment that must be completed or cancelled before becoming a star: ${commitmentDetails.join(', ')}. Please complete or cancel the payment for these commitments first.`
+                message: `You have ${totalRemainingCommitments} approved commitment with incomplete payment that must be completed or cancelled before becoming a star: ${commitmentDetails.join(', ')}. Please complete or cancel the payment for these commitments first.`
             });
         }
 
