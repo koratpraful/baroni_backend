@@ -12,7 +12,37 @@ const sanitizeConfig = (cfg) => ({
   becomeBaronistarPriceHide: cfg.becomeBaronistarPriceHide,
   isTestUser: cfg.isTestUser,
   
-  // New fields
+  // App Configuration
+  appName: cfg.appName,
+  appVersion: cfg.appVersion,
+  maintenanceMode: cfg.maintenanceMode,
+  registrationEnabled: cfg.registrationEnabled,
+  debugMode: cfg.debugMode,
+  
+  // File Upload Configuration
+  maxFileSize: cfg.maxFileSize,
+  supportedImageFormats: cfg.supportedImageFormats,
+  supportedVideoFormats: cfg.supportedVideoFormats,
+  
+  // Localization Configuration
+  defaultLanguage: cfg.defaultLanguage,
+  supportedLanguages: cfg.supportedLanguages,
+  
+  // Currency Configuration
+  defaultCurrency: cfg.defaultCurrency,
+  supportedCurrencies: cfg.supportedCurrencies,
+  
+  // Transaction Configuration
+  maxCoinsPerTransaction: cfg.maxCoinsPerTransaction,
+  minCoinsPerTransaction: cfg.minCoinsPerTransaction,
+  commissionRate: cfg.commissionRate,
+  
+  // Feature Flags
+  paymentGatewayEnabled: cfg.paymentGatewayEnabled,
+  notificationEnabled: cfg.notificationEnabled,
+  analyticsEnabled: cfg.analyticsEnabled,
+  
+  // Nested objects
   serviceLimits: cfg.serviceLimits,
   idVerificationFees: cfg.idVerificationFees,
   liveShowFees: cfg.liveShowFees,
@@ -52,11 +82,17 @@ export const updateGlobalConfig = async (req, res) => {
     // Get or create singleton config document
     let cfg = await Config.findOne();
     if (!cfg) {
-      // Create new config if none exists
+      // Create new config if none exists (with all defaults)
       cfg = await Config.create({});
-      console.log('[UpdateGlobalConfig] Created new config document');
+      console.log('[UpdateGlobalConfig] Created new config document with defaults');
     } else {
       console.log('[UpdateGlobalConfig] Found existing config document:', cfg._id);
+      // Ensure all nested objects exist (initialize if missing)
+      if (!cfg.serviceLimits) cfg.serviceLimits = {};
+      if (!cfg.idVerificationFees) cfg.idVerificationFees = {};
+      if (!cfg.liveShowFees) cfg.liveShowFees = {};
+      if (!cfg.contactSupport) cfg.contactSupport = {};
+      if (!cfg.hideElementsPrice) cfg.hideElementsPrice = {};
     }
 
     const {
@@ -64,6 +100,24 @@ export const updateGlobalConfig = async (req, res) => {
       videoCallPriceHide,
       becomeBaronistarPriceHide,
       isTestUser,
+      appName,
+      appVersion,
+      maintenanceMode,
+      registrationEnabled,
+      debugMode,
+      maxFileSize,
+      supportedImageFormats,
+      supportedVideoFormats,
+      defaultLanguage,
+      supportedLanguages,
+      defaultCurrency,
+      supportedCurrencies,
+      maxCoinsPerTransaction,
+      minCoinsPerTransaction,
+      commissionRate,
+      paymentGatewayEnabled,
+      notificationEnabled,
+      analyticsEnabled,
       serviceLimits,
       idVerificationFees,
       liveShowFees,
@@ -129,64 +183,381 @@ export const updateGlobalConfig = async (req, res) => {
       }
     }
 
+    // Update App Configuration fields
+    if (appName !== undefined && typeof appName === 'string' && appName.trim()) {
+      cfg.appName = appName.trim();
+      console.log(`[UpdateGlobalConfig] Updated appName: ${cfg.appName}`);
+    }
+    
+    if (appVersion !== undefined && typeof appVersion === 'string' && appVersion.trim()) {
+      cfg.appVersion = appVersion.trim();
+      console.log(`[UpdateGlobalConfig] Updated appVersion: ${cfg.appVersion}`);
+    }
+    
+    if (maintenanceMode !== undefined) {
+      const normalized = normalize(maintenanceMode);
+      if (normalized !== undefined) {
+        cfg.maintenanceMode = normalized;
+        console.log(`[UpdateGlobalConfig] Updated maintenanceMode: ${cfg.maintenanceMode}`);
+      }
+    }
+    
+    if (registrationEnabled !== undefined) {
+      const normalized = normalize(registrationEnabled);
+      if (normalized !== undefined) {
+        cfg.registrationEnabled = normalized;
+        console.log(`[UpdateGlobalConfig] Updated registrationEnabled: ${cfg.registrationEnabled}`);
+      }
+    }
+    
+    if (debugMode !== undefined) {
+      const normalized = normalize(debugMode);
+      if (normalized !== undefined) {
+        cfg.debugMode = normalized;
+        console.log(`[UpdateGlobalConfig] Updated debugMode: ${cfg.debugMode}`);
+      }
+    }
+
+    // Update File Upload Configuration
+    if (maxFileSize !== undefined && typeof maxFileSize === 'number' && maxFileSize > 0) {
+      cfg.maxFileSize = maxFileSize;
+      console.log(`[UpdateGlobalConfig] Updated maxFileSize: ${cfg.maxFileSize}`);
+    }
+    
+    if (supportedImageFormats !== undefined && Array.isArray(supportedImageFormats)) {
+      cfg.supportedImageFormats = supportedImageFormats.filter(f => typeof f === 'string' && f.trim());
+      console.log(`[UpdateGlobalConfig] Updated supportedImageFormats:`, cfg.supportedImageFormats);
+    }
+    
+    if (supportedVideoFormats !== undefined && Array.isArray(supportedVideoFormats)) {
+      cfg.supportedVideoFormats = supportedVideoFormats.filter(f => typeof f === 'string' && f.trim());
+      console.log(`[UpdateGlobalConfig] Updated supportedVideoFormats:`, cfg.supportedVideoFormats);
+    }
+
+    // Update Localization Configuration
+    if (defaultLanguage !== undefined && typeof defaultLanguage === 'string' && defaultLanguage.trim()) {
+      cfg.defaultLanguage = defaultLanguage.trim();
+      console.log(`[UpdateGlobalConfig] Updated defaultLanguage: ${cfg.defaultLanguage}`);
+    }
+    
+    if (supportedLanguages !== undefined && Array.isArray(supportedLanguages)) {
+      cfg.supportedLanguages = supportedLanguages.filter(l => typeof l === 'string' && l.trim());
+      console.log(`[UpdateGlobalConfig] Updated supportedLanguages:`, cfg.supportedLanguages);
+    }
+
+    // Update Currency Configuration
+    if (defaultCurrency !== undefined && typeof defaultCurrency === 'string' && defaultCurrency.trim()) {
+      cfg.defaultCurrency = defaultCurrency.trim().toUpperCase();
+      console.log(`[UpdateGlobalConfig] Updated defaultCurrency: ${cfg.defaultCurrency}`);
+    }
+    
+    if (supportedCurrencies !== undefined && Array.isArray(supportedCurrencies)) {
+      cfg.supportedCurrencies = supportedCurrencies.filter(c => typeof c === 'string' && c.trim()).map(c => c.trim().toUpperCase());
+      console.log(`[UpdateGlobalConfig] Updated supportedCurrencies:`, cfg.supportedCurrencies);
+    }
+
+    // Update Transaction Configuration
+    if (maxCoinsPerTransaction !== undefined && typeof maxCoinsPerTransaction === 'number' && maxCoinsPerTransaction > 0) {
+      cfg.maxCoinsPerTransaction = maxCoinsPerTransaction;
+      console.log(`[UpdateGlobalConfig] Updated maxCoinsPerTransaction: ${cfg.maxCoinsPerTransaction}`);
+    }
+    
+    if (minCoinsPerTransaction !== undefined && typeof minCoinsPerTransaction === 'number' && minCoinsPerTransaction > 0) {
+      cfg.minCoinsPerTransaction = minCoinsPerTransaction;
+      console.log(`[UpdateGlobalConfig] Updated minCoinsPerTransaction: ${cfg.minCoinsPerTransaction}`);
+    }
+    
+    if (commissionRate !== undefined && typeof commissionRate === 'number' && commissionRate >= 0) {
+      cfg.commissionRate = commissionRate;
+      console.log(`[UpdateGlobalConfig] Updated commissionRate: ${cfg.commissionRate}`);
+    }
+
+    // Update Feature Flags
+    if (paymentGatewayEnabled !== undefined) {
+      const normalized = normalize(paymentGatewayEnabled);
+      if (normalized !== undefined) {
+        cfg.paymentGatewayEnabled = normalized;
+        console.log(`[UpdateGlobalConfig] Updated paymentGatewayEnabled: ${cfg.paymentGatewayEnabled}`);
+      }
+    }
+    
+    if (notificationEnabled !== undefined) {
+      const normalized = normalize(notificationEnabled);
+      if (normalized !== undefined) {
+        cfg.notificationEnabled = normalized;
+        console.log(`[UpdateGlobalConfig] Updated notificationEnabled: ${cfg.notificationEnabled}`);
+      }
+    }
+    
+    if (analyticsEnabled !== undefined) {
+      const normalized = normalize(analyticsEnabled);
+      if (normalized !== undefined) {
+        cfg.analyticsEnabled = normalized;
+        console.log(`[UpdateGlobalConfig] Updated analyticsEnabled: ${cfg.analyticsEnabled}`);
+      }
+    }
+
     // Update nested objects - merge with existing values
     // Use markModified to ensure Mongoose detects changes in nested objects
     if (serviceLimits && typeof serviceLimits === 'object' && !Array.isArray(serviceLimits)) {
-      // Merge individual fields from serviceLimits
+      // Ensure serviceLimits object exists
+      if (!cfg.serviceLimits) cfg.serviceLimits = {};
+      
+      // Merge individual fields from serviceLimits (only update if provided)
       if (serviceLimits.liveShowDuration !== undefined) cfg.serviceLimits.liveShowDuration = serviceLimits.liveShowDuration;
       if (serviceLimits.videoCallDuration !== undefined) cfg.serviceLimits.videoCallDuration = serviceLimits.videoCallDuration;
       if (serviceLimits.slotDuration !== undefined) cfg.serviceLimits.slotDuration = serviceLimits.slotDuration;
       if (serviceLimits.dedicationUploadSize !== undefined) cfg.serviceLimits.dedicationUploadSize = serviceLimits.dedicationUploadSize;
       if (serviceLimits.maxLiveShowParticipants !== undefined) cfg.serviceLimits.maxLiveShowParticipants = serviceLimits.maxLiveShowParticipants;
       if (serviceLimits.reconnectionTimeout !== undefined) cfg.serviceLimits.reconnectionTimeout = serviceLimits.reconnectionTimeout;
+      
+      // Ensure defaults for missing fields
+      if (cfg.serviceLimits.liveShowDuration === undefined) cfg.serviceLimits.liveShowDuration = 20;
+      if (cfg.serviceLimits.videoCallDuration === undefined) cfg.serviceLimits.videoCallDuration = 5;
+      if (cfg.serviceLimits.slotDuration === undefined) cfg.serviceLimits.slotDuration = 10;
+      if (cfg.serviceLimits.dedicationUploadSize === undefined) cfg.serviceLimits.dedicationUploadSize = 20;
+      if (cfg.serviceLimits.maxLiveShowParticipants === undefined) cfg.serviceLimits.maxLiveShowParticipants = 10000;
+      if (cfg.serviceLimits.reconnectionTimeout === undefined) cfg.serviceLimits.reconnectionTimeout = 5;
+      
       cfg.markModified('serviceLimits');
       console.log(`[UpdateGlobalConfig] Updated serviceLimits:`, cfg.serviceLimits);
     }
     
     if (idVerificationFees && typeof idVerificationFees === 'object' && !Array.isArray(idVerificationFees)) {
+      // Ensure idVerificationFees object exists
+      if (!cfg.idVerificationFees) cfg.idVerificationFees = {};
+      
       if (idVerificationFees.standardIdPrice !== undefined) cfg.idVerificationFees.standardIdPrice = idVerificationFees.standardIdPrice;
       if (idVerificationFees.goldIdPrice !== undefined) cfg.idVerificationFees.goldIdPrice = idVerificationFees.goldIdPrice;
+      
+      // Ensure defaults for missing fields
+      if (cfg.idVerificationFees.standardIdPrice === undefined) cfg.idVerificationFees.standardIdPrice = 0;
+      if (cfg.idVerificationFees.goldIdPrice === undefined) cfg.idVerificationFees.goldIdPrice = 0;
+      
       cfg.markModified('idVerificationFees');
       console.log(`[UpdateGlobalConfig] Updated idVerificationFees:`, cfg.idVerificationFees);
     }
     
     if (liveShowFees && typeof liveShowFees === 'object' && !Array.isArray(liveShowFees)) {
+      // Ensure liveShowFees object exists
+      if (!cfg.liveShowFees) cfg.liveShowFees = {};
+      
       if (liveShowFees.hostingFee !== undefined) cfg.liveShowFees.hostingFee = liveShowFees.hostingFee;
+      
+      // Ensure defaults for missing fields
+      if (cfg.liveShowFees.hostingFee === undefined) cfg.liveShowFees.hostingFee = 0;
+      
       cfg.markModified('liveShowFees');
       console.log(`[UpdateGlobalConfig] Updated liveShowFees:`, cfg.liveShowFees);
     }
     
     if (contactSupport && typeof contactSupport === 'object' && !Array.isArray(contactSupport)) {
+      // Ensure contactSupport object exists
+      if (!cfg.contactSupport) cfg.contactSupport = {};
+      
       if (contactSupport.companyServiceNumber !== undefined) cfg.contactSupport.companyServiceNumber = contactSupport.companyServiceNumber;
       if (contactSupport.supportEmail !== undefined) cfg.contactSupport.supportEmail = contactSupport.supportEmail;
       if (contactSupport.servicesTermsUrl !== undefined) cfg.contactSupport.servicesTermsUrl = contactSupport.servicesTermsUrl;
       if (contactSupport.privacyPolicyUrl !== undefined) cfg.contactSupport.privacyPolicyUrl = contactSupport.privacyPolicyUrl;
       if (contactSupport.helpdeskLink !== undefined) cfg.contactSupport.helpdeskLink = contactSupport.helpdeskLink;
+      
+      // Ensure defaults for missing fields
+      if (!cfg.contactSupport.companyServiceNumber) cfg.contactSupport.companyServiceNumber = '+34895723487';
+      if (!cfg.contactSupport.supportEmail) cfg.contactSupport.supportEmail = 'support@playform.com';
+      if (!cfg.contactSupport.servicesTermsUrl) cfg.contactSupport.servicesTermsUrl = 'https://help.platform.com';
+      if (!cfg.contactSupport.privacyPolicyUrl) cfg.contactSupport.privacyPolicyUrl = 'https://help.platform.com';
+      if (!cfg.contactSupport.helpdeskLink) cfg.contactSupport.helpdeskLink = 'https://help.platform.com';
+      
       cfg.markModified('contactSupport');
       console.log(`[UpdateGlobalConfig] Updated contactSupport:`, cfg.contactSupport);
     }
     
     if (hideElementsPrice && typeof hideElementsPrice === 'object' && !Array.isArray(hideElementsPrice)) {
+      // Ensure hideElementsPrice object exists
+      if (!cfg.hideElementsPrice) cfg.hideElementsPrice = {};
+      
       if (hideElementsPrice.hideDedications !== undefined) {
         const normalized = normalize(hideElementsPrice.hideDedications);
         if (normalized !== undefined) {
           cfg.hideElementsPrice.hideDedications = normalized;
         }
       }
+      
+      // Ensure defaults for missing fields
+      if (cfg.hideElementsPrice.hideDedications === undefined) cfg.hideElementsPrice.hideDedications = false;
+      
       cfg.markModified('hideElementsPrice');
       console.log(`[UpdateGlobalConfig] Updated hideElementsPrice:`, cfg.hideElementsPrice);
     }
 
+    // Ensure ALL fields have defaults BEFORE saving
+    // This ensures response always contains all fields even if only one key was updated
+    
+    // App Configuration defaults
+    if (!cfg.appName) cfg.appName = 'Baroni';
+    if (!cfg.appVersion) cfg.appVersion = '1.0.0';
+    if (cfg.maintenanceMode === undefined || cfg.maintenanceMode === null) cfg.maintenanceMode = false;
+    if (cfg.registrationEnabled === undefined || cfg.registrationEnabled === null) cfg.registrationEnabled = true;
+    if (cfg.debugMode === undefined || cfg.debugMode === null) cfg.debugMode = false;
+    
+    // File Upload Configuration defaults
+    if (!cfg.maxFileSize || cfg.maxFileSize === 0) cfg.maxFileSize = 5242880;
+    if (!cfg.supportedImageFormats || !Array.isArray(cfg.supportedImageFormats) || cfg.supportedImageFormats.length === 0) {
+      cfg.supportedImageFormats = ['jpg', 'jpeg', 'png', 'gif'];
+    }
+    if (!cfg.supportedVideoFormats || !Array.isArray(cfg.supportedVideoFormats) || cfg.supportedVideoFormats.length === 0) {
+      cfg.supportedVideoFormats = ['mp4', 'mov', 'avi'];
+    }
+    
+    // Localization Configuration defaults
+    if (!cfg.defaultLanguage) cfg.defaultLanguage = 'en';
+    if (!cfg.supportedLanguages || !Array.isArray(cfg.supportedLanguages) || cfg.supportedLanguages.length === 0) {
+      cfg.supportedLanguages = ['en', 'fr', 'es'];
+    }
+    
+    // Currency Configuration defaults
+    if (!cfg.defaultCurrency) cfg.defaultCurrency = 'USD';
+    if (!cfg.supportedCurrencies || !Array.isArray(cfg.supportedCurrencies) || cfg.supportedCurrencies.length === 0) {
+      cfg.supportedCurrencies = ['USD', 'EUR', 'GBP'];
+    }
+    
+    // Transaction Configuration defaults
+    if (!cfg.maxCoinsPerTransaction || cfg.maxCoinsPerTransaction === 0) cfg.maxCoinsPerTransaction = 10000;
+    if (!cfg.minCoinsPerTransaction || cfg.minCoinsPerTransaction === 0) cfg.minCoinsPerTransaction = 1;
+    if (cfg.commissionRate === undefined || cfg.commissionRate === null) cfg.commissionRate = 0.1;
+    
+    // Feature Flags defaults
+    if (cfg.paymentGatewayEnabled === undefined || cfg.paymentGatewayEnabled === null) cfg.paymentGatewayEnabled = true;
+    if (cfg.notificationEnabled === undefined || cfg.notificationEnabled === null) cfg.notificationEnabled = true;
+    if (cfg.analyticsEnabled === undefined || cfg.analyticsEnabled === null) cfg.analyticsEnabled = true;
+    
+    // Nested objects defaults
+    if (!cfg.serviceLimits) cfg.serviceLimits = {};
+    if (!cfg.idVerificationFees) cfg.idVerificationFees = {};
+    if (!cfg.liveShowFees) cfg.liveShowFees = {};
+    if (!cfg.contactSupport) cfg.contactSupport = {};
+    if (!cfg.hideElementsPrice) cfg.hideElementsPrice = {};
+    
+    // Ensure all nested object fields have defaults (even if not updated)
+    // serviceLimits defaults
+    if (cfg.serviceLimits.liveShowDuration === undefined || cfg.serviceLimits.liveShowDuration === null) cfg.serviceLimits.liveShowDuration = 20;
+    if (cfg.serviceLimits.videoCallDuration === undefined || cfg.serviceLimits.videoCallDuration === null) cfg.serviceLimits.videoCallDuration = 5;
+    if (cfg.serviceLimits.slotDuration === undefined || cfg.serviceLimits.slotDuration === null) cfg.serviceLimits.slotDuration = 10;
+    if (cfg.serviceLimits.dedicationUploadSize === undefined || cfg.serviceLimits.dedicationUploadSize === null) cfg.serviceLimits.dedicationUploadSize = 20;
+    if (cfg.serviceLimits.maxLiveShowParticipants === undefined || cfg.serviceLimits.maxLiveShowParticipants === null) cfg.serviceLimits.maxLiveShowParticipants = 10000;
+    if (cfg.serviceLimits.reconnectionTimeout === undefined || cfg.serviceLimits.reconnectionTimeout === null) cfg.serviceLimits.reconnectionTimeout = 5;
+    
+    // idVerificationFees defaults
+    if (cfg.idVerificationFees.standardIdPrice === undefined || cfg.idVerificationFees.standardIdPrice === null) cfg.idVerificationFees.standardIdPrice = 0;
+    if (cfg.idVerificationFees.goldIdPrice === undefined || cfg.idVerificationFees.goldIdPrice === null) cfg.idVerificationFees.goldIdPrice = 0;
+    
+    // liveShowFees defaults
+    if (cfg.liveShowFees.hostingFee === undefined || cfg.liveShowFees.hostingFee === null) cfg.liveShowFees.hostingFee = 0;
+    
+    // contactSupport defaults
+    if (!cfg.contactSupport.companyServiceNumber) cfg.contactSupport.companyServiceNumber = '+34895723487';
+    if (!cfg.contactSupport.supportEmail) cfg.contactSupport.supportEmail = 'support@playform.com';
+    if (!cfg.contactSupport.servicesTermsUrl) cfg.contactSupport.servicesTermsUrl = 'https://help.platform.com';
+    if (!cfg.contactSupport.privacyPolicyUrl) cfg.contactSupport.privacyPolicyUrl = 'https://help.platform.com';
+    if (!cfg.contactSupport.helpdeskLink) cfg.contactSupport.helpdeskLink = 'https://help.platform.com';
+    
+    // hideElementsPrice defaults
+    if (cfg.hideElementsPrice.hideDedications === undefined || cfg.hideElementsPrice.hideDedications === null) cfg.hideElementsPrice.hideDedications = false;
+    
+    // Mark all nested objects as modified to ensure they're saved
+    cfg.markModified('serviceLimits');
+    cfg.markModified('idVerificationFees');
+    cfg.markModified('liveShowFees');
+    cfg.markModified('contactSupport');
+    cfg.markModified('hideElementsPrice');
+    
     // Save the updated config
     const saved = await cfg.save();
     console.log('[UpdateGlobalConfig] Config saved successfully:', saved._id);
-    console.log('[UpdateGlobalConfig] Saved config data:', JSON.stringify(sanitizeConfig(saved), null, 2));
+    
+    // Reload from database to ensure we have the latest values with all defaults
+    const finalConfig = await Config.findById(saved._id);
+    if (!finalConfig) {
+      throw new Error('Failed to retrieve updated config');
+    }
+    
+    // Ensure all fields are properly populated in the final config
+    // This is a safety check - should already be done above, but ensures response completeness
+    
+    // App Configuration defaults
+    if (!finalConfig.appName) finalConfig.appName = 'Baroni';
+    if (!finalConfig.appVersion) finalConfig.appVersion = '1.0.0';
+    if (finalConfig.maintenanceMode === undefined || finalConfig.maintenanceMode === null) finalConfig.maintenanceMode = false;
+    if (finalConfig.registrationEnabled === undefined || finalConfig.registrationEnabled === null) finalConfig.registrationEnabled = true;
+    if (finalConfig.debugMode === undefined || finalConfig.debugMode === null) finalConfig.debugMode = false;
+    
+    // File Upload Configuration defaults
+    if (!finalConfig.maxFileSize) finalConfig.maxFileSize = 5242880;
+    if (!finalConfig.supportedImageFormats || !Array.isArray(finalConfig.supportedImageFormats) || finalConfig.supportedImageFormats.length === 0) {
+      finalConfig.supportedImageFormats = ['jpg', 'jpeg', 'png', 'gif'];
+    }
+    if (!finalConfig.supportedVideoFormats || !Array.isArray(finalConfig.supportedVideoFormats) || finalConfig.supportedVideoFormats.length === 0) {
+      finalConfig.supportedVideoFormats = ['mp4', 'mov', 'avi'];
+    }
+    
+    // Localization Configuration defaults
+    if (!finalConfig.defaultLanguage) finalConfig.defaultLanguage = 'en';
+    if (!finalConfig.supportedLanguages || !Array.isArray(finalConfig.supportedLanguages) || finalConfig.supportedLanguages.length === 0) {
+      finalConfig.supportedLanguages = ['en', 'fr', 'es'];
+    }
+    
+    // Currency Configuration defaults
+    if (!finalConfig.defaultCurrency) finalConfig.defaultCurrency = 'USD';
+    if (!finalConfig.supportedCurrencies || !Array.isArray(finalConfig.supportedCurrencies) || finalConfig.supportedCurrencies.length === 0) {
+      finalConfig.supportedCurrencies = ['USD', 'EUR', 'GBP'];
+    }
+    
+    // Transaction Configuration defaults
+    if (!finalConfig.maxCoinsPerTransaction) finalConfig.maxCoinsPerTransaction = 10000;
+    if (!finalConfig.minCoinsPerTransaction) finalConfig.minCoinsPerTransaction = 1;
+    if (finalConfig.commissionRate === undefined || finalConfig.commissionRate === null) finalConfig.commissionRate = 0.1;
+    
+    // Feature Flags defaults
+    if (finalConfig.paymentGatewayEnabled === undefined || finalConfig.paymentGatewayEnabled === null) finalConfig.paymentGatewayEnabled = true;
+    if (finalConfig.notificationEnabled === undefined || finalConfig.notificationEnabled === null) finalConfig.notificationEnabled = true;
+    if (finalConfig.analyticsEnabled === undefined || finalConfig.analyticsEnabled === null) finalConfig.analyticsEnabled = true;
+    
+    // Nested objects defaults
+    if (!finalConfig.serviceLimits) finalConfig.serviceLimits = {
+      liveShowDuration: 20,
+      videoCallDuration: 5,
+      slotDuration: 10,
+      dedicationUploadSize: 20,
+      maxLiveShowParticipants: 10000,
+      reconnectionTimeout: 5
+    };
+    if (!finalConfig.idVerificationFees) finalConfig.idVerificationFees = {
+      standardIdPrice: 0,
+      goldIdPrice: 0
+    };
+    if (!finalConfig.liveShowFees) finalConfig.liveShowFees = {
+      hostingFee: 0
+    };
+    if (!finalConfig.contactSupport) finalConfig.contactSupport = {
+      companyServiceNumber: '+34895723487',
+      supportEmail: 'support@playform.com',
+      servicesTermsUrl: 'https://help.platform.com',
+      privacyPolicyUrl: 'https://help.platform.com',
+      helpdeskLink: 'https://help.platform.com'
+    };
+    if (!finalConfig.hideElementsPrice) finalConfig.hideElementsPrice = {
+      hideDedications: false
+    };
+    
+    // Sanitize and return complete config
+    const sanitized = sanitizeConfig(finalConfig);
+    console.log('[UpdateGlobalConfig] Final config data:', JSON.stringify(sanitized, null, 2));
     
     return res.json({ 
       success: true, 
       message: 'Global configuration updated successfully',
       data: {
-        config: sanitizeConfig(saved)
+        config: sanitized
       }
     });
   } catch (err) {
