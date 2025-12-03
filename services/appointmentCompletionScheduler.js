@@ -1,6 +1,9 @@
 import cron from 'node-cron';
 import Appointment from '../models/Appointment.js';
+import Availability from '../models/Availability.js';
+import Transaction from '../models/Transaction.js';
 import { moveEscrowToJackpot } from './starWalletService.js';
+import { cancelTransaction } from './transactionService.js';
 import NotificationHelper from '../utils/notificationHelper.js';
 import { deleteConversationBetweenUsers } from './messagingCleanup.js';
 
@@ -47,15 +50,17 @@ export const processCompletedAppointments = async () => {
     const now = new Date();
     
     // Find appointments that are approved or in_progress
+    // Include 'initiated' payment status to handle appointments with incomplete payments
     const appointments = await Appointment.find({
       status: { $in: ['approved', 'in_progress'] },
-      paymentStatus: { $in: ['pending', 'completed'] } // Only process if payment is not refunded
+      paymentStatus: { $in: ['initiated', 'pending', 'completed'] } // Include initiated to cancel if needed
     }).lean();
 
     console.log(`[AppointmentCompletionScheduler] Checking ${appointments.length} appointments`);
 
     let completedCount = 0;
     let missedCount = 0;
+    let cancelledCount = 0; // Count of appointments cancelled due to initiated payment
     let errorCount = 0;
 
     for (const appt of appointments) {
@@ -149,16 +154,62 @@ export const processCompletedAppointments = async () => {
           completedCount++;
           console.log(`[AppointmentCompletionScheduler] ✅ Completed appointment ${appointment._id} - Duration: ${appointment.callDuration || 0}s, Time since scheduled: ${minutesSinceScheduled.toFixed(2)} min`);
         }
-        // Case 2: Mark as missed if 10+ minutes passed with NO duration
+        // Case 2: Check if appointment should be marked as missed or cancelled
         else if (minutesSinceScheduled >= RESCHEDULE_TIMEOUT_MINUTES && !hasDuration) {
           const appointment = await Appointment.findById(appt._id);
           if (!appointment) continue;
           
-          appointment.status = 'missed';
-          await appointment.save();
-          
-          missedCount++;
-          console.log(`[AppointmentCompletionScheduler] Marked appointment ${appointment._id} as missed - No duration recorded, ${minutesSinceScheduled.toFixed(2)} min since scheduled`);
+          // IMPORTANT: If payment is 'initiated' (payment not completed), cancel instead of marking as missed
+          if (appointment.paymentStatus === 'initiated') {
+            console.log(`[AppointmentCompletionScheduler] Payment is 'initiated' for appointment ${appointment._id}. Cancelling instead of marking as missed.`);
+            
+            try {
+              // Cancel the transaction if it exists and is pending
+              if (appointment.transactionId) {
+                try {
+                  const transaction = await Transaction.findById(appointment.transactionId);
+                  if (transaction && transaction.status === 'pending') {
+                    await cancelTransaction(appointment.transactionId);
+                    console.log(`[AppointmentCompletionScheduler] Cancelled pending transaction ${appointment.transactionId} for appointment ${appointment._id}`);
+                  } else if (transaction && (transaction.status === 'cancelled' || transaction.status === 'refunded')) {
+                    console.log(`[AppointmentCompletionScheduler] Transaction ${appointment.transactionId} is already ${transaction.status}, skipping`);
+                  }
+                } catch (transactionError) {
+                  console.error(`[AppointmentCompletionScheduler] Failed to cancel transaction for appointment ${appointment._id}:`, transactionError);
+                  // Continue with appointment cancellation even if transaction cancellation fails
+                }
+              }
+              
+              // Free the reserved slot
+              try {
+                await Availability.updateOne(
+                  { _id: appointment.availabilityId, userId: appointment.starId, 'timeSlots._id': appointment.timeSlotId },
+                  { $set: { 'timeSlots.$.status': 'available' } }
+                );
+                console.log(`[AppointmentCompletionScheduler] Freed slot for appointment ${appointment._id}`);
+              } catch (slotError) {
+                console.error(`[AppointmentCompletionScheduler] Failed to free slot for appointment ${appointment._id}:`, slotError);
+              }
+              
+              // Mark appointment as cancelled (not missed) since payment was never completed
+              appointment.status = 'cancelled';
+              appointment.paymentStatus = 'refunded';
+              await appointment.save();
+              
+              cancelledCount++;
+              console.log(`[AppointmentCompletionScheduler] ✅ Cancelled appointment ${appointment._id} (payment was initiated, not completed) - ${minutesSinceScheduled.toFixed(2)} min since scheduled`);
+            } catch (cancelError) {
+              console.error(`[AppointmentCompletionScheduler] Error cancelling appointment ${appointment._id}:`, cancelError);
+              errorCount++;
+            }
+          } else {
+            // Payment is pending or completed, so mark as missed (normal flow)
+            appointment.status = 'missed';
+            await appointment.save();
+            
+            missedCount++;
+            console.log(`[AppointmentCompletionScheduler] Marked appointment ${appointment._id} as missed - No duration recorded, ${minutesSinceScheduled.toFixed(2)} min since scheduled`);
+          }
         }
       } catch (error) {
         errorCount++;
@@ -168,9 +219,10 @@ export const processCompletedAppointments = async () => {
 
     return {
       success: true,
-      message: `Processed: ${completedCount} completed, ${missedCount} missed, ${errorCount} errors`,
+      message: `Processed: ${completedCount} completed, ${missedCount} missed, ${cancelledCount} cancelled (initiated payment), ${errorCount} errors`,
       completedCount,
       missedCount,
+      cancelledCount,
       errorCount
     };
   } catch (error) {

@@ -8,6 +8,36 @@ const configSchema = new mongoose.Schema(
     becomeBaronistarPriceHide: { type: Boolean, default: false },
     isTestUser: { type: Boolean, default: false },
     
+    // App Configuration
+    appName: { type: String, default: 'Baroni' },
+    appVersion: { type: String, default: '1.0.0' },
+    maintenanceMode: { type: Boolean, default: false },
+    registrationEnabled: { type: Boolean, default: true },
+    debugMode: { type: Boolean, default: false },
+    
+    // File Upload Configuration
+    maxFileSize: { type: Number, default: 5242880 }, // 5MB in bytes
+    supportedImageFormats: { type: [String], default: ['jpg', 'jpeg', 'png', 'gif'] },
+    supportedVideoFormats: { type: [String], default: ['mp4', 'mov', 'avi'] },
+    
+    // Localization Configuration
+    defaultLanguage: { type: String, default: 'en' },
+    supportedLanguages: { type: [String], default: ['en', 'fr', 'es'] },
+    
+    // Currency Configuration
+    defaultCurrency: { type: String, default: 'USD' },
+    supportedCurrencies: { type: [String], default: ['USD', 'EUR', 'GBP'] },
+    
+    // Transaction Configuration
+    maxCoinsPerTransaction: { type: Number, default: 10000 },
+    minCoinsPerTransaction: { type: Number, default: 1 },
+    commissionRate: { type: Number, default: 0.1 }, // 10% as decimal (0.1)
+    
+    // Feature Flags
+    paymentGatewayEnabled: { type: Boolean, default: true },
+    notificationEnabled: { type: Boolean, default: true },
+    analyticsEnabled: { type: Boolean, default: true },
+    
     // Service Limits & Defaults
     serviceLimits: {
       liveShowDuration: { type: Number, default: 20 }, // in minutes
