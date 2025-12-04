@@ -95,6 +95,32 @@ export const updateGlobalConfig = async (req, res) => {
       if (!cfg.hideElementsPrice) cfg.hideElementsPrice = {};
     }
 
+    console.log('[UpdateGlobalConfig] Received update data:', JSON.stringify(req.body, null, 2));
+
+    // Map of nested keys to their parent objects
+    const nestedKeyMap = {
+      // serviceLimits keys
+      'liveShowDuration': 'serviceLimits',
+      'videoCallDuration': 'serviceLimits',
+      'slotDuration': 'serviceLimits',
+      'dedicationUploadSize': 'serviceLimits',
+      'maxLiveShowParticipants': 'serviceLimits',
+      'reconnectionTimeout': 'serviceLimits',
+      // idVerificationFees keys
+      'standardIdPrice': 'idVerificationFees',
+      'goldIdPrice': 'idVerificationFees',
+      // liveShowFees keys
+      'hostingFee': 'liveShowFees',
+      // contactSupport keys
+      'companyServiceNumber': 'contactSupport',
+      'supportEmail': 'contactSupport',
+      'servicesTermsUrl': 'contactSupport',
+      'privacyPolicyUrl': 'contactSupport',
+      'helpdeskLink': 'contactSupport',
+      // hideElementsPrice keys
+      'hideDedications': 'hideElementsPrice'
+    };
+
     const {
       liveShowPriceHide,
       videoCallPriceHide,
@@ -125,8 +151,6 @@ export const updateGlobalConfig = async (req, res) => {
       hideElementsPrice,
       hideApplyToBecomeStar
     } = req.body;
-
-    console.log('[UpdateGlobalConfig] Received update data:', JSON.stringify(req.body, null, 2));
 
     const normalize = (val) => {
       if (val === null || val === undefined) return undefined;
@@ -296,6 +320,37 @@ export const updateGlobalConfig = async (req, res) => {
         console.log(`[UpdateGlobalConfig] Updated analyticsEnabled: ${cfg.analyticsEnabled}`);
       }
     }
+
+    // Handle flat nested keys (e.g., maxLiveShowParticipants sent directly, not in serviceLimits object)
+    // Process flat keys from original req.body
+    // If both flat key and nested object are provided, nested object will take precedence (processed later)
+    const updatedNestedParents = new Set();
+    for (const [key, parent] of Object.entries(nestedKeyMap)) {
+      if (req.body.hasOwnProperty(key)) {
+        // Check if this key is also in the nested object - if so, nested will take precedence
+        const nestedValue = req.body[parent] && req.body[parent][key];
+        if (nestedValue === undefined) {
+          // Key exists at top level and NOT in nested object, update it directly
+          const value = req.body[key];
+          if (value !== undefined) {
+            // Ensure parent object exists
+            if (!cfg[parent]) cfg[parent] = {};
+            
+            // Update the nested key
+            cfg[parent][key] = value;
+            updatedNestedParents.add(parent);
+            console.log(`[UpdateGlobalConfig] Updated ${parent}.${key} from flat key: ${value}`);
+          }
+        } else {
+          console.log(`[UpdateGlobalConfig] Skipping flat key "${key}" - found in nested object ${parent}, nested value will be used`);
+        }
+      }
+    }
+    
+    // Mark all updated nested parents as modified
+    updatedNestedParents.forEach(parent => {
+      cfg.markModified(parent);
+    });
 
     // Update nested objects - merge with existing values
     // Use markModified to ensure Mongoose detects changes in nested objects
