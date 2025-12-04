@@ -1295,6 +1295,278 @@ export const getStarById = async (req, res) => {
 };
 
 /**
+ * Public guest API to get star details without authentication
+ * GET /api/guest/star/:id
+ * Returns the same data as getStarById but:
+ * - Does NOT require auth
+ * - isLiked is always false
+ * - isMessage is always false
+ * - No conversation info
+ */
+export const getGuestStarById = async (req, res) => {
+    try {
+        // Reuse the core logic from getStarById but without req.user context
+        // Clone req and remove user if present
+        const guestReq = { ...req, user: null };
+
+        // We cannot directly call getStarById because it writes to res,
+        // so we duplicate the essential logic but in a simplified guest-only form.
+
+        const { id } = guestReq.params;
+
+        // validate id
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid user ID",
+            });
+        }
+
+        // fetch star basic info with details check
+        const star = await User.findOne({
+            _id: id,
+            role: "star"
+        })
+            .populate('profession', 'name image')
+            .select("-password -passwordResetToken -passwordResetExpires");
+
+        if (!star) {
+            return res.status(404).json({
+                success: false,
+                message: "Star not found or profile incomplete",
+            });
+        }
+
+        // Increment profile impressions count for this star
+        await User.findByIdAndUpdate(id, { $inc: { profileImpressions: 1 } });
+
+        // Sanitize star data (no auth context, so isLiked/isMessage will be false)
+        let starData = sanitizeUserData(star);
+        starData.isLiked = false;
+        starData.isMessage = false;
+
+        // Get star's country for timezone-aware date calculation
+        const starCountry = star.country || null;
+
+        const { getCountryTimezoneOffset } = await import('../utils/timezoneHelper.js');
+
+        function getCurrentDateString() {
+            const offsetHours = getCountryTimezoneOffset(starCountry);
+            const offsetMs = offsetHours * 60 * 60 * 1000;
+            const now = new Date();
+            const localTime = new Date(now.getTime() + offsetMs);
+            const year = localTime.getUTCFullYear();
+            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(localTime.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Fetch related data (same as getStarById)
+        const [dedications, services, dedicationSamples, availability, upcomingShows] = await Promise.all([
+            Dedication.find({ userId: id }),
+            Service.find({ userId: id }),
+            DedicationSample.find({ userId: id }),
+            Availability.find({
+                userId: id,
+                date: { $gte: getCurrentDateString() }
+            }).sort({ date: 1 }),
+            LiveShow.find({
+                starId: id,
+                date: { $gt: new Date() },
+                status: 'pending'
+            })
+                .sort({ date: 1 })
+                .limit(10)
+        ]);
+
+        const ratingAgg = await Review.aggregate([
+            { $match: { starId: new mongoose.Types.ObjectId(id) } },
+            { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
+        ]);
+        const avg = ratingAgg && ratingAgg.length ? Math.round((ratingAgg[0].avg || 0) * 10) / 10 : 0;
+        const count = ratingAgg && ratingAgg.length ? ratingAgg[0].count : 0;
+        starData.averageRating = avg;
+        starData.totalReviews = count;
+
+        const latestReviews = await Review.find({
+            starId: id,
+            isVisible: true
+        })
+            .populate('reviewerId', 'name pseudo profilePic agoraKey')
+            .sort({ createdAt: -1 })
+            .limit(5);
+
+        const allservices = [
+            ...dedications.map(d => ({ ...d.toObject(), itemType: 'dedication' })),
+            ...services.map(s => ({ ...s.toObject(), itemType: 'service' }))
+        ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        const upcomingShowsWithLikeStatus = upcomingShows.map(show => {
+            const showData = show.toObject();
+            showData.isLiked = false;
+            return showData;
+        });
+
+        function parseTimeSlotToISTDate(dateStr, slot) {
+            if (!slot || typeof slot !== 'string' || !dateStr) return null;
+            const parts = slot.split(' - ');
+            if (parts.length !== 2) return null;
+            const startTime = parts[0].trim();
+            let hour, minute;
+            const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+            if (h24Match) {
+                hour = parseInt(h24Match[1], 10);
+                minute = parseInt(h24Match[2], 10);
+            } else {
+                const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+                if (!ampmMatch) return null;
+                hour = parseInt(ampmMatch[1], 10);
+                minute = parseInt(ampmMatch[2], 10);
+                const ampm = ampmMatch[3].toUpperCase();
+                if (ampm === 'PM' && hour !== 12) hour += 12;
+                if (ampm === 'AM' && hour === 12) hour = 0;
+            }
+            const [year, month, day] = dateStr.split('-').map(v => parseInt(v, 10));
+            const slotDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+            const istOffset = 5.5 * 60 * 60 * 1000;
+            const equivalentUTCTime = new Date(slotDate.getTime() + istOffset);
+            return equivalentUTCTime;
+        }
+
+        const mergedByDate = new Map();
+        availability.forEach(item => {
+            const doc = typeof item.toObject === 'function' ? item.toObject() : item;
+            const dateKey = doc.date;
+            if (!mergedByDate.has(dateKey)) {
+                mergedByDate.set(dateKey, {
+                    _id: doc._id,
+                    userId: doc.userId,
+                    date: doc.date,
+                    isWeekly: doc.isWeekly || false,
+                    isDaily: doc.isDaily || false,
+                    timeSlots: [...(doc.timeSlots || [])],
+                    createdAt: doc.createdAt,
+                    updatedAt: doc.updatedAt
+                });
+            } else {
+                const merged = mergedByDate.get(dateKey);
+                const existingSlotsMap = new Map();
+                merged.timeSlots.forEach(slot => {
+                    existingSlotsMap.set(slot.slot, slot);
+                });
+                doc.timeSlots.forEach(slot => {
+                    if (!existingSlotsMap.has(slot.slot)) {
+                        merged.timeSlots.push(slot);
+                    }
+                });
+                if (doc.isWeekly) merged.isWeekly = true;
+                if (doc.isDaily) merged.isDaily = true;
+            }
+        });
+
+        const mergedAvailability = Array.from(mergedByDate.values());
+
+        function getCurrentDateStringLocal() {
+            const offsetHours = getCountryTimezoneOffset(starCountry);
+            const offsetMs = offsetHours * 60 * 60 * 1000;
+            const now = new Date();
+            const localTime = new Date(now.getTime() + offsetMs);
+            const year = localTime.getUTCFullYear();
+            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(localTime.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        const filteredAvailability = Array.isArray(mergedAvailability)
+            ? mergedAvailability
+                .map((item) => {
+                    const timeSlots = Array.isArray(item.timeSlots)
+                        ? item.timeSlots
+                            .filter((s) => {
+                                if (!s || s.status !== 'available') return false;
+                                const currentUTCTime = new Date();
+                                const today = getCurrentDateStringLocal();
+                                if (item.date === today) {
+                                    let slotStartTime = null;
+                                    if (s.utcStartTime) {
+                                        slotStartTime = new Date(s.utcStartTime);
+                                    } else {
+                                        slotStartTime = parseTimeSlotToISTDate(item.date, s.slot);
+                                    }
+                                    if (slotStartTime && slotStartTime <= currentUTCTime) {
+                                        return false;
+                                    }
+                                }
+                                return true;
+                            })
+                            .sort((a, b) => {
+                                if (a.utcStartTime && b.utcStartTime) {
+                                    return new Date(a.utcStartTime) - new Date(b.utcStartTime);
+                                }
+                                const timeA = parseTimeSlot(a.slot);
+                                const timeB = parseTimeSlot(b.slot);
+                                return timeA - timeB;
+                            })
+                        : [];
+                    return { ...item, timeSlots };
+                })
+                .filter((item) => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
+                .sort((a, b) => {
+                    return new Date(a.date) - new Date(b.date);
+                })
+            : [];
+
+        function parseTimeSlot(slot) {
+            if (!slot || typeof slot !== 'string') return 0;
+            const parts = slot.split(' - ');
+            if (parts.length !== 2) return 0;
+            const startTime = parts[0].trim();
+            const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+            if (h24Match) {
+                const hour = parseInt(h24Match[1], 10);
+                const minute = parseInt(h24Match[2], 10);
+                return hour * 60 + minute;
+            }
+            const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+            if (ampmMatch) {
+                let hour = parseInt(ampmMatch[1], 10);
+                const minute = parseInt(ampmMatch[2], 10);
+                const ampm = ampmMatch[3].toUpperCase();
+                if (ampm === 'PM' && hour !== 12) hour += 12;
+                if (ampm === 'AM' && hour === 12) hour = 0;
+                return hour * 60 + minute;
+            }
+            return 0;
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                star: starData,
+                allservices,
+                dedicationSamples,
+                availability: filteredAvailability,
+                upcomingShows: upcomingShowsWithLikeStatus,
+                latestReviews: latestReviews.map(r => ({
+                    id: r._id,
+                    rating: r.rating,
+                    comment: r.comment,
+                    reviewer: r.reviewerId ? sanitizeUserData(r.reviewerId) : null,
+                    reviewType: r.reviewType,
+                    createdAt: r.createdAt,
+                }))
+            },
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Server error while fetching star details",
+            error: error.message,
+        });
+    }
+};
+
+/**
  * Send star promotion notification to the new star
  * @param {string} userId - User ID of the new star
  */

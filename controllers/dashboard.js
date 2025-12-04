@@ -338,3 +338,154 @@ export const getDashboard = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+/**
+ * Guest Dashboard - Public endpoint (no auth required)
+ * Returns featured stars, available stars, categories, and upcoming shows
+ * Same data as fan dashboard but without user-specific data (isLiked, etc.)
+ */
+export const getGuestDashboard = async (req, res) => {
+  try {
+    const { country } = req.query || {};
+
+    const categoriesQuery = Category.find().sort({ name: 1 });
+
+    // Build live show filter
+    const liveShowFilter = {
+      status: 'pending',
+      date: { $gt: new Date() }
+    };
+
+    let starIdsForCountry = [];
+    if (country) {
+      const starIdsDocs = await User.find({ role: 'star', country, isDeleted: { $ne: true } }).select('_id');
+      starIdsForCountry = starIdsDocs.map(s => s._id);
+      // If no stars in that country, ensure no shows are returned quickly
+      liveShowFilter.starId = { $in: starIdsForCountry.length ? starIdsForCountry : [null] };
+    }
+
+    const liveShowsQuery = LiveShow.find(liveShowFilter)
+      .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
+      .sort({ date: 1 })
+      .limit(10);
+
+    // Query for featured stars specifically
+    const featuredStarsCriteria = {
+      role: 'star',
+      feature_star: true,
+      isDeleted: { $ne: true },
+      // Basic requirements - only check for essential fields
+      name: { $exists: true, $ne: null, $ne: '' },
+      pseudo: { $exists: true, $ne: null, $ne: '' }
+    };
+
+    if (country) {
+      featuredStarsCriteria.country = country;
+    }
+
+    const featuredStarsQuery = User.find(featuredStarsCriteria)
+      .populate('profession')
+      .select('name pseudo profilePic about profession availableForBookings baroniId feature_star')
+      .sort({ profileImpressions: -1, createdAt: -1 })
+      .limit(10);
+
+    // Query for available stars
+    const availableStarsCriteria = {
+      role: 'star',
+      isDeleted: { $ne: true },
+      availableForBookings: true,
+      hidden: { $ne: true },
+      // Basic requirements - only check for essential fields
+      name: { $exists: true, $ne: null, $ne: '' },
+      pseudo: { $exists: true, $ne: null, $ne: '' }
+    };
+
+    // Only filter by country if provided
+    if (country && country.trim()) {
+      availableStarsCriteria.country = country;
+    }
+
+    const availableStarsQuery = User.find(availableStarsCriteria)
+      .populate('profession')
+      .select('name pseudo profilePic about profession availableForBookings baroniId feature_star country')
+      .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
+      .limit(15);
+
+    const [categories, upcomingShows, featuredStars, availableStars] = await Promise.all([
+      categoriesQuery,
+      liveShowsQuery,
+      featuredStarsQuery,
+      availableStarsQuery
+    ]);
+
+    // Debug: Log counts
+    console.log('[GuestDashboard] Featured stars found:', featuredStars.length);
+    console.log('[GuestDashboard] Available stars found:', availableStars.length);
+
+    // Calculate ratings for featured and available stars only
+    const allStars = [...featuredStars, ...availableStars];
+    const starIds = [...new Set(allStars.map(star => star._id.toString()))];
+    
+    // Get ratings for all stars in one query
+    const ratingsAgg = await Review.aggregate([
+      { $match: { starId: { $in: starIds.map(id => new mongoose.Types.ObjectId(id)) } } },
+      { $group: { _id: '$starId', avg: { $avg: '$rating' }, count: { $sum: 1 } } }
+    ]);
+    
+    // Create ratings map
+    const ratingsMap = {};
+    ratingsAgg.forEach(rating => {
+      ratingsMap[rating._id.toString()] = {
+        average: Number((rating.avg || 0).toFixed(1)), // Round to 1 decimal place
+        count: rating.count || 0
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        featuredStars: featuredStars.map(star => {
+          const sanitized = sanitizeUser(star);
+          const starRating = ratingsMap[star._id.toString()] || { average: 0, count: 0 };
+          return {
+            ...sanitized,
+            averageRating: starRating.average,
+            totalReviews: starRating.count
+          };
+        }),
+        availableStars: availableStars.map(star => {
+          const sanitized = sanitizeUser(star);
+          const starRating = ratingsMap[star._id.toString()] || { average: 0, count: 0 };
+          return {
+            ...sanitized,
+            averageRating: starRating.average,
+            totalReviews: starRating.count
+          };
+        }),
+        categories: categories.map(cat => ({
+          id: cat._id,
+          name: cat.name,
+          image: cat.image
+        })),
+        upcomingShows: upcomingShows.map(show => ({
+          id: show._id,
+          sessionTitle: show.sessionTitle,
+          date: show.date,
+          time: show.time,
+          attendanceFee: show.attendanceFee,
+          maxCapacity: show.maxCapacity,
+          currentAttendees: show.currentAttendees,
+          showCode: show.showCode,
+          description: show.description,
+          thumbnail: show.thumbnail,
+          likeCount: Array.isArray(show.likes) ? show.likes.length : 0,
+          isLiked: false, // Always false for guest users
+          star: show.starId ? sanitizeUserData(show.starId) : null
+        }))
+      },
+    });
+  } catch (err) {
+    console.error('[GuestDashboard] Error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
