@@ -1,6 +1,7 @@
 import express from 'express';
 import authRouter from './api/auth.js';
 import starRouter from './api/star.js';
+import guestRouter from './api/guest.js';
 import categoryRouter from './api/category.js';
 import dedicationsRouter from './api/dedications.js';
 import dedicationRequestsRouter from './api/dedicationRequests.js';
@@ -50,6 +51,7 @@ router.use('/contact-support', contactSupportRouter);
 router.use('/transactions', transactionRouter);
 router.use('/payment', paymentCallbackRouter);
 router.use('/star',starRouter);
+router.use('/guest', guestRouter);
 router.use('/favorites', favoritesRouter);
 router.use('/live-shows', liveShowsRouter);
 router.use('/report-users', reportUsersRouter);
@@ -74,6 +76,3 @@ router.use('/ads', adsRouter);
 router.use('/support-manager', supportManagerRouter);
 
 export default router;
-
-
-
