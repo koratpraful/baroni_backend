@@ -446,6 +446,7 @@ const getVideoCallInsights = async (startDate, endDate) => {
     {
       $match: {
         status: 'completed',
+        type: 'appointment_payment',
         createdAt: { $gte: startDate, $lte: endDate }
       }
     },
@@ -498,24 +499,13 @@ const getLiveShowInsights = async (startDate, endDate) => {
     })).map(id => id.toString())
   ]).size;
 
+  // Calculate net revenue from live show transactions
   const netRevenue = await Transaction.aggregate([
     {
       $match: {
         status: 'completed',
+        type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
         createdAt: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $lookup: {
-        from: 'liveshows',
-        localField: '_id',
-        foreignField: 'transactionId',
-        as: 'liveShow'
-      }
-    },
-    {
-      $match: {
-        'liveShow.0': { $exists: true }
       }
     },
     {
@@ -556,6 +546,7 @@ const getDedicationInsights = async (startDate, endDate) => {
     {
       $match: {
         status: 'completed',
+        type: { $in: ['dedication_request_payment', 'dedication_payment'] },
         createdAt: { $gte: startDate, $lte: endDate }
       }
     },
@@ -1693,6 +1684,501 @@ export const deleteEvent = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to delete event',
+      error: err.message
+    });
+  }
+};
+
+// Comprehensive Dashboard Overview - All data in one endpoint (matches mobile screen)
+export const getDashboardOverview = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { period = 'current_month' } = req.query;
+    const { startDate, endDate } = getDateRange(period);
+    
+    // Get previous period for comparison
+    let previousStartDate, previousEndDate;
+    if (period === 'current_month') {
+      const now = new Date();
+      previousStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      previousEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    } else if (period === 'last_month') {
+      const now = new Date();
+      previousStartDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      previousEndDate = new Date(now.getFullYear(), now.getMonth() - 1, 0, 23, 59, 59);
+    } else {
+      // For other periods, calculate previous period
+      const periodDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+      previousEndDate = new Date(startDate.getTime() - 1);
+      previousStartDate = new Date(previousEndDate.getTime() - periodDays * 24 * 60 * 60 * 1000);
+    }
+
+    // Get active user IDs first (needed for multiple queries)
+    const [activeUserIds, previousActiveUserIds, engagedFanIds, previousEngagedFanIds] = await Promise.all([
+      Transaction.distinct('payerId', {
+        createdAt: { $gte: startDate, $lte: endDate }
+      }),
+      Transaction.distinct('payerId', {
+        createdAt: { $gte: previousStartDate, $lte: previousEndDate }
+      }),
+      Transaction.distinct('payerId', {
+        createdAt: { $gte: startDate, $lte: endDate },
+        status: 'completed'
+      }),
+      Transaction.distinct('payerId', {
+        createdAt: { $gte: previousStartDate, $lte: previousEndDate },
+        status: 'completed'
+      })
+    ]);
+
+    // Build country query condition
+    const countryMatchCondition = {
+      country: { $exists: true, $ne: null, $ne: '' },
+      isDeleted: { $ne: true }
+    };
+    
+    if (activeUserIds.length > 0) {
+      countryMatchCondition.$or = [
+        { lastLoginAt: { $gte: startDate, $lte: endDate } },
+        { _id: { $in: activeUserIds } }
+      ];
+    } else {
+      countryMatchCondition.lastLoginAt = { $gte: startDate, $lte: endDate };
+    }
+
+    // Execute all queries in parallel for better performance
+    const [
+      newUsers,
+      previousNewUsers,
+      engagedFans,
+      previousEngagedFans,
+      totalActiveUsers,
+      revenueData,
+      escrowData,
+      serviceRevenue,
+      countryData,
+      deviceData,
+      previousDeviceData,
+      reportedUsers,
+      costData,
+      previousCostData,
+      videoCallInsights,
+      liveShowInsights,
+      dedicationInsights
+    ] = await Promise.all([
+      // New Users
+      User.countDocuments({
+        createdAt: { $gte: startDate, $lte: endDate },
+        isDeleted: { $ne: true }
+      }),
+      User.countDocuments({
+        createdAt: { $gte: previousStartDate, $lte: previousEndDate },
+        isDeleted: { $ne: true }
+      }),
+      // Engaged Fans
+      User.countDocuments({
+        _id: { $in: engagedFanIds },
+        isDeleted: { $ne: true }
+      }),
+      User.countDocuments({
+        _id: { $in: previousEngagedFanIds },
+        isDeleted: { $ne: true }
+      }),
+      // Total Active Users
+      User.countDocuments({
+        $or: [
+          { lastLoginAt: { $gte: startDate, $lte: endDate } },
+          { _id: { $in: activeUserIds } }
+        ],
+        isDeleted: { $ne: true }
+      }),
+      // Total Revenue
+      Transaction.aggregate([
+        {
+          $match: {
+            status: 'completed',
+            createdAt: { $gte: startDate, $lte: endDate }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$amount' }
+          }
+        }
+      ]),
+      // Escrow Amount
+      Transaction.aggregate([
+        {
+          $match: {
+            status: 'pending',
+            createdAt: { $gte: startDate, $lte: endDate }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            escrowAmount: { $sum: '$amount' }
+          }
+        }
+      ]),
+      // Service Revenue Breakdown
+      Transaction.aggregate([
+        {
+          $match: {
+            status: 'completed',
+            createdAt: { $gte: startDate, $lte: endDate }
+          }
+        },
+        {
+          $group: {
+            _id: '$type',
+            amount: { $sum: '$amount' }
+          }
+        }
+      ]),
+      // Active Users by Country
+      User.aggregate([
+        {
+          $match: countryMatchCondition
+        },
+        {
+          $group: {
+            _id: '$country',
+            stars: {
+              $sum: { $cond: [{ $eq: ['$role', 'star'] }, 1, 0] }
+            },
+            fans: {
+              $sum: { $cond: [{ $eq: ['$role', 'fan'] }, 1, 0] }
+            }
+          }
+        },
+        {
+          $sort: { stars: -1, fans: -1 }
+        },
+        {
+          $limit: 10
+        }
+      ]),
+      // Device Type Current
+      User.aggregate([
+        {
+          $match: {
+            deviceType: { $exists: true, $ne: null },
+            isDeleted: { $ne: true },
+            createdAt: { $lte: endDate }
+          }
+        },
+        {
+          $group: {
+            _id: '$deviceType',
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      // Device Type Previous
+      User.aggregate([
+        {
+          $match: {
+            deviceType: { $exists: true, $ne: null },
+            isDeleted: { $ne: true },
+            createdAt: { $lte: previousEndDate }
+          }
+        },
+        {
+          $group: {
+            _id: '$deviceType',
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      // Reported Users
+      ReportUser.aggregate([
+        {
+          $group: {
+            _id: '$reportedUserRole',
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      // Cost Evaluation - Current
+      Promise.all([
+        Appointment.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              $or: [
+                { completedAt: { $gte: startDate, $lte: endDate } },
+                { completedAt: { $exists: false }, createdAt: { $gte: startDate, $lte: endDate } }
+              ],
+              callDuration: { $exists: true, $gt: 0 }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: { $divide: ['$callDuration', 60] } }
+            }
+          }
+        ]),
+        LiveShow.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              $or: [
+                { updatedAt: { $gte: startDate, $lte: endDate } },
+                { createdAt: { $gte: startDate, $lte: endDate } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
+            }
+          }
+        ]),
+        DedicationRequest.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              $or: [
+                { completedAt: { $gte: startDate, $lte: endDate } },
+                { completedAt: { $exists: false }, createdAt: { $gte: startDate, $lte: endDate } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: 5 }
+            }
+          }
+        ])
+      ]),
+      // Cost Evaluation - Previous
+      Promise.all([
+        Appointment.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              $or: [
+                { completedAt: { $gte: previousStartDate, $lte: previousEndDate } },
+                { completedAt: { $exists: false }, createdAt: { $gte: previousStartDate, $lte: previousEndDate } }
+              ],
+              callDuration: { $exists: true, $gt: 0 }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: { $divide: ['$callDuration', 60] } }
+            }
+          }
+        ]),
+        LiveShow.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              $or: [
+                { updatedAt: { $gte: previousStartDate, $lte: previousEndDate } },
+                { createdAt: { $gte: previousStartDate, $lte: previousEndDate } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
+            }
+          }
+        ]),
+        DedicationRequest.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              $or: [
+                { completedAt: { $gte: previousStartDate, $lte: previousEndDate } },
+                { completedAt: { $exists: false }, createdAt: { $gte: previousStartDate, $lte: previousEndDate } }
+              ]
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: 5 }
+            }
+          }
+        ])
+      ]),
+      // Service Insights
+      getVideoCallInsights(startDate, endDate),
+      getLiveShowInsights(startDate, endDate),
+      getDedicationInsights(startDate, endDate)
+    ]);
+
+    // Process revenue data
+    const totalRevenue = revenueData[0]?.totalRevenue || 0;
+    const escrowAmount = escrowData[0]?.escrowAmount || 0;
+
+    // Process service revenue
+    const serviceRevenueMap = {};
+    serviceRevenue.forEach(service => {
+      if (service._id === 'appointment_payment') {
+        serviceRevenueMap.videoCall = service.amount;
+      } else if (service._id === 'live_show_attendance_payment' || service._id === 'live_show_hosting_payment') {
+        serviceRevenueMap.liveShow = (serviceRevenueMap.liveShow || 0) + service.amount;
+      } else if (service._id === 'dedication_request_payment' || service._id === 'dedication_payment') {
+        serviceRevenueMap.dedication = (serviceRevenueMap.dedication || 0) + service.amount;
+      }
+    });
+
+    // Process device data
+    const deviceMap = {};
+    deviceData.forEach(device => {
+      deviceMap[device._id] = device.count;
+    });
+    const previousDeviceMap = {};
+    previousDeviceData.forEach(device => {
+      previousDeviceMap[device._id] = device.count;
+    });
+    const androidUsers = deviceMap.android || 0;
+    const iosUsers = deviceMap.ios || 0;
+    const previousAndroidUsers = previousDeviceMap.android || 0;
+    const previousIosUsers = previousDeviceMap.ios || 0;
+    const androidChange = androidUsers - previousAndroidUsers;
+    const iosChange = iosUsers - previousIosUsers;
+
+    // Process reported users
+    const reportedMap = {};
+    reportedUsers.forEach(report => {
+      reportedMap[report._id] = report.count;
+    });
+    const reportedStarsCount = reportedMap.star || 0;
+    const reportedFansCount = reportedMap.fan || 0;
+
+    // Process cost evaluation
+    const videoCallMinutes = Math.round(costData[0][0]?.totalMinutes || 0);
+    const liveShowMinutes = Math.round(costData[1][0]?.totalMinutes || 0);
+    const dedicationMinutes = Math.round(costData[2][0]?.totalMinutes || 0);
+    const previousVideoCallMinutes = Math.round(previousCostData[0][0]?.totalMinutes || 0);
+    const previousLiveShowMinutes = Math.round(previousCostData[1][0]?.totalMinutes || 0);
+    const previousDedicationMinutes = Math.round(previousCostData[2][0]?.totalMinutes || 0);
+    const videoCallChange = videoCallMinutes - previousVideoCallMinutes;
+    const liveShowChange = liveShowMinutes - previousLiveShowMinutes;
+    const dedicationChange = dedicationMinutes - previousDedicationMinutes;
+
+    // Calculate changes
+    const newUsersChange = newUsers - previousNewUsers;
+    const engagedFansChange = engagedFans - previousEngagedFans;
+
+    return res.json({
+      success: true,
+      message: 'Dashboard overview retrieved successfully',
+      data: {
+        // Summary Cards
+        summary: {
+          newUsers: {
+            count: newUsers,
+            change: newUsersChange
+          },
+          engagedFans: {
+            count: engagedFans,
+            change: engagedFansChange
+          }
+        },
+        // Revenue Insights
+        revenue: {
+          totalRevenue: totalRevenue,
+          escrowAmount: escrowAmount,
+          serviceBreakdown: {
+            videoCall: serviceRevenueMap.videoCall || 0,
+            liveShow: serviceRevenueMap.liveShow || 0,
+            dedication: serviceRevenueMap.dedication || 0
+          }
+        },
+        // Active Users per Country
+        activeUsersByCountry: {
+          totalActiveUsers: totalActiveUsers,
+          countries: countryData.map(country => ({
+            name: country._id,
+            stars: country.stars,
+            fans: country.fans
+          }))
+        },
+        // Device Type Repartition
+        deviceType: {
+          android: {
+            count: androidUsers,
+            change: androidChange
+          },
+          ios: {
+            count: iosUsers,
+            change: iosChange
+          }
+        },
+        // Reported Users
+        reportedUsers: {
+          stars: reportedStarsCount,
+          fans: reportedFansCount
+        },
+        // Cost Evaluation
+        costEvaluation: {
+          videoCall: {
+            minutes: videoCallMinutes,
+            change: videoCallChange
+          },
+          liveShow: {
+            minutes: liveShowMinutes,
+            change: liveShowChange
+          },
+          dedication: {
+            minutes: dedicationMinutes,
+            change: dedicationChange
+          }
+        },
+        // Service Insights
+        serviceInsights: {
+          videoCall: {
+            completed: videoCallInsights.completed,
+            approved: videoCallInsights.approved,
+            cancelled: videoCallInsights.cancelled,
+            pending: videoCallInsights.pending,
+            uniqueFansAndStars: videoCallInsights.uniqueFansAndStars,
+            netRevenue: videoCallInsights.netRevenue
+          },
+          liveShow: {
+            completed: liveShowInsights.completed,
+            approved: liveShowInsights.approved,
+            cancelled: liveShowInsights.cancelled,
+            pending: liveShowInsights.pending,
+            uniqueFansAndStars: liveShowInsights.uniqueFansAndStars,
+            netRevenue: liveShowInsights.netRevenue
+          },
+          dedication: {
+            completed: dedicationInsights.completed,
+            approved: dedicationInsights.approved,
+            cancelled: dedicationInsights.cancelled,
+            pending: dedicationInsights.pending,
+            uniqueFansAndStars: dedicationInsights.uniqueFansAndStars,
+            netRevenue: dedicationInsights.netRevenue
+          }
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Dashboard overview error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get dashboard overview',
       error: err.message
     });
   }

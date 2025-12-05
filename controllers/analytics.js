@@ -6,6 +6,8 @@ import LiveShowAttendance from '../models/LiveShowAttendance.js';
 import Review from '../models/Review.js';
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
+import StarTransaction from '../models/StarTransaction.js';
+import StarWallet from '../models/StarWallet.js';
 
 export const getStarAnalytics = async (req, res) => {
   try {
@@ -113,23 +115,35 @@ export const getStarAnalytics = async (req, res) => {
       // Video Impressions (simulated - you might want to track this separately)
       Appointment.countDocuments({ ...baseFilter, status: 'completed' }).then(count => count * 2), // Placeholder calculation
       
-      // Revenue Analytics
+      // Revenue Analytics - Use StarTransaction for accurate revenue (after commission)
       Promise.all([
-        // Video Calls Revenue
-        Appointment.aggregate([
-          { $match: { starId: new mongoose.Types.ObjectId(starId), status: 'completed', ...dateFilter } },
-          { $group: { _id: null, totalRevenue: { $sum: '$price' } } }
+        // Video Calls Revenue (from StarTransaction)
+        StarTransaction.aggregate([
+          { 
+            $match: { 
+              starId: new mongoose.Types.ObjectId(starId), 
+              type: 'appointment',
+              status: 'completed',
+              ...dateFilter
+            } 
+          },
+          { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
         ]),
-        // Dedications Revenue
-        DedicationRequest.aggregate([
-          { $match: { starId: new mongoose.Types.ObjectId(starId), status: 'completed', ...dateFilter } },
-          { $group: { _id: null, totalRevenue: { $sum: '$price' } } }
+        // Dedications Revenue (from StarTransaction)
+        StarTransaction.aggregate([
+          { 
+            $match: { 
+              starId: new mongoose.Types.ObjectId(starId), 
+              type: 'dedication',
+              status: 'completed',
+              ...dateFilter
+            } 
+          },
+          { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
         ]),
-        // Live Shows Revenue
-        LiveShowAttendance.aggregate([
-          { $match: { starId: new mongoose.Types.ObjectId(starId), status: 'completed', ...dateFilter } },
-          { $group: { _id: null, totalRevenue: { $sum: '$attendanceFee' } } }
-        ])
+        // Live Shows Revenue - Live shows don't create StarTransaction, so return 0
+        // (Live show earnings are handled differently in the system)
+        Promise.resolve([])
       ]),
       
       // Most Committed Countries
@@ -171,7 +185,18 @@ export const getStarAnalytics = async (req, res) => {
     const videoCallsRevenueTotal = videoCallsRevenue.length > 0 ? videoCallsRevenue[0].totalRevenue : 0;
     const dedicationsRevenueTotal = dedicationsRevenue.length > 0 ? dedicationsRevenue[0].totalRevenue : 0;
     const liveShowsRevenueTotal = liveShowsRevenue.length > 0 ? liveShowsRevenue[0].totalRevenue : 0;
-    const totalRevenue = videoCallsRevenueTotal + dedicationsRevenueTotal + liveShowsRevenueTotal;
+    
+    // If no date range is provided, show current wallet balance (jackpot + escrow)
+    // Otherwise, show revenue earned in the date range
+    let totalRevenue;
+    if (!startDate && !endDate && !date) {
+      // No date filter - show current wallet balance
+      const starWallet = await StarWallet.findOne({ starId });
+      totalRevenue = (starWallet?.jackpot || 0) + (starWallet?.escrow || 0);
+    } else {
+      // Date range provided - show revenue from StarTransaction in that period
+      totalRevenue = videoCallsRevenueTotal + dedicationsRevenueTotal + liveShowsRevenueTotal;
+    }
 
     // Process country data
     const topCountries = countryData.map(country => ({

@@ -2158,6 +2158,39 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Get Dashboard Overview (Mobile Screen)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/overview?period=current_month",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"dashboard",
+								"overview"
+							],
+							"query": [
+								{
+									"key": "period",
+									"value": "current_month",
+									"description": "Filter: current_month, last_month, last_7_days, last_30_days"
+								}
+							]
+						},
+						"description": "Comprehensive dashboard endpoint that returns all data in one call matching the mobile screen format. Includes: summary cards (new users, engaged fans), revenue insights (total, escrow, service breakdown), active users by country, device type repartition, reported users, cost evaluation, and detailed service insights for video calls, live shows, and dedications."
+					},
+					"response": []
 				}
 			]
 		},
