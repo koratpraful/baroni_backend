@@ -225,15 +225,23 @@ export const getDashboard = async (req, res) => {
       .select('name pseudo profilePic')
       .limit(20);
 
-      // Compute earnings breakdown from StarTransaction (pending + completed = earned, exclude refunded)
+      // Compute earnings breakdown from StarTransaction (pending + completed = earned, exclude refunded, withdrawal, commission)
+      // Only count appointment and dedication types - withdrawal reduces wallet, commission is separate
       const txnAgg = await StarTransaction.aggregate([
-        { $match: { starId: user._id, status: { $in: ['pending', 'completed'] } } },
+        { 
+          $match: { 
+            starId: user._id, 
+            status: { $in: ['pending', 'completed'] },
+            type: { $in: ['appointment', 'dedication'] } // Exclude withdrawal and commission
+          } 
+        },
         { $group: { _id: '$type', amount: { $sum: '$amount' } } }
       ]);
       const aggMap = txnAgg.reduce((m, r) => { m[r._id] = r.amount; return m; }, {});
       const appointmentEarnings = Number(aggMap['appointment'] || 0);
+      const dedicationEarnings = Number(aggMap['dedication'] || 0);
       const liveShowEarningsTotal = Number(aggMap['live_show'] || aggMap['live_show_hosting'] || 0);
-      const totalEarnings = Number(starWallet?.totalEarned || (appointmentEarnings + liveShowEarningsTotal));
+      const totalEarnings = Number(starWallet?.totalEarned || (appointmentEarnings + dedicationEarnings + liveShowEarningsTotal));
       const pendingEscrow = Number(starWallet?.escrow || 0);
       const jackpotFunds = Number(starWallet?.jackpot || 0);
 
