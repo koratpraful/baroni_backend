@@ -51,6 +51,16 @@ export const getStarAnalytics = async (req, res) => {
     
     // Combine starId filter with date filter
     const baseFilter = { starId, ...dateFilter };
+    
+    // Revenue Analytics - Use StarTransaction for accurate revenue (after commission)
+    // When no date range: include both pending (escrow) and completed (jackpot) transactions
+    // When date range provided: only include completed transactions in that period
+    // Always exclude refunded and cancelled transactions
+    const hasDateFilter = !!(startDate || endDate || date);
+    const revenueStatusFilter = hasDateFilter 
+      ? { status: 'completed' } 
+      : { status: { $in: ['pending', 'completed'] } };
+    
     const [
       videoCallsData,
       dedicationsData,
@@ -125,7 +135,7 @@ export const getStarAnalytics = async (req, res) => {
             $match: { 
               starId: new mongoose.Types.ObjectId(starId), 
               type: 'appointment',
-              status: 'completed',
+              ...revenueStatusFilter,
               ...dateFilter
             } 
           },
@@ -137,7 +147,7 @@ export const getStarAnalytics = async (req, res) => {
             $match: { 
               starId: new mongoose.Types.ObjectId(starId), 
               type: 'dedication',
-              status: 'completed',
+              ...revenueStatusFilter,
               ...dateFilter
             } 
           },
