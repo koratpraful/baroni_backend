@@ -2158,6 +2158,39 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Get Dashboard Overview (Mobile Screen)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/dashboard/overview?period=current_month",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"dashboard",
+								"overview"
+							],
+							"query": [
+								{
+									"key": "period",
+									"value": "current_month",
+									"description": "Filter: current_month, last_month, last_7_days, last_30_days"
+								}
+							]
+						},
+						"description": "Comprehensive dashboard endpoint that returns all data in one call matching the mobile screen format. Includes: summary cards (new users, engaged fans), revenue insights (total, escrow, service breakdown), active users by country, device type repartition, reported users, cost evaluation, and detailed service insights for video calls, live shows, and dedications."
+					},
+					"response": []
 				}
 			]
 		},
@@ -4568,6 +4601,429 @@
 								}
 							]
 						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Notification Management",
+			"item": [
+				{
+					"name": "Create and Send Notification",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"notificationType\": \"Push\",\n  \"sessionTitle\": \"Spiritual Talk - Sunday Healing\",\n  \"message\": \"Write Body Message\",\n  \"targetAudience\": \"All Fans\",\n  \"country\": \"India\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/create",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"create"
+							]
+						},
+						"description": "Create and send notification immediately. notificationType: Push/SMS/Email, targetAudience: All Fans/All Stars/All Users/By Country/Specific Users"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Notification Template",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"service\": \"Live Show\",\n  \"notificationType\": \"Push\",\n  \"message\": \"Write Body Message\",\n  \"category\": \"Live Shows\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/templates",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"templates"
+							]
+						},
+						"description": "Create notification template. service: Live Show/Video Call/Dedication/General, notificationType: Push/SMS/Email"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Notification Templates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/templates?category=Live Shows&notificationType=Push&search=&page=1&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"templates"
+							],
+							"query": [
+								{
+									"key": "category",
+									"value": "Live Shows",
+									"description": "Filter: Video Calls, Dedications, Live Shows, General, or All"
+								},
+								{
+									"key": "notificationType",
+									"value": "Push",
+									"description": "Filter: Push, SMS, Email, or All"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search in message and service fields"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get all notification templates with filtering and pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Notification Template",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"service\": \"Live Show\",\n  \"notificationType\": \"Push\",\n  \"message\": \"Updated message\",\n  \"category\": \"Live Shows\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/templates/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"templates",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TEMPLATE_ID_HERE"
+								}
+							]
+						},
+						"description": "Update an existing notification template"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Notification Template",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/templates/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"templates",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "TEMPLATE_ID_HERE"
+								}
+							]
+						},
+						"description": "Delete a notification template"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Notification History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/history?type=All&search=&page=1&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"history"
+							],
+							"query": [
+								{
+									"key": "type",
+									"value": "All",
+									"description": "Filter: All, SMS, Email, or Push"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search in title and message fields"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get notification history with filtering and pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Schedule Notification",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Live show starting\",\n  \"body\": \"Hi Riya, your live show starts in 15 min. Get ready to connect with your fans!\",\n  \"notificationType\": \"Push\",\n  \"sessionTitle\": \"Spiritual Talk - Sunday Healing\",\n  \"targetAudience\": \"All Fans\",\n  \"country\": \"India\",\n  \"scheduledAt\": \"2025-07-25T10:00:00.000Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/schedule",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"schedule"
+							]
+						},
+						"description": "Schedule a notification for future delivery. scheduledAt must be a future date/time"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Scheduled Notifications",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/scheduled?notificationType=All&search=&page=1&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"scheduled"
+							],
+							"query": [
+								{
+									"key": "notificationType",
+									"value": "All",
+									"description": "Filter: All, Push, SMS, or Email"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search in title, body, and sessionTitle fields"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get all scheduled notifications with filtering and pagination"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Scheduled Notification",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Updated title\",\n  \"body\": \"Updated body\",\n  \"notificationType\": \"Push\",\n  \"sessionTitle\": \"Updated session title\",\n  \"targetAudience\": \"All Fans\",\n  \"country\": \"India\",\n  \"scheduledAt\": \"2025-07-26T10:00:00.000Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/scheduled/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"scheduled",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "SCHEDULED_NOTIFICATION_ID_HERE"
+								}
+							]
+						},
+						"description": "Update a scheduled notification (only if status is 'scheduled')"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Scheduled Notification",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{admin_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/admin/notifications/scheduled/:id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"notifications",
+								"scheduled",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "SCHEDULED_NOTIFICATION_ID_HERE"
+								}
+							]
+						},
+						"description": "Delete a scheduled notification"
 					},
 					"response": []
 				}

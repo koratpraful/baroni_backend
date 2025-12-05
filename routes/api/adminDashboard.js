@@ -12,7 +12,8 @@ import {
   getReportedUsersDetails,
   createEvent,
   getEvents,
-  updateEventStatus
+  updateEventStatus,
+  getDashboardOverview
 } from '../../controllers/adminDashboard.js';
 import {
   dashboardSummaryValidator,
@@ -54,6 +55,9 @@ router.get('/top-stars', topStarsValidator, getTopStars);
 
 // Complete Dashboard Data (All in one)
 router.get('/complete', completeDashboardValidator, getCompleteDashboard);
+
+// Comprehensive Dashboard Overview (Mobile screen format - all data in one call)
+router.get('/overview', completeDashboardValidator, getDashboardOverview);
 
 // Enhanced Service Revenue Breakdown
 router.get('/service-revenue-breakdown', serviceRevenueBreakdownValidator, getServiceRevenueBreakdown);
