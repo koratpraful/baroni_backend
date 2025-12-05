@@ -8,6 +8,7 @@ import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
 import StarTransaction from '../models/StarTransaction.js';
 import StarWallet from '../models/StarWallet.js';
+import JackpotWithdrawalRequest from '../models/JackpotWithdrawalRequest.js';
 
 export const getStarAnalytics = async (req, res) => {
   try {
@@ -59,7 +60,8 @@ export const getStarAnalytics = async (req, res) => {
       profileImpressionsData,
       videoImpressionsData,
       revenueData,
-      countryData
+      countryData,
+      lastWithdrawalRequest
     ] = await Promise.all([
       // Video Calls Analytics
       Promise.all([
@@ -154,7 +156,12 @@ export const getStarAnalytics = async (req, res) => {
         { $group: { _id: '$fan.country', fanCount: { $sum: 1 } } },
         { $sort: { fanCount: -1 } },
         { $limit: 4 }
-      ])
+      ]),
+      
+      // Last Withdrawal Request
+      JackpotWithdrawalRequest.findOne({ starId })
+        .sort({ createdAt: -1 })
+        .select('_id amount status note rejectionReason createdAt updatedAt processedAt')
     ]);
 
     // Process video calls data
@@ -204,6 +211,22 @@ export const getStarAnalytics = async (req, res) => {
       fanCount: country.fanCount
     }));
 
+    // Process withdrawal request data
+    const isAnyWithdrawRequest = !!lastWithdrawalRequest;
+    let lastWithdrawalRequestData = {};
+    if (lastWithdrawalRequest) {
+      lastWithdrawalRequestData = {
+        id: lastWithdrawalRequest._id,
+        amount: lastWithdrawalRequest.amount,
+        status: lastWithdrawalRequest.status,
+        note: lastWithdrawalRequest.note || null,
+        rejectionReason: lastWithdrawalRequest.rejectionReason || null,
+        createdAt: lastWithdrawalRequest.createdAt,
+        updatedAt: lastWithdrawalRequest.updatedAt,
+        processedAt: lastWithdrawalRequest.processedAt || null
+      };
+    }
+
     // Format revenue with commas
     const formatRevenue = (amount) => {
       return amount.toLocaleString('en-US');
@@ -248,7 +271,11 @@ export const getStarAnalytics = async (req, res) => {
           liveShows: formatRevenue(liveShowsRevenueTotal)
         }
       },
-      topCountries: topCountries
+      topCountries: topCountries,
+      withdrawalRequest: {
+        is_any_withdraw_request: isAnyWithdrawRequest,
+        lastWithdrawalRequest: lastWithdrawalRequestData
+      }
     };
 
     return res.json({
