@@ -203,13 +203,17 @@ export const getStarAnalytics = async (req, res) => {
     const dedicationsRevenueTotal = dedicationsRevenue.length > 0 ? dedicationsRevenue[0].totalRevenue : 0;
     const liveShowsRevenueTotal = liveShowsRevenue.length > 0 ? liveShowsRevenue[0].totalRevenue : 0;
     
+    // Get wallet to show escrow and jackpot amounts
+    const starWallet = await StarWallet.findOne({ starId });
+    const escrowAmount = starWallet?.escrow || 0;
+    const jackpotAmount = starWallet?.jackpot || 0;
+    
     // If no date range is provided, show current wallet balance (jackpot + escrow)
     // Otherwise, show revenue earned in the date range
     let totalRevenue;
     if (!startDate && !endDate && !date) {
       // No date filter - show current wallet balance
-      const starWallet = await StarWallet.findOne({ starId });
-      totalRevenue = (starWallet?.jackpot || 0) + (starWallet?.escrow || 0);
+      totalRevenue = jackpotAmount + escrowAmount;
     } else {
       // Date range provided - show revenue from StarTransaction in that period
       totalRevenue = videoCallsRevenueTotal + dedicationsRevenueTotal + liveShowsRevenueTotal;
@@ -275,6 +279,8 @@ export const getStarAnalytics = async (req, res) => {
       },
       revenue: {
         total: formatRevenue(totalRevenue),
+        escrow: formatRevenue(escrowAmount),
+        jackpot: formatRevenue(jackpotAmount),
         breakdown: {
           videoCalls: formatRevenue(videoCallsRevenueTotal),
           dedications: formatRevenue(dedicationsRevenueTotal),

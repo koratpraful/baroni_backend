@@ -67,34 +67,74 @@ export const adminSignIn = async (req, res) => {
       });
     }
 
+    // Normalize deviceType to lowercase if it exists (enum expects 'ios' or 'android')
+    if (admin.deviceType) {
+      const normalizedDeviceType = admin.deviceType.toLowerCase();
+      if (['ios', 'android'].includes(normalizedDeviceType)) {
+        admin.deviceType = normalizedDeviceType;
+      } else {
+        // If invalid deviceType, remove it (since it's sparse/optional)
+        admin.deviceType = undefined;
+      }
+    }
+
     // Increment session version to invalidate old tokens
     admin.sessionVersion = (typeof admin.sessionVersion === 'number' ? admin.sessionVersion : 0) + 1;
-    await admin.save();
+    
+    try {
+      await admin.save();
+    } catch (saveError) {
+      console.error('Error saving admin session version:', saveError);
+      throw new Error(`Failed to update session: ${saveError.message}`);
+    }
 
     // Generate tokens
-    const accessToken = createAccessToken({ 
-      userId: admin._id, 
-      sessionVersion: admin.sessionVersion 
-    });
-    const refreshToken = createRefreshToken({ 
-      userId: admin._id, 
-      sessionVersion: admin.sessionVersion 
-    });
+    let accessToken, refreshToken;
+    try {
+      accessToken = createAccessToken({ 
+        userId: admin._id, 
+        sessionVersion: admin.sessionVersion 
+      });
+      refreshToken = createRefreshToken({ 
+        userId: admin._id, 
+        sessionVersion: admin.sessionVersion 
+      });
+    } catch (tokenError) {
+      console.error('Error generating tokens:', tokenError);
+      throw new Error(`Failed to generate tokens: ${tokenError.message}`);
+    }
+
+    // Sanitize user data
+    let sanitizedAdmin;
+    try {
+      sanitizedAdmin = sanitizeUser(admin);
+    } catch (sanitizeError) {
+      console.error('Error sanitizing admin data:', sanitizeError);
+      console.error('Admin object:', admin);
+      throw new Error(`Failed to sanitize user data: ${sanitizeError.message}`);
+    }
 
     return res.json({
       success: true,
       message: 'Admin login successful',
       data: {
-        admin: sanitizeUser(admin),
+        admin: sanitizedAdmin,
         tokens: { accessToken, refreshToken }
       }
     });
 
   } catch (err) {
     console.error('Admin sign in error:', err);
+    console.error('Error stack:', err.stack);
+    console.error('Error details:', {
+      message: err.message,
+      name: err.name,
+      email: req.body?.email
+    });
     return res.status(500).json({ 
       success: false, 
-      message: 'Internal server error' 
+      message: 'Internal server error',
+      ...(process.env.NODE_ENV === 'development' && { error: err.message, stack: err.stack })
     });
   }
 };
