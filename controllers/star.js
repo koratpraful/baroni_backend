@@ -1006,7 +1006,7 @@ export const getStarById = async (req, res) => {
         const starCountry = star.country || null;
         
         // Import timezone helper dynamically
-        const { getCountryTimezoneOffset } = await import('../utils/timezoneHelper.js');
+        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
 
         // Helper function to get current date in star's country timezone (YYYY-MM-DD format)
         function getCurrentDateString() {
@@ -1096,44 +1096,20 @@ export const getStarById = async (req, res) => {
             return showData;
         });
 
-        // Helper function to parse time slot and convert to IST Date object for comparison
-        function parseTimeSlotToISTDate(dateStr, slot) {
+        // Helper function to parse time slot and convert to UTC Date object for comparison
+        // Uses star's country timezone instead of hardcoded IST
+        function parseTimeSlotToUTCDate(dateStr, slot, country) {
             if (!slot || typeof slot !== 'string' || !dateStr) return null;
-
-            const parts = slot.split(' - ');
-            if (parts.length !== 2) return null;
-
-            const startTime = parts[0].trim();
-            let hour, minute;
-
-            // Parse time logic
-            const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
-            if (h24Match) {
-                hour = parseInt(h24Match[1], 10);
-                minute = parseInt(h24Match[2], 10);
-            } else {
-                const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-                if (!ampmMatch) return null;
-
-                hour = parseInt(ampmMatch[1], 10);
-                minute = parseInt(ampmMatch[2], 10);
-                const ampm = ampmMatch[3].toUpperCase();
-
-                if (ampm === 'PM' && hour !== 12) hour += 12;
-                if (ampm === 'AM' && hour === 12) hour = 0;
+            
+            // Use convertLocalToUTC which properly handles the star's country timezone
+            try {
+                const utcDate = convertLocalToUTC(dateStr, slot, country);
+                console.log(`Parsed time slot: ${slot} on ${dateStr} (country: ${country || 'unknown'}) -> UTC: ${utcDate.toISOString()}`);
+                return utcDate;
+            } catch (error) {
+                console.error(`Error parsing time slot ${slot} on ${dateStr}:`, error);
+                return null;
             }
-
-            // Create date object treating the slot as IST time
-            const [year, month, day] = dateStr.split('-').map(v => parseInt(v, 10));
-            const slotDate = new Date(year, month - 1, day, hour, minute, 0, 0);
-
-            // Convert to equivalent UTC time for comparison (subtract IST offset)
-            const istOffset = 5.5 * 60 * 60 * 1000;
-            const equivalentUTCTime = new Date(slotDate.getTime() + istOffset);
-
-            console.log(`Parsed time slot: ${slot} on ${dateStr} -> IST time: ${slotDate.toISOString()} -> Equivalent UTC: ${equivalentUTCTime.toISOString()}`);
-
-            return equivalentUTCTime;
         }
 
         // Merge availabilities by date (combine daily and weekly slots for same date)
@@ -1206,12 +1182,12 @@ export const getStarById = async (req, res) => {
                                         // Use stored UTC time
                                         slotStartTime = new Date(s.utcStartTime);
                                     } else {
-                                        // Fallback: parse and convert (for backward compatibility with old slots)
-                                        slotStartTime = parseTimeSlotToISTDate(item.date, s.slot);
+                                        // Fallback: parse and convert using star's country timezone (for backward compatibility with old slots)
+                                        slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
                                     }
                                     
                                     if (slotStartTime && slotStartTime <= currentUTCTime) {
-                                        console.log(`Filtering out passed time slot: ${s.slot} on ${item.date} (UTC: ${slotStartTime.toISOString()})`);
+                                        console.log(`Filtering out passed time slot: ${s.slot} on ${item.date} (UTC: ${slotStartTime.toISOString()}, current: ${currentUTCTime.toISOString()})`);
                                         return false;
                                     }
                                 }
@@ -1348,7 +1324,7 @@ export const getGuestStarById = async (req, res) => {
         // Get star's country for timezone-aware date calculation
         const starCountry = star.country || null;
 
-        const { getCountryTimezoneOffset } = await import('../utils/timezoneHelper.js');
+        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
 
         function getCurrentDateString() {
             const offsetHours = getCountryTimezoneOffset(starCountry);
@@ -1407,30 +1383,20 @@ export const getGuestStarById = async (req, res) => {
             return showData;
         });
 
-        function parseTimeSlotToISTDate(dateStr, slot) {
+        // Helper function to parse time slot and convert to UTC Date object for comparison
+        // Uses star's country timezone instead of hardcoded IST
+        function parseTimeSlotToUTCDate(dateStr, slot, country) {
             if (!slot || typeof slot !== 'string' || !dateStr) return null;
-            const parts = slot.split(' - ');
-            if (parts.length !== 2) return null;
-            const startTime = parts[0].trim();
-            let hour, minute;
-            const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
-            if (h24Match) {
-                hour = parseInt(h24Match[1], 10);
-                minute = parseInt(h24Match[2], 10);
-            } else {
-                const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-                if (!ampmMatch) return null;
-                hour = parseInt(ampmMatch[1], 10);
-                minute = parseInt(ampmMatch[2], 10);
-                const ampm = ampmMatch[3].toUpperCase();
-                if (ampm === 'PM' && hour !== 12) hour += 12;
-                if (ampm === 'AM' && hour === 12) hour = 0;
+            
+            // Use convertLocalToUTC which properly handles the star's country timezone
+            try {
+                const utcDate = convertLocalToUTC(dateStr, slot, country);
+                console.log(`[Guest] Parsed time slot: ${slot} on ${dateStr} (country: ${country || 'unknown'}) -> UTC: ${utcDate.toISOString()}`);
+                return utcDate;
+            } catch (error) {
+                console.error(`[Guest] Error parsing time slot ${slot} on ${dateStr}:`, error);
+                return null;
             }
-            const [year, month, day] = dateStr.split('-').map(v => parseInt(v, 10));
-            const slotDate = new Date(year, month - 1, day, hour, minute, 0, 0);
-            const istOffset = 5.5 * 60 * 60 * 1000;
-            const equivalentUTCTime = new Date(slotDate.getTime() + istOffset);
-            return equivalentUTCTime;
         }
 
         const mergedByDate = new Map();
@@ -1491,9 +1457,11 @@ export const getGuestStarById = async (req, res) => {
                                     if (s.utcStartTime) {
                                         slotStartTime = new Date(s.utcStartTime);
                                     } else {
-                                        slotStartTime = parseTimeSlotToISTDate(item.date, s.slot);
+                                        // Fallback: parse and convert using star's country timezone (for backward compatibility with old slots)
+                                        slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
                                     }
                                     if (slotStartTime && slotStartTime <= currentUTCTime) {
+                                        console.log(`[Guest] Filtering out passed time slot: ${s.slot} on ${item.date} (UTC: ${slotStartTime.toISOString()}, current: ${currentUTCTime.toISOString()})`);
                                         return false;
                                     }
                                 }
