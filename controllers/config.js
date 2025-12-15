@@ -49,6 +49,7 @@ const sanitizeConfig = (cfg) => ({
   contactSupport: cfg.contactSupport,
   hideElementsPrice: cfg.hideElementsPrice,
   hideApplyToBecomeStar: cfg.hideApplyToBecomeStar,
+  homeFeedAdInterval: cfg.homeFeedAdInterval,
   
   createdAt: cfg.createdAt,
   updatedAt: cfg.updatedAt,
@@ -149,7 +150,8 @@ export const updateGlobalConfig = async (req, res) => {
       liveShowFees,
       contactSupport,
       hideElementsPrice,
-      hideApplyToBecomeStar
+  hideApplyToBecomeStar,
+  homeFeedAdInterval
     } = req.body;
 
     const normalize = (val) => {
@@ -318,6 +320,15 @@ export const updateGlobalConfig = async (req, res) => {
       if (normalized !== undefined) {
         cfg.analyticsEnabled = normalized;
         console.log(`[UpdateGlobalConfig] Updated analyticsEnabled: ${cfg.analyticsEnabled}`);
+      }
+    }
+
+    // Update home feed ad interval
+    if (homeFeedAdInterval !== undefined) {
+      const parsed = Number(homeFeedAdInterval);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        cfg.homeFeedAdInterval = parsed;
+        console.log(`[UpdateGlobalConfig] Updated homeFeedAdInterval: ${cfg.homeFeedAdInterval}`);
       }
     }
 
@@ -603,6 +614,9 @@ export const updateGlobalConfig = async (req, res) => {
     if (!finalConfig.hideElementsPrice) finalConfig.hideElementsPrice = {
       hideDedications: false
     };
+    if (finalConfig.homeFeedAdInterval === undefined || finalConfig.homeFeedAdInterval === null || Number(finalConfig.homeFeedAdInterval) <= 0) {
+      finalConfig.homeFeedAdInterval = 3;
+    }
     
     // Sanitize and return complete config
     const sanitized = sanitizeConfig(finalConfig);

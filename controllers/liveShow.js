@@ -2,6 +2,8 @@ import { validationResult } from 'express-validator';
 import { getFirstValidationError } from '../utils/validationHelper.js';
 import LiveShow from '../models/LiveShow.js';
 import LiveShowAttendance from '../models/LiveShowAttendance.js';
+import Event from '../models/Event.js';
+import Config from '../models/Config.js';
 import User from '../models/User.js';
 import { generateUniqueShowCode } from '../utils/liveShowCodeGenerator.js';
 import { uploadFile } from '../utils/uploadFile.js';
@@ -683,6 +685,150 @@ export const getMyJoinedLiveShows = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Fan entertainment feed: merged joined events + joined live shows, sorted by time, with ads interleaved
+export const getEntertainmentFeed = async (req, res) => {
+  try {
+    const fanId = req.user._id;
+
+    // Configurable ad interval (default 3)
+    const cfg = await Config.getSingleton();
+    const adInterval = Number(cfg.homeFeedAdInterval || 3) || 3;
+
+    const now = new Date();
+
+    // Joined live shows (only pending and in future)
+    const liveShows = await LiveShow.find({
+      attendees: fanId,
+      status: 'pending',
+      date: { $gte: now }
+    })
+      .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
+      .sort({ date: 1 })
+      .lean();
+
+    // Joined events (active and within date range)
+    const events = await Event.find({
+      joinedUsers: fanId,
+      status: 'active',
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+      isDeleted: { $ne: true }
+    })
+      .sort({ startDate: 1 })
+      .lean();
+
+    // Ads (admin-created events of type 'ad' that are active and in date range)
+    const ads = await Event.find({
+      type: 'ad',
+      status: 'active',
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+      isDeleted: { $ne: true }
+    })
+      .sort({ startDate: 1 })
+      .lean();
+
+    // Normalize items
+    const showItems = liveShows.map(show => ({
+      type: 'live_show',
+      startAt: show.date,
+      payload: {
+        id: show._id,
+        sessionTitle: show.sessionTitle,
+        date: show.date,
+        time: show.time,
+        attendanceFee: show.attendanceFee,
+        maxCapacity: show.maxCapacity,
+        currentAttendees: show.currentAttendees,
+        showCode: show.showCode,
+        description: show.description,
+        thumbnail: show.thumbnail,
+        likeCount: Array.isArray(show.likes) ? show.likes.length : 0,
+        isLiked: Array.isArray(show.likes) && req.user
+          ? show.likes.some(u => u.toString() === req.user._id.toString())
+          : false,
+        status: show.status,
+        star: show.starId ? sanitizeUser(show.starId) : null
+      }
+    }));
+
+    const eventItems = events.map(ev => ({
+      type: 'event',
+      startAt: ev.startDate,
+      payload: {
+        id: ev._id,
+        title: ev.title,
+        description: ev.description,
+        type: ev.type,
+        startDate: ev.startDate,
+        endDate: ev.endDate,
+        image: ev.image,
+        link: ev.link,
+        status: ev.status,
+        likes: Array.isArray(ev.likes) ? ev.likes.length : 0,
+        joined: Array.isArray(ev.joinedUsers) ? ev.joinedUsers.length : 0
+      }
+    }));
+
+    const adItems = ads.map(ev => ({
+      type: 'ad',
+      startAt: ev.startDate,
+      payload: {
+        id: ev._id,
+        title: ev.title,
+        description: ev.description,
+        type: ev.type,
+        startDate: ev.startDate,
+        endDate: ev.endDate,
+        image: ev.image,
+        link: ev.link,
+        status: ev.status
+      }
+    }));
+
+    // Merge events + live shows, sort by start time ascending (nearest first)
+    const merged = [...eventItems, ...showItems].sort((a, b) => {
+      const at = new Date(a.startAt).getTime();
+      const bt = new Date(b.startAt).getTime();
+      return at - bt;
+    });
+
+    // If no user content, return ads only (if any)
+    if (merged.length === 0) {
+      return res.json({
+        success: true,
+        data: adItems
+      });
+    }
+
+    // Interleave ads after every adInterval items
+    const feed = [];
+    let adIndex = 0;
+    for (let i = 0; i < merged.length; i++) {
+      feed.push(merged[i]);
+      const shouldInsertAd = (i + 1) % adInterval === 0 && adIndex < adItems.length;
+      if (shouldInsertAd) {
+        feed.push(adItems[adIndex]);
+        adIndex += 1;
+      }
+    }
+
+    // If ads remain but no slots used (few items), append remaining ads at end
+    while (adIndex < adItems.length) {
+      feed.push(adItems[adIndex]);
+      adIndex += 1;
+    }
+
+    return res.json({
+      success: true,
+      data: feed
+    });
+  } catch (err) {
+    console.error('getEntertainmentFeed error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch entertainment feed' });
   }
 };
 

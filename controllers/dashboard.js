@@ -46,8 +46,7 @@ export const getDashboard = async (req, res) => {
 
       const liveShowsQuery = LiveShow.find(liveShowFilter)
         .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
-        .sort({ date: 1 })
-        .limit(10);
+        .sort({ date: 1 });
 
       // Removed popularStars query - no longer needed
 
@@ -373,8 +372,7 @@ export const getGuestDashboard = async (req, res) => {
 
     const liveShowsQuery = LiveShow.find(liveShowFilter)
       .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
-      .sort({ date: 1 })
-      .limit(10);
+      .sort({ date: 1 });
 
     // Query for featured stars specifically
     const featuredStarsCriteria = {

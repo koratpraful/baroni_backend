@@ -1168,28 +1168,23 @@ export const getStarById = async (req, res) => {
                                 // Only show available slots - filter out unavailable (booked) and locked (payment pending)
                                 if (!s || s.status !== 'available') return false;
 
-                                // Use UTC time for comparison to work correctly across all timezones
+                                // Use star-local date boundary, and UTC comparison for current time
                                 const currentUTCTime = new Date();
                                 const today = getCurrentDateString();
 
                                 console.log(`Checking time slot: ${s.slot} on ${item.date}, today: ${today}, current UTC: ${currentUTCTime.toISOString()}`);
 
-                                if (item.date === today) {
-                                    // Use utcStartTime if available (preferred), otherwise fallback to parsing
-                                    let slotStartTime = null;
-                                    
-                                    if (s.utcStartTime) {
-                                        // Use stored UTC time
-                                        slotStartTime = new Date(s.utcStartTime);
-                                    } else {
-                                        // Fallback: parse and convert using star's country timezone (for backward compatibility with old slots)
-                                        slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
-                                    }
-                                    
-                                    if (slotStartTime && slotStartTime <= currentUTCTime) {
-                                        console.log(`Filtering out passed time slot: ${s.slot} on ${item.date} (UTC: ${slotStartTime.toISOString()}, current: ${currentUTCTime.toISOString()})`);
-                                        return false;
-                                    }
+                                // Always drop slots whose start time is in the past (UTC comparison)
+                                let slotStartTime = null;
+                                if (s.utcStartTime) {
+                                    slotStartTime = new Date(s.utcStartTime);
+                                } else {
+                                    slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
+                                }
+
+                                if (slotStartTime && slotStartTime <= currentUTCTime) {
+                                    console.log(`Filtering out passed time slot: ${s.slot} on ${item.date} (UTC: ${slotStartTime?.toISOString()}, current: ${currentUTCTime.toISOString()})`);
+                                    return false;
                                 }
                                 return true;
                             })

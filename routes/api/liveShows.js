@@ -14,7 +14,8 @@ import {
   getMyJoinedLiveShows,
   completeLiveShowAttendance,
   getMyShows,
-  getLiveShowDetails
+  getLiveShowDetails,
+  getEntertainmentFeed
 } from '../../controllers/liveShow.js';
 import {
   createLiveShowValidator,
@@ -35,6 +36,8 @@ router.get('/star/:starId/upcoming', getStarUpcomingShows);
 router.get('/star/:starId', getStarAllShows);
 router.get('/me/joined', getMyJoinedLiveShows);
 router.get('/me/shows', getMyShows);
+// Fan entertainment feed: joined events + live shows + ads interleaved
+router.get('/feed', getEntertainmentFeed);
 router.get('/:id/details', getLiveShowDetails);
 router.get('/:id', getLiveShowById);
 

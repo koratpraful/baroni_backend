@@ -7,6 +7,7 @@ import Transaction from '../models/Transaction.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
+import LiveShowAttendance from '../models/LiveShowAttendance.js';
 import Availability from '../models/Availability.js';
 import { validationResult } from 'express-validator';
 import mongoose from 'mongoose';
@@ -128,7 +129,7 @@ export const getAllUsers = async (req, res) => {
           baroniId: user.baroniId,
           name: user.name,
           pseudo: user.pseudo,
-          email: user.email,
+          email: user.email ?? null,
           contact: user.contact,
           profilePic: user.profilePic,
           role: user.role,
@@ -266,6 +267,155 @@ export const getUserDetails = async (req, res) => {
       transactionCount: 0
     };
 
+    // Star-only overview/cancelled metrics (last 30 days)
+    let starInsights = null;
+    let fanInsights = null;
+    if (user.role === 'star') {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
+        Appointment.countDocuments({
+          starId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          starId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        LiveShow.countDocuments({
+          starId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        Transaction.distinct('payerId', {
+          receiverId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }).then(users => users.length)
+      ]);
+
+      const [
+        cancelledVideoCalls,
+        cancelledDedications,
+        cancelledLiveShows,
+        rejectedByStarCalls,
+        rejectedByStarDedications
+      ] = await Promise.all([
+        Appointment.countDocuments({
+          starId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          starId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        LiveShow.countDocuments({
+          starId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        Appointment.countDocuments({
+          starId: user._id,
+          status: 'rejected',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          starId: user._id,
+          status: 'rejected',
+          createdAt: { $gte: thirtyDaysAgo }
+        })
+      ]);
+
+      starInsights = {
+        overview: {
+          videoCalls,
+          dedications,
+          liveShows,
+          engagedUsers
+        },
+        cancelled: {
+          videoCalls: cancelledVideoCalls,
+          dedications: cancelledDedications,
+          liveShows: cancelledLiveShows,
+          rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
+        }
+      };
+    }
+
+    // Fan overview/cancelled metrics (last 30 days)
+    if (user.role === 'fan') {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const [videoCalls, dedications, liveShows, engagedStars] = await Promise.all([
+        Appointment.countDocuments({
+          fanId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          fanId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        LiveShowAttendance.countDocuments({
+          fanId: user._id,
+          createdAt: { $gte: thirtyDaysAgo },
+          status: 'completed'
+        }),
+        Transaction.distinct('receiverId', {
+          payerId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }).then(ids => ids.length)
+      ]);
+
+      const [
+        cancelledVideoCalls,
+        cancelledDedications,
+        cancelledLiveShows,
+        rejectedByStarCalls,
+        rejectedByStarDedications
+      ] = await Promise.all([
+        Appointment.countDocuments({
+          fanId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          fanId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        LiveShowAttendance.countDocuments({
+          fanId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        Appointment.countDocuments({
+          fanId: user._id,
+          status: 'rejected',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          fanId: user._id,
+          status: 'rejected',
+          createdAt: { $gte: thirtyDaysAgo }
+        })
+      ]);
+
+      fanInsights = {
+        overview: {
+          videoCalls,
+          dedications,
+          liveShows,
+          engagedStars
+        },
+        cancelled: {
+          videoCalls: cancelledVideoCalls,
+          dedications: cancelledDedications,
+          liveShows: cancelledLiveShows,
+          rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
+        }
+      };
+    }
+
     return res.json({
       success: true,
       message: 'User details retrieved successfully',
@@ -274,7 +424,7 @@ export const getUserDetails = async (req, res) => {
           id: user._id,
           baroniId: user.baroniId,
           contact: user.contact,
-          email: user.email,
+          email: user.email ?? null,
           password: user.password ? '[HIDDEN]' : null,
           coinBalance: user.coinBalance,
           name: user.name,
@@ -355,7 +505,9 @@ export const getUserDetails = async (req, res) => {
             createdAt: report.createdAt
           }))
         },
-        stats
+        stats,
+        starInsights,
+        fanInsights
       }
     });
 
@@ -488,7 +640,7 @@ export const getManagementUserProfile = async (req, res) => {
         }).then(users => users.length)
       ]);
 
-      const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows] = await Promise.all([
+      const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows, rejectedByStarCalls, rejectedByStarDedications] = await Promise.all([
         Appointment.countDocuments({
           starId: user._id,
           status: 'cancelled',
@@ -502,6 +654,16 @@ export const getManagementUserProfile = async (req, res) => {
         LiveShow.countDocuments({
           starId: user._id,
           status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        Appointment.countDocuments({
+          starId: user._id,
+          status: 'rejected',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          starId: user._id,
+          status: 'rejected',
           createdAt: { $gte: thirtyDaysAgo }
         })
       ]);
@@ -549,7 +711,8 @@ export const getManagementUserProfile = async (req, res) => {
         cancelled: {
           videoCalls: cancelledVideoCalls,
           dedications: cancelledDedications,
-          liveShows: cancelledLiveShows
+          liveShows: cancelledLiveShows,
+          rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
         },
         revenue: {
           total: revenueStats[0]?.totalRevenue || 0,
@@ -654,6 +817,137 @@ export const getManagementUserProfile = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to get user profile'
+    });
+  }
+};
+
+// Overview (7/15/30 day) for fan or star by ID (admin)
+export const getManagementUserOverview = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      const errorMessage = errors.array()[0]?.msg || 'Validation failed';
+      return res.status(400).json({ success: false, message: errorMessage });
+    }
+
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+    const days = parseInt(req.query.period || '30', 10);
+    const allowed = [7, 15, 30];
+    const periodDays = allowed.includes(days) ? days : 30;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const user = await User.findById(id).select('role');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
+
+    let starOverview = null;
+    let starCancelled = null;
+    let fanOverview = null;
+    let fanCancelled = null;
+
+    if (user.role === 'star') {
+      const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
+        Appointment.countDocuments({ starId: user._id, createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ starId: user._id, createdAt: { $gte: since } }),
+        LiveShow.countDocuments({ starId: user._id, createdAt: { $gte: since } }),
+        Transaction.distinct('payerId', { receiverId: user._id, createdAt: { $gte: since } }).then(u => u.length)
+      ]);
+
+      const [
+        cancelledVideoCalls,
+        cancelledDedications,
+        cancelledLiveShows,
+        rejectedByStarCalls,
+        rejectedByStarDedications
+      ] = await Promise.all([
+        Appointment.countDocuments({ starId: user._id, status: 'cancelled', createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ starId: user._id, status: 'cancelled', createdAt: { $gte: since } }),
+        LiveShow.countDocuments({ starId: user._id, status: 'cancelled', createdAt: { $gte: since } }),
+        Appointment.countDocuments({ starId: user._id, status: 'rejected', createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ starId: user._id, status: 'rejected', createdAt: { $gte: since } })
+      ]);
+
+      starOverview = { videoCalls, dedications, liveShows, engagedUsers };
+      starCancelled = {
+        videoCalls: cancelledVideoCalls,
+        dedications: cancelledDedications,
+        liveShows: cancelledLiveShows,
+        rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
+      };
+    }
+
+    if (user.role === 'fan') {
+      const [videoCalls, dedications, liveShows, engagedStars] = await Promise.all([
+        Appointment.countDocuments({ fanId: user._id, createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ fanId: user._id, createdAt: { $gte: since } }),
+        LiveShowAttendance.countDocuments({ fanId: user._id, status: 'completed', createdAt: { $gte: since } }),
+        Transaction.distinct('receiverId', { payerId: user._id, createdAt: { $gte: since } }).then(u => u.length)
+      ]);
+
+      const [
+        cancelledVideoCalls,
+        cancelledDedications,
+        cancelledLiveShows,
+        rejectedByStarCalls,
+        rejectedByStarDedications
+      ] = await Promise.all([
+        Appointment.countDocuments({ fanId: user._id, status: 'cancelled', createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ fanId: user._id, status: 'cancelled', createdAt: { $gte: since } }),
+        LiveShowAttendance.countDocuments({ fanId: user._id, status: 'cancelled', createdAt: { $gte: since } }),
+        Appointment.countDocuments({ fanId: user._id, status: 'rejected', createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ fanId: user._id, status: 'rejected', createdAt: { $gte: since } })
+      ]);
+
+      fanOverview = { videoCalls, dedications, liveShows, engagedStars };
+      fanCancelled = {
+        videoCalls: cancelledVideoCalls,
+        dedications: cancelledDedications,
+        liveShows: cancelledLiveShows,
+        rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
+      };
+    }
+
+    const insights =
+      user.role === 'star'
+        ? { overview: starOverview, cancelled: starCancelled }
+        : user.role === 'fan'
+          ? { overview: fanOverview, cancelled: fanCancelled }
+          : null;
+
+    return res.json({
+      success: true,
+      message: 'User overview retrieved successfully',
+      data: {
+        role: user.role,
+        periodDays,
+        insights
+      }
+    });
+  } catch (err) {
+    console.error('Get management user overview error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get user overview'
     });
   }
 };
