@@ -68,8 +68,7 @@ export const getDashboard = async (req, res) => {
       const featuredStarsQuery = User.find(featuredStarsCriteria)
         .populate('profession')
         .select('name pseudo profilePic about profession availableForBookings baroniId feature_star')
-        .sort({ profileImpressions: -1, createdAt: -1 })
-        .limit(10);
+        .sort({ profileImpressions: -1, createdAt: -1 });
 
       // Query for available stars from same country
       const availableStarsCriteria = {
@@ -394,8 +393,7 @@ export const getGuestDashboard = async (req, res) => {
     const featuredStarsQuery = User.find(featuredStarsCriteria)
       .populate('profession')
       .select('name pseudo profilePic about profession availableForBookings baroniId feature_star')
-      .sort({ profileImpressions: -1, createdAt: -1 })
-      .limit(10);
+      .sort({ profileImpressions: -1, createdAt: -1 });
 
     // Query for available stars
     const availableStarsCriteria = {

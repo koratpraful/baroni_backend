@@ -479,28 +479,6 @@ export const rejectWithdrawalRequest = async (req, res) => {
       });
     }
 
-    // IMPORTANT: Refund the amount back to jackpot since it was deducted when request was created
-    const session = await mongoose.startSession();
-    
-    try {
-      await session.withTransaction(async () => {
-        // Get wallet within transaction
-        const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
-        if (!walletDoc) {
-          throw new Error('Star wallet not found');
-        }
-        
-        // Refund amount back to jackpot
-        const currentJackpot = walletDoc.jackpot || 0;
-        walletDoc.jackpot = currentJackpot + request.amount;
-        await walletDoc.save({ session });
-        
-        console.log(`[RejectWithdrawal] Refunded ${request.amount} to jackpot. Old: ${currentJackpot}, New: ${walletDoc.jackpot}`);
-      });
-    } finally {
-      await session.endSession();
-    }
-
     // Update request status to rejected
     request.status = 'rejected';
     request.rejectedBy = req.user._id;
@@ -511,25 +489,19 @@ export const rejectWithdrawalRequest = async (req, res) => {
     if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
     await request.save();
     
-    // Get updated wallet for response
-    const updatedWallet = await StarWallet.findOne({ starId: request.starId });
-
     // Populate for response
     await request.populate('starId', 'name pseudo baroniId');
     await request.populate('rejectedBy', 'name baroniId');
 
     return res.json({
       success: true,
-      message: 'Withdrawal request rejected successfully. Amount refunded to jackpot.',
+      message: 'Withdrawal request rejected successfully. Amount was not refunded to jackpot.',
       data: {
         id: request._id,
         status: request.status,
         rejectionReason: request.rejectionReason,
         processedAt: request.processedAt,
-        refundedAmount: request.amount,
-        wallet: {
-          currentJackpot: updatedWallet?.jackpot || 0
-        }
+        refundedAmount: 0
       }
     });
   } catch (err) {

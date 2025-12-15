@@ -2,6 +2,8 @@ import express from 'express';
 import {
   getAllUsers,
   getUserDetails,
+  getManagementUserProfile,
+  updateManagementUserProfile,
   updateUserStatus,
   updateUserRole,
   deleteUser,
@@ -43,6 +45,8 @@ import {
 import {
   getAllUsersValidator,
   getUserDetailsValidator,
+  getManagementUserProfileValidator,
+  updateManagementUserProfileValidator,
   updateUserStatusValidator,
   updateUserRoleValidator,
   deleteUserValidator,
@@ -87,6 +91,12 @@ router.get('/users', getAllUsersValidator, getAllUsers);
 
 // Get user details by ID
 router.get('/users/:userId', getUserDetailsValidator, getUserDetails);
+
+// Unified profile fetch (fan or star) by ID
+router.get('/user/:id', getManagementUserProfileValidator, getManagementUserProfile);
+
+// Update profile (fan or star) by ID
+router.patch('/user/:id', updateManagementUserProfileValidator, updateManagementUserProfile);
 
 // Update user status (block/unblock)
 router.patch('/users/:userId/status', updateUserStatusValidator, updateUserStatus);
