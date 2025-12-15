@@ -3,6 +3,7 @@ import {
   getAllUsers,
   getUserDetails,
   getManagementUserProfile,
+  getManagementUserOverview,
   updateManagementUserProfile,
   updateUserStatus,
   updateUserRole,
@@ -46,6 +47,7 @@ import {
   getAllUsersValidator,
   getUserDetailsValidator,
   getManagementUserProfileValidator,
+  getManagementUserOverviewValidator,
   updateManagementUserProfileValidator,
   updateUserStatusValidator,
   updateUserRoleValidator,
@@ -94,6 +96,9 @@ router.get('/users/:userId', getUserDetailsValidator, getUserDetails);
 
 // Unified profile fetch (fan or star) by ID
 router.get('/user/:id', getManagementUserProfileValidator, getManagementUserProfile);
+
+// Overview metrics (fan or star) by ID with period filter
+router.get('/user/:id/overview', getManagementUserOverviewValidator, getManagementUserOverview);
 
 // Update profile (fan or star) by ID
 router.patch('/user/:id', updateManagementUserProfileValidator, updateManagementUserProfile);

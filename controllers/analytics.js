@@ -208,12 +208,12 @@ export const getStarAnalytics = async (req, res) => {
     const escrowAmount = starWallet?.escrow || 0;
     const jackpotAmount = starWallet?.jackpot || 0;
     
-    // If no date range is provided, show current wallet balance (jackpot + escrow)
+    // If no date range is provided, show current jackpot only (exclude escrow as requested)
     // Otherwise, show revenue earned in the date range
     let totalRevenue;
     if (!startDate && !endDate && !date) {
-      // No date filter - show current wallet balance
-      totalRevenue = jackpotAmount + escrowAmount;
+      // No date filter - show current jackpot only
+      totalRevenue = jackpotAmount;
     } else {
       // Date range provided - show revenue from StarTransaction in that period
       totalRevenue = videoCallsRevenueTotal + dedicationsRevenueTotal + liveShowsRevenueTotal;

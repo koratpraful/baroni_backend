@@ -9,9 +9,14 @@ export const createLiveShowValidator = [
     .isISO8601().withMessage('Date must be a valid ISO 8601 date')
     .custom((value) => {
       const showDate = new Date(value);
-      const now = new Date();
-      if (showDate <= now) {
-        throw new Error('Show date must be in the future');
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const startOfTomorrow = new Date(startOfToday);
+      startOfTomorrow.setDate(startOfToday.getDate() + 1);
+      const allowToday = String(process.env.LIVESHOW_TODAY || '').toLowerCase() === 'true';
+      const earliestAllowed = allowToday ? startOfToday : startOfTomorrow;
+      if (isNaN(showDate.getTime()) || showDate < earliestAllowed) {
+        throw new Error(allowToday ? 'Show date must be today or later' : 'Show date must be from tomorrow onwards');
       }
       return true;
     }),
@@ -46,9 +51,14 @@ export const updateLiveShowValidator = [
     .optional().isISO8601().withMessage('Date must be a valid ISO 8601 date')
     .custom((value) => {
       const showDate = new Date(value);
-      const now = new Date();
-      if (showDate <= now) {
-        throw new Error('Show date must be in the future');
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const startOfTomorrow = new Date(startOfToday);
+      startOfTomorrow.setDate(startOfToday.getDate() + 1);
+      const allowToday = String(process.env.LIVESHOW_TODAY || '').toLowerCase() === 'true';
+      const earliestAllowed = allowToday ? startOfToday : startOfTomorrow;
+      if (isNaN(showDate.getTime()) || showDate < earliestAllowed) {
+        throw new Error(allowToday ? 'Show date must be today or later' : 'Show date must be from tomorrow onwards');
       }
       return true;
     }),

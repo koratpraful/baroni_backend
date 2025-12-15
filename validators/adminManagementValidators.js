@@ -52,6 +52,16 @@ export const getManagementUserProfileValidator = [
     .withMessage('Invalid user ID')
 ];
 
+export const getManagementUserOverviewValidator = [
+  param('id')
+    .isMongoId()
+    .withMessage('Invalid user ID'),
+  query('period')
+    .optional()
+    .isIn(['7', '15', '30'])
+    .withMessage('Period must be 7, 15, or 30')
+];
+
 export const updateManagementUserProfileValidator = [
   param('id')
     .isMongoId()
