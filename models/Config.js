@@ -76,8 +76,8 @@ const configSchema = new mongoose.Schema(
     // Hide Apply to Become Star
     hideApplyToBecomeStar: { type: Boolean, default: false },
 
-    // Home feed ad interval (insert ad after N items)
-    homeFeedAdInterval: { type: Number, default: 3 }
+    // Home feed ads interval (insert ad after N items)
+    adsInterval: { type: Number, default: 3 }
   },
   { timestamps: true }
 );

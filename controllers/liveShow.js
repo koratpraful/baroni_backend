@@ -695,7 +695,7 @@ export const getEntertainmentFeed = async (req, res) => {
 
     // Configurable ad interval (default 3)
     const cfg = await Config.getSingleton();
-    const adInterval = Number(cfg.homeFeedAdInterval || 3) || 3;
+    const adInterval = Number(cfg.adsInterval ?? cfg.homeFeedAdInterval ?? 3) || 3;
 
     const now = new Date();
 
