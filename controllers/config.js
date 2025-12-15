@@ -49,7 +49,7 @@ const sanitizeConfig = (cfg) => ({
   contactSupport: cfg.contactSupport,
   hideElementsPrice: cfg.hideElementsPrice,
   hideApplyToBecomeStar: cfg.hideApplyToBecomeStar,
-  homeFeedAdInterval: cfg.homeFeedAdInterval,
+  adsInterval: cfg.adsInterval,
   
   createdAt: cfg.createdAt,
   updatedAt: cfg.updatedAt,
@@ -151,7 +151,8 @@ export const updateGlobalConfig = async (req, res) => {
       contactSupport,
       hideElementsPrice,
   hideApplyToBecomeStar,
-  homeFeedAdInterval
+  adsInterval,
+  homeFeedAdInterval // backward compatibility if old key is still sent
     } = req.body;
 
     const normalize = (val) => {
@@ -323,12 +324,13 @@ export const updateGlobalConfig = async (req, res) => {
       }
     }
 
-    // Update home feed ad interval
-    if (homeFeedAdInterval !== undefined) {
-      const parsed = Number(homeFeedAdInterval);
+    // Update home feed ads interval (new key)
+    const intervalValue = adsInterval !== undefined ? adsInterval : homeFeedAdInterval;
+    if (intervalValue !== undefined) {
+      const parsed = Number(intervalValue);
       if (!Number.isNaN(parsed) && parsed > 0) {
-        cfg.homeFeedAdInterval = parsed;
-        console.log(`[UpdateGlobalConfig] Updated homeFeedAdInterval: ${cfg.homeFeedAdInterval}`);
+        cfg.adsInterval = parsed;
+        console.log(`[UpdateGlobalConfig] Updated adsInterval: ${cfg.adsInterval}`);
       }
     }
 
@@ -614,8 +616,8 @@ export const updateGlobalConfig = async (req, res) => {
     if (!finalConfig.hideElementsPrice) finalConfig.hideElementsPrice = {
       hideDedications: false
     };
-    if (finalConfig.homeFeedAdInterval === undefined || finalConfig.homeFeedAdInterval === null || Number(finalConfig.homeFeedAdInterval) <= 0) {
-      finalConfig.homeFeedAdInterval = 3;
+    if (finalConfig.adsInterval === undefined || finalConfig.adsInterval === null || Number(finalConfig.adsInterval) <= 0) {
+      finalConfig.adsInterval = 3;
     }
     
     // Sanitize and return complete config
