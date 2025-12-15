@@ -214,6 +214,25 @@ export const createLiveShow = async (req, res) => {
 
     const { sessionTitle, date, time, attendanceFee, hostingPrice, maxCapacity, description, starName } = req.body;
 
+    // Enforce date rule via feature flag: allow creating for today only if enabled
+    const showDate = new Date(date);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfToday.getDate() + 1);
+
+    const allowToday = String(process.env.LIVESHOW_TODAY || '').toLowerCase() === 'true';
+    const earliestAllowedDate = allowToday ? startOfToday : startOfTomorrow;
+
+    if (isNaN(showDate.getTime()) || showDate < earliestAllowedDate) {
+      return res.status(400).json({
+        success: false,
+        message: allowToday
+          ? 'Live show date must be today or later'
+          : 'Live show date must be from tomorrow onwards'
+      });
+    }
+
     // Hosting requires a transaction (escrow) to admin; hybrid payment
     // Find admin receiver
     const adminUser = await User.findOne({ role: 'admin' });

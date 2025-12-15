@@ -46,6 +46,79 @@ export const getUserDetailsValidator = [
     .withMessage('Invalid user ID')
 ];
 
+export const getManagementUserProfileValidator = [
+  param('id')
+    .isMongoId()
+    .withMessage('Invalid user ID')
+];
+
+export const updateManagementUserProfileValidator = [
+  param('id')
+    .isMongoId()
+    .withMessage('Invalid user ID'),
+  body('name')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 100 })
+    .withMessage('Name must be between 1 and 100 characters'),
+  body('pseudo')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Pseudo must be between 1 and 50 characters'),
+  body('email')
+    .optional()
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Invalid email format'),
+  body('contact')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 20 })
+    .withMessage('Contact must be less than 20 characters'),
+  body('profilePic')
+    .optional()
+    .isURL()
+    .withMessage('Profile picture must be a valid URL'),
+  body('country')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Country must be less than 50 characters'),
+  body('profession')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid profession ID'),
+  body('about')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('About must be less than 1000 characters'),
+  body('location')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Location must be less than 100 characters'),
+  body('availableForBookings')
+    .optional()
+    .isBoolean()
+    .withMessage('Available for bookings must be a boolean'),
+  body('hidden')
+    .optional()
+    .isBoolean()
+    .withMessage('Hidden must be a boolean'),
+  body('appNotification')
+    .optional()
+    .isBoolean()
+    .withMessage('App notification must be a boolean')
+];
+
 export const updateUserStatusValidator = [
   param('userId')
     .isMongoId()

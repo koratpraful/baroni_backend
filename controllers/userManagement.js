@@ -7,6 +7,8 @@ import Transaction from '../models/Transaction.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
+import Availability from '../models/Availability.js';
+import { validationResult } from 'express-validator';
 import mongoose from 'mongoose';
 
 // Get all users with filtering, searching, and pagination
@@ -362,6 +364,404 @@ export const getUserDetails = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to get user details'
+    });
+  }
+};
+
+// Unified profile fetch for admin (works for both star and fan IDs)
+export const getManagementUserProfile = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const user = await User.findById(id)
+      .populate('profession', 'name')
+      .populate('favorites', 'name pseudo profilePic role')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Shared data
+    const services = await Service.find({ userId: user._id }).lean();
+    const dedicationSamples = await DedicationSample.find({ userId: user._id }).lean();
+
+    // Transaction stats (covers both fan and star money flow)
+    const transactionStats = await Transaction.aggregate([
+      {
+        $match: {
+          $or: [
+            { payerId: user._id },
+            { receiverId: user._id }
+          ]
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalSpent: {
+            $sum: {
+              $cond: [{ $eq: ['$payerId', user._id] }, '$amount', 0]
+            }
+          },
+          totalEarned: {
+            $sum: {
+              $cond: [{ $eq: ['$receiverId', user._id] }, '$amount', 0]
+            }
+          },
+          transactionCount: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const stats = transactionStats[0] || {
+      totalSpent: 0,
+      totalEarned: 0,
+      transactionCount: 0
+    };
+
+    // Reports (as reporter and as reported user)
+    const [reportsAsReporter, reportsAsReported] = await Promise.all([
+      ReportUser.find({ reporterId: user._id })
+        .populate('reportedUserId', 'name pseudo role')
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
+      ReportUser.find({ reportedUserId: user._id })
+        .populate('reporterId', 'name pseudo role')
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean()
+    ]);
+
+    // Star-only insights
+    let reviews = [];
+    let starInsights = null;
+
+    if (user.role === 'star') {
+      reviews = await Review.find({ starId: user._id })
+        .populate('reviewerId', 'name pseudo profilePic')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+      const averageRating = reviews.length > 0
+        ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+        : 0;
+
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
+        Appointment.countDocuments({
+          starId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          starId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        LiveShow.countDocuments({
+          starId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        Transaction.distinct('payerId', {
+          receiverId: user._id,
+          createdAt: { $gte: thirtyDaysAgo }
+        }).then(users => users.length)
+      ]);
+
+      const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows] = await Promise.all([
+        Appointment.countDocuments({
+          starId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        DedicationRequest.countDocuments({
+          starId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        }),
+        LiveShow.countDocuments({
+          starId: user._id,
+          status: 'cancelled',
+          createdAt: { $gte: thirtyDaysAgo }
+        })
+      ]);
+
+      const revenueStats = await Transaction.aggregate([
+        {
+          $match: {
+            receiverId: user._id,
+            createdAt: { $gte: thirtyDaysAgo }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'completed'] }, '$amount', 0]
+              }
+            },
+            escrowAmount: {
+              $sum: {
+                $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0]
+              }
+            }
+          }
+        }
+      ]);
+
+      const hasAvailableTimeSlots = await Availability.findOne({
+        userId: user._id,
+        'timeSlots.status': 'available'
+      });
+
+      starInsights = {
+        rating: {
+          average: Math.round(averageRating * 10) / 10,
+          totalReviews: reviews.length
+        },
+        overview: {
+          videoCalls,
+          dedications,
+          liveShows,
+          engagedUsers
+        },
+        cancelled: {
+          videoCalls: cancelledVideoCalls,
+          dedications: cancelledDedications,
+          liveShows: cancelledLiveShows
+        },
+        revenue: {
+          total: revenueStats[0]?.totalRevenue || 0,
+          escrow: revenueStats[0]?.escrowAmount || 0
+        },
+        availability: {
+          availableForBookings: user.availableForBookings && Boolean(hasAvailableTimeSlots),
+          hasAvailableSlots: Boolean(hasAvailableTimeSlots)
+        }
+      };
+    }
+
+    return res.json({
+      success: true,
+      message: 'User profile retrieved successfully',
+      data: {
+        user: {
+          id: user._id,
+          baroniId: user.baroniId,
+          contact: user.contact,
+          email: user.email,
+          coinBalance: user.coinBalance,
+          name: user.name,
+          pseudo: user.pseudo,
+          profilePic: user.profilePic,
+          preferredLanguage: user.preferredLanguage,
+          preferredCurrency: user.preferredCurrency,
+          country: user.country,
+          about: user.about,
+          location: user.location,
+          profession: user.profession,
+          role: user.role,
+          availableForBookings: user.availableForBookings,
+          appNotification: user.appNotification,
+          hidden: user.hidden,
+          deviceType: user.deviceType,
+          isDev: user.isDev,
+          favorites: user.favorites,
+          isDeleted: user.isDeleted,
+          deletedAt: user.deletedAt,
+          providers: user.providers,
+          profileImpressions: user.profileImpressions,
+          sessionVersion: user.sessionVersion,
+          agoraKey: user.agoraKey,
+          paymentStatus: user.paymentStatus,
+          averageRating: user.averageRating,
+          totalReviews: user.totalReviews,
+          feature_star: user.feature_star,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt
+        },
+        services,
+        dedicationSamples,
+        reviews: reviews.map(review => ({
+          id: review._id,
+          rating: review.rating,
+          comment: review.comment,
+          reviewer: review.reviewerId ? {
+            id: review.reviewerId._id,
+            name: review.reviewerId.name,
+            pseudo: review.reviewerId.pseudo,
+            profilePic: review.reviewerId.profilePic
+          } : null,
+          reviewType: review.reviewType,
+          createdAt: review.createdAt
+        })),
+        reports: {
+          asReporter: reportsAsReporter.map(report => ({
+            id: report._id,
+            reportedUser: report.reportedUserId ? {
+              id: report.reportedUserId._id,
+              name: report.reportedUserId.name,
+              pseudo: report.reportedUserId.pseudo,
+              role: report.reportedUserId.role
+            } : null,
+            reason: report.reason,
+            description: report.description,
+            status: report.status,
+            createdAt: report.createdAt
+          })),
+          asReported: reportsAsReported.map(report => ({
+            id: report._id,
+            reporter: report.reporterId ? {
+              id: report.reporterId._id,
+              name: report.reporterId.name,
+              pseudo: report.reporterId.pseudo,
+              role: report.reporterId.role
+            } : null,
+            reason: report.reason,
+            description: report.description,
+            status: report.status,
+            createdAt: report.createdAt
+          }))
+        },
+        stats,
+        starInsights
+      }
+    });
+
+  } catch (err) {
+    console.error('Get management user profile error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get user profile'
+    });
+  }
+};
+
+// Update profile for fan or star (admin only)
+export const updateManagementUserProfile = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: errors.array()[0]?.msg || 'Validation failed'
+      });
+    }
+
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+    const {
+      name,
+      pseudo,
+      email,
+      contact,
+      profilePic,
+      country,
+      profession,
+      about,
+      location,
+      availableForBookings,
+      hidden,
+      appNotification
+    } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Email uniqueness check if changing email
+    if (email && email !== user.email) {
+      const existing = await User.findOne({ email: email.toLowerCase(), _id: { $ne: id } });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: 'Email already in use'
+        });
+      }
+      user.email = email.toLowerCase();
+    }
+
+    if (name !== undefined) user.name = name;
+    if (pseudo !== undefined) user.pseudo = pseudo;
+    if (contact !== undefined) user.contact = contact;
+    if (profilePic !== undefined) user.profilePic = profilePic;
+    if (country !== undefined) user.country = country;
+    if (profession !== undefined) user.profession = profession;
+    if (about !== undefined) user.about = about;
+    if (location !== undefined) user.location = location;
+    if (availableForBookings !== undefined) user.availableForBookings = availableForBookings;
+    if (hidden !== undefined) user.hidden = hidden;
+    if (appNotification !== undefined) user.appNotification = appNotification;
+
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'User profile updated successfully',
+      data: {
+        user: {
+          id: user._id,
+          role: user.role,
+          name: user.name,
+          pseudo: user.pseudo,
+          email: user.email,
+          contact: user.contact,
+          profilePic: user.profilePic,
+          country: user.country,
+          profession: user.profession,
+          about: user.about,
+          location: user.location,
+          availableForBookings: user.availableForBookings,
+          hidden: user.hidden,
+          appNotification: user.appNotification,
+          updatedAt: user.updatedAt
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Update management user profile error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update user profile'
     });
   }
 };
