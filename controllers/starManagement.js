@@ -100,7 +100,7 @@ export const getStarProfile = async (req, res) => {
     ]);
 
     // Cancelled activities (last 30 days)
-    const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows] = await Promise.all([
+    const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows, rejectedByStarCalls, rejectedByStarDedications] = await Promise.all([
       Appointment.countDocuments({
         starId: star._id,
         status: 'cancelled',
@@ -114,6 +114,16 @@ export const getStarProfile = async (req, res) => {
       LiveShow.countDocuments({
         starId: star._id,
         status: 'cancelled',
+        createdAt: { $gte: thirtyDaysAgo }
+      }),
+      Appointment.countDocuments({
+        starId: star._id,
+        status: 'rejected',
+        createdAt: { $gte: thirtyDaysAgo }
+      }),
+      DedicationRequest.countDocuments({
+        starId: star._id,
+        status: 'rejected',
         createdAt: { $gte: thirtyDaysAgo }
       })
     ]);
@@ -186,7 +196,8 @@ export const getStarProfile = async (req, res) => {
         cancelled: {
           videoCalls: cancelledVideoCalls,
           dedications: cancelledDedications,
-          liveShows: cancelledLiveShows
+        liveShows: cancelledLiveShows,
+        rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
         },
         revenue: {
           total: revenue.totalRevenue,
