@@ -709,27 +709,75 @@ export const getEntertainmentFeed = async (req, res) => {
       .sort({ date: 1 })
       .lean();
 
-    // Joined events (active and within date range)
+    // All events (active and draft, upcoming or currently running)
     const events = await Event.find({
-      joinedUsers: fanId,
-      status: 'active',
-      startDate: { $lte: now },
-      endDate: { $gte: now },
+      type: 'event',
+      status: { $in: ['active', 'draft'] },
+      endDate: { $gte: now }, // Show events that haven't ended yet
       isDeleted: { $ne: true }
     })
       .sort({ startDate: 1 })
       .lean();
 
-    // Ads (admin-created events of type 'ad' that are active and in date range)
-    const ads = await Event.find({
-      type: 'ad',
-      status: 'active',
-      startDate: { $lte: now },
-      endDate: { $gte: now },
+    // All ads (active, live, and draft)
+    // Strategy: Get ALL draft/active/live items, then exclude those that are already in events
+    // This way we catch ads even if they have type='event' incorrectly set
+    const allDraftActiveLive = await Event.find({
+      status: { $in: ['active', 'live', 'draft'] },
       isDeleted: { $ne: true }
     })
+      .select('_id title type status startDate endDate image link description likes joinedUsers')
       .sort({ startDate: 1 })
       .lean();
+    
+    // Get event IDs that we already fetched (to exclude them from ads)
+    const eventIds = new Set(events.map(e => e._id.toString()));
+    
+    // Ads are: all draft/active/live items EXCEPT those that are events
+    // OR items with type='ad', type=null, type=undefined, type='promotion', type='announcement'
+    const ads = allDraftActiveLive.filter(item => {
+      const itemId = item._id.toString();
+      // Exclude if it's already in events
+      if (eventIds.has(itemId)) {
+        return false;
+      }
+      // Include if type is 'ad', null, undefined, 'promotion', 'announcement'
+      // OR if type is 'event' but it's not in our events list (might be incorrectly labeled ad)
+      if (!item.type || item.type === 'ad' || item.type === null || 
+          item.type === 'promotion' || item.type === 'announcement') {
+        return true;
+      }
+      // If type is 'event' but not in events list, include it (might be ad with wrong type)
+      if (item.type === 'event' && !eventIds.has(itemId)) {
+        return true;
+      }
+      return false;
+    });
+    
+    console.log('[EntertainmentFeed] All draft/active/live items:', allDraftActiveLive.length);
+    console.log('[EntertainmentFeed] Events found:', events.length);
+    console.log('[EntertainmentFeed] Ads found (after excluding events):', ads.length);
+    
+    if (allDraftActiveLive.length > 0) {
+      console.log('[EntertainmentFeed] All draft/active/live items:', allDraftActiveLive.map(item => ({
+        id: item._id.toString(),
+        title: item.title,
+        type: item.type || 'MISSING',
+        status: item.status,
+        isInEvents: eventIds.has(item._id.toString())
+      })));
+    }
+    
+    if (ads.length > 0) {
+      console.log('[EntertainmentFeed] Final ads to include:', ads.map(ad => ({
+        id: ad._id.toString(),
+        title: ad.title,
+        type: ad.type || 'MISSING',
+        status: ad.status
+      })));
+    } else {
+      console.log('[EntertainmentFeed] WARNING: No ads found!');
+    }
 
     // Normalize items
     const showItems = liveShows.map(show => ({
@@ -751,7 +799,7 @@ export const getEntertainmentFeed = async (req, res) => {
           ? show.likes.some(u => u.toString() === req.user._id.toString())
           : false,
         status: show.status,
-        star: show.starId ? sanitizeUser(show.starId) : null
+        star: show.starId ? sanitizeUserData(show.starId) : null
       }
     }));
 
@@ -789,42 +837,30 @@ export const getEntertainmentFeed = async (req, res) => {
       }
     }));
 
-    // Merge events + live shows, sort by start time ascending (nearest first)
-    const merged = [...eventItems, ...showItems].sort((a, b) => {
+    // Merge events + live shows + ads, sort by start time ascending (nearest first)
+    // This ensures all content types are mixed together chronologically
+    const merged = [...eventItems, ...showItems, ...adItems].sort((a, b) => {
       const at = new Date(a.startAt).getTime();
       const bt = new Date(b.startAt).getTime();
       return at - bt;
     });
 
-    // If no user content, return ads only (if any)
-    if (merged.length === 0) {
-      return res.json({
-        success: true,
-        data: adItems
-      });
-    }
-
-    // Interleave ads after every adInterval items
-    const feed = [];
-    let adIndex = 0;
-    for (let i = 0; i < merged.length; i++) {
-      feed.push(merged[i]);
-      const shouldInsertAd = (i + 1) % adInterval === 0 && adIndex < adItems.length;
-      if (shouldInsertAd) {
-        feed.push(adItems[adIndex]);
-        adIndex += 1;
-      }
-    }
-
-    // If ads remain but no slots used (few items), append remaining ads at end
-    while (adIndex < adItems.length) {
-      feed.push(adItems[adIndex]);
-      adIndex += 1;
+    // Debug logging
+    console.log('[EntertainmentFeed] Events:', events.length, 'LiveShows:', liveShows.length, 'Ads:', ads.length);
+    console.log('[EntertainmentFeed] Event items:', eventItems.length, 'Show items:', showItems.length, 'Ad items:', adItems.length);
+    console.log('[EntertainmentFeed] Total merged items:', merged.length);
+    
+    if (merged.length > 0) {
+      console.log('[EntertainmentFeed] Sample items:', merged.slice(0, 3).map(item => ({
+        type: item.type,
+        startAt: item.startAt,
+        title: item.payload?.title || item.payload?.sessionTitle
+      })));
     }
 
     return res.json({
       success: true,
-      data: feed
+      data: merged
     });
   } catch (err) {
     console.error('getEntertainmentFeed error:', err);
