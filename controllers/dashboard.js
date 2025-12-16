@@ -69,6 +69,45 @@ export const getDashboard = async (req, res) => {
         .populate({ path: 'createdBy', select: '-password -passwordResetToken -passwordResetExpires' })
         .sort({ startDate: 1 });
 
+      // Query for ads (including draft, active, and live)
+      // Handle cases where type might be null/undefined
+      const adsFilter = {
+        $and: [
+          {
+            $or: [
+              { type: 'ad' },
+              { type: { $exists: false } }, // For backward compatibility - ads without type field
+              { type: null }
+            ]
+          },
+          {
+            status: { $in: ['draft', 'active', 'live'] }
+          },
+          {
+            $or: [
+              { startDate: { $gt: new Date() } }, // Future start date
+              { endDate: { $gte: new Date() } } // Or hasn't ended yet
+            ]
+          },
+          {
+            isDeleted: { $ne: true }
+          }
+        ]
+      };
+
+      // Filter ads by country if country filter is applied
+      if (country) {
+        adsFilter.$or = [
+          { targetAudience: 'all' },
+          { targetCountry: country },
+          { targetAudience: 'specific_country', targetCountry: country }
+        ];
+      }
+
+      const adsQuery = Event.find(adsFilter)
+        .populate({ path: 'createdBy', select: '-password -passwordResetToken -passwordResetExpires' })
+        .sort({ startDate: 1 });
+
       // Removed popularStars query - no longer needed
 
       // Query for featured stars specifically - more flexible criteria
@@ -112,15 +151,16 @@ export const getDashboard = async (req, res) => {
         .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
         .limit(15);
 
-      const [categories, liveShows, events, featuredStars, availableStars] = await Promise.all([
+      const [categories, liveShows, events, ads, featuredStars, availableStars] = await Promise.all([
         categoriesQuery,
         liveShowsQuery,
         eventsQuery,
+        adsQuery,
         featuredStarsQuery,
         availableStarsQuery
       ]);
 
-      // Combine live shows and events, format them uniformly
+      // Combine live shows, events, and ads, format them uniformly
       const upcomingShows = [
         ...liveShows.map(show => ({
           ...show.toObject(),
@@ -144,6 +184,26 @@ export const getDashboard = async (req, res) => {
             // events are admin-created, not hosted by a star
             type: 'event',
             link: event.link || ''
+          };
+        }),
+        ...ads.map(ad => {
+          const adDate = ad.startDate ? new Date(ad.startDate) : null;
+          const timeStr = adDate ? adDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+          return {
+            _id: ad._id,
+            sessionTitle: ad.title,
+            date: ad.startDate,
+            time: timeStr,
+            attendanceFee: 0,
+            maxCapacity: -1,
+            currentAttendees: ad.joinedUsers ? ad.joinedUsers.length : 0,
+            showCode: '',
+            description: ad.description || '',
+            thumbnail: ad.image || '',
+            likes: ad.likes || [],
+            // ads are admin-created, not hosted by a star
+            type: 'ad',
+            link: ad.link || ''
           };
         })
       ].sort((a, b) => {
@@ -450,6 +510,45 @@ export const getGuestDashboard = async (req, res) => {
       .populate({ path: 'createdBy', select: '-password -passwordResetToken -passwordResetExpires' })
       .sort({ startDate: 1 });
 
+    // Query for ads (including draft, active, and live)
+    // Handle cases where type might be null/undefined
+    const adsFilter = {
+      $and: [
+        {
+          $or: [
+            { type: 'ad' },
+            { type: { $exists: false } }, // For backward compatibility - ads without type field
+            { type: null }
+          ]
+        },
+        {
+          status: { $in: ['draft', 'active', 'live'] }
+        },
+        {
+          $or: [
+            { startDate: { $gt: new Date() } }, // Future start date
+            { endDate: { $gte: new Date() } } // Or hasn't ended yet
+          ]
+        },
+        {
+          isDeleted: { $ne: true }
+        }
+      ]
+    };
+
+    // Filter ads by country if country filter is applied
+    if (country) {
+      adsFilter.$or = [
+        { targetAudience: 'all' },
+        { targetCountry: country },
+        { targetAudience: 'specific_country', targetCountry: country }
+      ];
+    }
+
+    const adsQuery = Event.find(adsFilter)
+      .populate({ path: 'createdBy', select: '-password -passwordResetToken -passwordResetExpires' })
+      .sort({ startDate: 1 });
+
     // Query for featured stars specifically
     const featuredStarsCriteria = {
       role: 'star',
@@ -491,15 +590,16 @@ export const getGuestDashboard = async (req, res) => {
       .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
       .limit(15);
 
-    const [categories, liveShows, events, featuredStars, availableStars] = await Promise.all([
+    const [categories, liveShows, events, ads, featuredStars, availableStars] = await Promise.all([
       categoriesQuery,
       liveShowsQuery,
       eventsQuery,
+      adsQuery,
       featuredStarsQuery,
       availableStarsQuery
     ]);
 
-    // Combine live shows and events, format them uniformly
+    // Combine live shows, events, and ads, format them uniformly
     const upcomingShows = [
       ...liveShows.map(show => ({
         ...show.toObject(),
@@ -523,6 +623,26 @@ export const getGuestDashboard = async (req, res) => {
           // events are admin-created, not hosted by a star
           type: 'event',
           link: event.link || ''
+        };
+      }),
+      ...ads.map(ad => {
+        const adDate = ad.startDate ? new Date(ad.startDate) : null;
+        const timeStr = adDate ? adDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+        return {
+          _id: ad._id,
+          sessionTitle: ad.title,
+          date: ad.startDate,
+          time: timeStr,
+          attendanceFee: 0,
+          maxCapacity: -1,
+          currentAttendees: ad.joinedUsers ? ad.joinedUsers.length : 0,
+          showCode: '',
+          description: ad.description || '',
+          thumbnail: ad.image || '',
+          likes: ad.likes || [],
+          // ads are admin-created, not hosted by a star
+          type: 'ad',
+          link: ad.link || ''
         };
       })
     ].sort((a, b) => {
