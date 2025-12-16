@@ -7,6 +7,7 @@ import DedicationSample from '../models/DedicationSample.js';
 import Appointment from '../models/Appointment.js';
 import Availability from '../models/Availability.js';
 import LiveShow from '../models/LiveShow.js';
+import Event from '../models/Event.js';
 import Transaction from "../models/Transaction.js";
 import { getOrCreateStarWallet } from '../services/starWalletService.js';
 import StarTransaction from '../models/StarTransaction.js';
@@ -47,6 +48,26 @@ export const getDashboard = async (req, res) => {
       const liveShowsQuery = LiveShow.find(liveShowFilter)
         .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
         .sort({ date: 1 });
+
+      // Query for events (including draft + active) with future start date
+      const eventFilter = {
+        status: { $in: ['draft', 'active'] },
+        startDate: { $gt: new Date() },
+        isDeleted: { $ne: true }
+      };
+
+      // Filter events by country if country filter is applied
+      if (country) {
+        eventFilter.$or = [
+          { targetAudience: 'all' },
+          { targetCountry: country },
+          { targetAudience: 'specific_country', targetCountry: country }
+        ];
+      }
+
+      const eventsQuery = Event.find(eventFilter)
+        .populate({ path: 'createdBy', select: '-password -passwordResetToken -passwordResetExpires' })
+        .sort({ startDate: 1 });
 
       // Removed popularStars query - no longer needed
 
@@ -91,12 +112,45 @@ export const getDashboard = async (req, res) => {
         .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
         .limit(15);
 
-      const [categories, upcomingShows, featuredStars, availableStars] = await Promise.all([
+      const [categories, liveShows, events, featuredStars, availableStars] = await Promise.all([
         categoriesQuery,
         liveShowsQuery,
+        eventsQuery,
         featuredStarsQuery,
         availableStarsQuery
       ]);
+
+      // Combine live shows and events, format them uniformly
+      const upcomingShows = [
+        ...liveShows.map(show => ({
+          ...show.toObject(),
+          type: 'live_show'
+        })),
+        ...events.map(event => {
+          const eventDate = event.startDate ? new Date(event.startDate) : null;
+          const timeStr = eventDate ? eventDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+          return {
+            _id: event._id,
+            sessionTitle: event.title,
+            date: event.startDate,
+            time: timeStr,
+            attendanceFee: 0,
+            maxCapacity: -1,
+            currentAttendees: event.joinedUsers ? event.joinedUsers.length : 0,
+            showCode: '',
+            description: event.description || '',
+            thumbnail: event.image || '',
+            likes: event.likes || [],
+            // events are admin-created, not hosted by a star
+            type: 'event',
+            link: event.link || ''
+          };
+        })
+      ].sort((a, b) => {
+        const dateA = a.date || a.startDate;
+        const dateB = b.date || b.startDate;
+        return new Date(dateA) - new Date(dateB);
+      });
 
       // Debug: Log counts
       console.log('Featured stars found:', featuredStars.length);
@@ -152,18 +206,20 @@ export const getDashboard = async (req, res) => {
           })),
           upcomingShows: upcomingShows.map(show => ({
             id: show._id,
+            type: show.type || 'live_show',
             sessionTitle: show.sessionTitle,
-            date: show.date,
+            date: show.date || show.startDate,
             time: show.time,
-            attendanceFee: show.attendanceFee,
-            maxCapacity: show.maxCapacity,
-            currentAttendees: show.currentAttendees,
-            showCode: show.showCode,
-            description: show.description,
-            thumbnail: show.thumbnail,
+            attendanceFee: show.attendanceFee || 0,
+            maxCapacity: show.maxCapacity || -1,
+            currentAttendees: show.currentAttendees || 0,
+            showCode: show.showCode || '',
+            description: show.description || '',
+            thumbnail: show.thumbnail || show.image || '',
+            link: show.link || '',
             likeCount: Array.isArray(show.likes) ? show.likes.length : 0,
             isLiked: Array.isArray(show.likes) && req.user ? show.likes.some(u => u.toString() === req.user._id.toString()) : false,
-            star: show.starId ? sanitizeUserData(show.starId) : null
+            star: show.type === 'live_show' && show.starId ? sanitizeUserData(show.starId) : null
           }))
         },
       });
@@ -374,6 +430,26 @@ export const getGuestDashboard = async (req, res) => {
       .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
       .sort({ date: 1 });
 
+    // Query for events (including draft + active) with future start date
+    const eventFilter = {
+      status: { $in: ['draft', 'active'] },
+      startDate: { $gt: new Date() },
+      isDeleted: { $ne: true }
+    };
+
+    // Filter events by country if country filter is applied
+    if (country) {
+      eventFilter.$or = [
+        { targetAudience: 'all' },
+        { targetCountry: country },
+        { targetAudience: 'specific_country', targetCountry: country }
+      ];
+    }
+
+    const eventsQuery = Event.find(eventFilter)
+      .populate({ path: 'createdBy', select: '-password -passwordResetToken -passwordResetExpires' })
+      .sort({ startDate: 1 });
+
     // Query for featured stars specifically
     const featuredStarsCriteria = {
       role: 'star',
@@ -415,12 +491,45 @@ export const getGuestDashboard = async (req, res) => {
       .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
       .limit(15);
 
-    const [categories, upcomingShows, featuredStars, availableStars] = await Promise.all([
+    const [categories, liveShows, events, featuredStars, availableStars] = await Promise.all([
       categoriesQuery,
       liveShowsQuery,
+      eventsQuery,
       featuredStarsQuery,
       availableStarsQuery
     ]);
+
+    // Combine live shows and events, format them uniformly
+    const upcomingShows = [
+      ...liveShows.map(show => ({
+        ...show.toObject(),
+        type: 'live_show'
+      })),
+      ...events.map(event => {
+        const eventDate = event.startDate ? new Date(event.startDate) : null;
+        const timeStr = eventDate ? eventDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+        return {
+          _id: event._id,
+          sessionTitle: event.title,
+          date: event.startDate,
+          time: timeStr,
+          attendanceFee: 0,
+          maxCapacity: -1,
+          currentAttendees: event.joinedUsers ? event.joinedUsers.length : 0,
+          showCode: '',
+          description: event.description || '',
+          thumbnail: event.image || '',
+          likes: event.likes || [],
+          // events are admin-created, not hosted by a star
+          type: 'event',
+          link: event.link || ''
+        };
+      })
+    ].sort((a, b) => {
+      const dateA = a.date || a.startDate;
+      const dateB = b.date || b.startDate;
+      return new Date(dateA) - new Date(dateB);
+    });
 
     // Debug: Log counts
     console.log('[GuestDashboard] Featured stars found:', featuredStars.length);
@@ -473,18 +582,20 @@ export const getGuestDashboard = async (req, res) => {
         })),
         upcomingShows: upcomingShows.map(show => ({
           id: show._id,
+          type: show.type || 'live_show',
           sessionTitle: show.sessionTitle,
-          date: show.date,
+          date: show.date || show.startDate,
           time: show.time,
-          attendanceFee: show.attendanceFee,
-          maxCapacity: show.maxCapacity,
-          currentAttendees: show.currentAttendees,
-          showCode: show.showCode,
-          description: show.description,
-          thumbnail: show.thumbnail,
+          attendanceFee: show.attendanceFee || 0,
+          maxCapacity: show.maxCapacity || -1,
+          currentAttendees: show.currentAttendees || 0,
+          showCode: show.showCode || '',
+          description: show.description || '',
+          thumbnail: show.thumbnail || show.image || '',
+          link: show.link || '',
           likeCount: Array.isArray(show.likes) ? show.likes.length : 0,
           isLiked: false, // Always false for guest users
-          star: show.starId ? sanitizeUserData(show.starId) : null
+          star: show.type === 'live_show' && show.starId ? sanitizeUserData(show.starId) : null
         }))
       },
     });
