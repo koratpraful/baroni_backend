@@ -280,7 +280,10 @@ export const listRefundables = async (req, res) => {
           profilePic: payer.profilePic,
           role: payer.role,
           isVerified: payer.isVerified,
-          profession: payer.profession
+          profession: payer.profession ? {
+            id: payer.profession._id || payer.profession.id || null,
+            name: payer.profession.name || ''
+          } : null
         } : null,
         receiver: receiver ? {
           id: receiver._id,
@@ -290,7 +293,10 @@ export const listRefundables = async (req, res) => {
           profilePic: receiver.profilePic,
           role: receiver.role,
           isVerified: receiver.isVerified,
-          profession: receiver.profession
+          profession: receiver.profession ? {
+            id: receiver.profession._id || receiver.profession.id || null,
+            name: receiver.profession.name || ''
+          } : null
         } : null,
         metadata: txn.metadata,
         serviceDetails: serviceDetails

@@ -52,6 +52,8 @@ const userSchema = new mongoose.Schema(
     totalReviews: { type: Number, default: 0, min: 0 },
     // Featured star flag - managed by admin
     feature_star: { type: Boolean, default: false, index: true },
+    // Last login timestamp
+    lastLoginAt: { type: Date, default: null, index: true },
   },
   { timestamps: true }
 );

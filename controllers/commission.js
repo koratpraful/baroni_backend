@@ -5,23 +5,37 @@ export const getCommissionConfig = async (req, res) => {
   try {
     const cfg = await CommissionConfig.getSingleton();
     
-    // Format response to match UI requirements
+    // Format response to match UI requirements - convert to percentage with 2 decimal precision
     return res.json({ 
       success: true, 
       data: {
-        globalDefault: cfg.globalDefault ? Math.round(cfg.globalDefault * 100) : 15, // Convert to percentage
+        globalDefault: cfg.globalDefault !== undefined && cfg.globalDefault !== null
+          ? Math.round(cfg.globalDefault * 10000) / 100  // Round to 2 decimal places
+          : 15,
         serviceDefaults: {
-          videoCall: cfg.serviceDefaults?.videoCall ? Math.round(cfg.serviceDefaults.videoCall * 100) : 16,
-          liveShow: cfg.serviceDefaults?.liveShow ? Math.round(cfg.serviceDefaults.liveShow * 100) : 16,
-          dedication: cfg.serviceDefaults?.dedication ? Math.round(cfg.serviceDefaults.dedication * 100) : 16
+          videoCall: cfg.serviceDefaults?.videoCall !== undefined && cfg.serviceDefaults.videoCall !== null
+            ? Math.round(cfg.serviceDefaults.videoCall * 10000) / 100
+            : 16,
+          liveShow: cfg.serviceDefaults?.liveShow !== undefined && cfg.serviceDefaults.liveShow !== null
+            ? Math.round(cfg.serviceDefaults.liveShow * 10000) / 100
+            : 16,
+          dedication: cfg.serviceDefaults?.dedication !== undefined && cfg.serviceDefaults.dedication !== null
+            ? Math.round(cfg.serviceDefaults.dedication * 10000) / 100
+            : 16
         },
         countryOverrides: (cfg.countryOverrides || []).map(override => ({
           country: override.country,
           countryCode: override.countryCode,
           rates: {
-            videoCall: override.rates?.videoCall ? Math.round(override.rates.videoCall * 100) : null,
-            liveShow: override.rates?.liveShow ? Math.round(override.rates.liveShow * 100) : null,
-            dedication: override.rates?.dedication ? Math.round(override.rates.dedication * 100) : null
+            videoCall: override.rates?.videoCall !== undefined && override.rates.videoCall !== null
+              ? Math.round(override.rates.videoCall * 10000) / 100
+              : null,
+            liveShow: override.rates?.liveShow !== undefined && override.rates.liveShow !== null
+              ? Math.round(override.rates.liveShow * 10000) / 100
+              : null,
+            dedication: override.rates?.dedication !== undefined && override.rates.dedication !== null
+              ? Math.round(override.rates.dedication * 10000) / 100
+              : null
           }
         })),
         updatedAt: cfg.updatedAt,
@@ -36,17 +50,42 @@ export const getCommissionConfig = async (req, res) => {
 export const updateGlobalCommission = async (req, res) => {
   try {
     const { globalDefault } = req.body;
-    // Accept percentage value (e.g., 15) and convert to decimal (0.15)
-    const percentageValue = typeof globalDefault === 'number' ? globalDefault : Number(globalDefault);
-    if (isNaN(percentageValue) || percentageValue < 0 || percentageValue > 100) {
-      return res.status(400).json({ success: false, message: 'globalDefault must be between 0 and 100 (percentage)' });
+    const inputValue = typeof globalDefault === 'number' ? globalDefault : Number(globalDefault);
+    
+    if (isNaN(inputValue) || inputValue < 0) {
+      return res.status(400).json({ success: false, message: 'globalDefault must be >= 0' });
     }
-    const decimalValue = percentageValue / 100;
+    
+    // Accept both decimal (0-1) and percentage (0-100) formats
+    let decimalValue;
+    if (inputValue > 1) {
+      // Percentage format (e.g., 20 for 20%)
+      if (inputValue > 100) {
+        return res.status(400).json({ success: false, message: 'globalDefault must be 0-100 if percentage, or 0-1 if decimal' });
+      }
+      decimalValue = inputValue / 100; // Convert percentage to decimal
+    } else {
+      // Decimal format (e.g., 0.20 for 20%)
+      decimalValue = inputValue;
+    }
+    
+    // Ensure value is within valid range (0-1)
+    if (decimalValue > 1) {
+      return res.status(400).json({ success: false, message: 'globalDefault must be 0-1 as decimal or 0-100 as percentage' });
+    }
+    
     const cfg = await CommissionConfig.getSingleton();
     cfg.globalDefault = decimalValue;
     cfg.updatedBy = req.user?._id;
     await cfg.save();
-    return res.json({ success: true, data: { globalDefault: Math.round(decimalValue * 100) } });
+    
+    // Return formatted response - convert back to percentage with 2 decimal precision
+    return res.json({ 
+      success: true, 
+      data: { 
+        globalDefault: Math.round(decimalValue * 10000) / 100  // Round to 2 decimal places
+      } 
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -63,28 +102,56 @@ export const updateServiceDefaults = async (req, res) => {
     const currentDefaults = cfg.serviceDefaults?.toObject?.() || cfg.serviceDefaults || {};
     const updatedDefaults = { ...currentDefaults };
     
-    // Convert percentage values to decimals
+    // Convert values to decimals - accept both decimal (0-1) and percentage (0-100) formats
     for (const key of Object.keys(serviceDefaults)) {
-      if (!allowed.includes(key)) return res.status(400).json({ success: false, message: `Invalid key ${key}` });
-      const percentageValue = Number(serviceDefaults[key]);
-      if (Number.isNaN(percentageValue) || percentageValue < 0 || percentageValue > 100) {
-        return res.status(400).json({ success: false, message: `Invalid rate for ${key} (must be 0-100)` });
+      if (!allowed.includes(key)) {
+        return res.status(400).json({ success: false, message: `Invalid key ${key}` });
       }
-      updatedDefaults[key] = percentageValue / 100; // Convert percentage to decimal
+      
+      const inputValue = Number(serviceDefaults[key]);
+      if (Number.isNaN(inputValue) || inputValue < 0) {
+        return res.status(400).json({ success: false, message: `Invalid rate for ${key} (must be >= 0)` });
+      }
+      
+      // If value is > 1, treat as percentage (0-100), otherwise treat as decimal (0-1)
+      let decimalValue;
+      if (inputValue > 1) {
+        // Percentage format (e.g., 17 for 17%)
+        if (inputValue > 100) {
+          return res.status(400).json({ success: false, message: `Invalid rate for ${key} (must be 0-100 if percentage, or 0-1 if decimal)` });
+        }
+        decimalValue = inputValue / 100; // Convert percentage to decimal
+      } else {
+        // Decimal format (e.g., 0.17 for 17%)
+        decimalValue = inputValue;
+      }
+      
+      // Ensure value is within valid range (0-1)
+      if (decimalValue > 1) {
+        return res.status(400).json({ success: false, message: `Invalid rate for ${key} (must be 0-1 as decimal or 0-100 as percentage)` });
+      }
+      
+      updatedDefaults[key] = decimalValue;
     }
     
     cfg.serviceDefaults = updatedDefaults;
     cfg.updatedBy = req.user?._id;
     await cfg.save();
     
-    // Return formatted response
+    // Return formatted response - convert back to percentage with 2 decimal precision
     return res.json({ 
       success: true, 
       data: {
         serviceDefaults: {
-          videoCall: Math.round((cfg.serviceDefaults.videoCall || 0) * 100),
-          liveShow: Math.round((cfg.serviceDefaults.liveShow || 0) * 100),
-          dedication: Math.round((cfg.serviceDefaults.dedication || 0) * 100)
+          videoCall: cfg.serviceDefaults.videoCall !== undefined && cfg.serviceDefaults.videoCall !== null
+            ? Math.round((cfg.serviceDefaults.videoCall || 0) * 10000) / 100
+            : null,
+          liveShow: cfg.serviceDefaults.liveShow !== undefined && cfg.serviceDefaults.liveShow !== null
+            ? Math.round((cfg.serviceDefaults.liveShow || 0) * 10000) / 100
+            : null,
+          dedication: cfg.serviceDefaults.dedication !== undefined && cfg.serviceDefaults.dedication !== null
+            ? Math.round((cfg.serviceDefaults.dedication || 0) * 10000) / 100
+            : null
         }
       }
     });
@@ -93,54 +160,145 @@ export const updateServiceDefaults = async (req, res) => {
   }
 };
 
+// Helper function to convert rates to decimal format
+const convertRatesToDecimal = (rates, allowed) => {
+  const convertedRates = {};
+  for (const k of allowed) {
+    if (rates[k] !== undefined) {
+      const inputValue = Number(rates[k]);
+      if (Number.isNaN(inputValue) || inputValue < 0) {
+        throw new Error(`Invalid rate for ${k} (must be >= 0)`);
+      }
+      
+      // If value is > 1, treat as percentage (0-100), otherwise treat as decimal (0-1)
+      let decimalValue;
+      if (inputValue > 1) {
+        // Percentage format (e.g., 17 for 17%)
+        if (inputValue > 100) {
+          throw new Error(`Invalid rate for ${k} (must be 0-100 if percentage, or 0-1 if decimal)`);
+        }
+        decimalValue = inputValue / 100; // Convert percentage to decimal
+      } else {
+        // Decimal format (e.g., 0.17 for 17%)
+        decimalValue = inputValue;
+      }
+      
+      // Ensure value is within valid range (0-1)
+      if (decimalValue > 1) {
+        throw new Error(`Invalid rate for ${k} (must be 0-1 as decimal or 0-100 as percentage)`);
+      }
+      
+      convertedRates[k] = decimalValue;
+    }
+  }
+  return convertedRates;
+};
+
+// Helper function to format rates for response
+const formatRatesForResponse = (rates) => {
+  return {
+    videoCall: rates?.videoCall !== undefined && rates.videoCall !== null 
+      ? Math.round(rates.videoCall * 10000) / 100  // Round to 2 decimal places
+      : null,
+    liveShow: rates?.liveShow !== undefined && rates.liveShow !== null
+      ? Math.round(rates.liveShow * 10000) / 100
+      : null,
+    dedication: rates?.dedication !== undefined && rates.dedication !== null
+      ? Math.round(rates.dedication * 10000) / 100
+      : null
+  };
+};
+
 export const upsertCountryOverride = async (req, res) => {
   try {
-    const { country, countryCode, rates } = req.body;
-    if (!country || !countryCode || !rates) {
-      return res.status(400).json({ success: false, message: 'country, countryCode and rates are required' });
-    }
-    const norm = String(countryCode).toUpperCase();
     const allowed = ['videoCall', 'liveShow', 'dedication'];
     const cfg = await CommissionConfig.getSingleton();
     const list = cfg.countryOverrides || [];
-    const idx = list.findIndex((c) => c.countryCode === norm);
     
-    // Convert percentage values to decimals
-    const convertedRates = {};
-    for (const k of allowed) {
-      if (rates[k] !== undefined) {
-        const percentageValue = Number(rates[k]);
-        if (Number.isNaN(percentageValue) || percentageValue < 0 || percentageValue > 100) {
-          return res.status(400).json({ success: false, message: `Invalid rate for ${k} (must be 0-100)` });
+    // Check if request body is an array (multiple countries) or single object
+    const countriesToProcess = Array.isArray(req.body) ? req.body : [req.body];
+    
+    if (countriesToProcess.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one country override is required' });
+    }
+    
+    const processedCountries = [];
+    const errors = [];
+    
+    // Process each country
+    for (let i = 0; i < countriesToProcess.length; i++) {
+      const countryData = countriesToProcess[i];
+      const { country, countryCode, rates } = countryData;
+      
+      if (!country || !countryCode || !rates) {
+        errors.push(`Country ${i + 1}: country, countryCode and rates are required`);
+        continue;
+      }
+      
+      const norm = String(countryCode).toUpperCase();
+      
+      try {
+        // Convert values to decimals - accept both decimal (0-1) and percentage (0-100) formats
+        const convertedRates = convertRatesToDecimal(rates, allowed);
+        
+        // Find existing override for this country
+        const idx = list.findIndex((c) => c.countryCode === norm);
+        
+        const mergedRates = idx >= 0 
+          ? { ...list[idx].rates?.toObject?.() || list[idx].rates, ...convertedRates } 
+          : convertedRates;
+        
+        if (idx >= 0) {
+          // Update existing override
+          list[idx] = { 
+            country: country || list[idx].country, 
+            countryCode: norm, 
+            rates: mergedRates 
+          };
+        } else {
+          // Add new override
+          list.push({ country, countryCode: norm, rates: mergedRates });
         }
-        convertedRates[k] = percentageValue / 100; // Convert percentage to decimal
+        
+        processedCountries.push({
+          country: country || list[idx]?.country,
+          countryCode: norm,
+          rates: formatRatesForResponse(mergedRates)
+        });
+      } catch (rateError) {
+        errors.push(`Country ${i + 1} (${countryCode}): ${rateError.message}`);
       }
     }
     
-    const mergedRates = idx >= 0 ? { ...list[idx].rates?.toObject?.() || list[idx].rates, ...convertedRates } : convertedRates;
-    if (idx >= 0) {
-      list[idx] = { country: country || list[idx].country, countryCode: norm, rates: mergedRates };
-    } else {
-      list.push({ country, countryCode: norm, rates: mergedRates });
+    if (errors.length > 0 && processedCountries.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Failed to process countries',
+        errors 
+      });
     }
+    
+    // Save all changes
     cfg.countryOverrides = list;
     cfg.updatedBy = req.user?._id;
     await cfg.save();
     
-    // Return formatted response
-    const updatedOverride = cfg.countryOverrides.find(c => c.countryCode === norm);
-    return res.status(idx >= 0 ? 200 : 201).json({ 
-      success: true, 
-      data: {
-        country: updatedOverride.country,
-        countryCode: updatedOverride.countryCode,
-        rates: {
-          videoCall: updatedOverride.rates?.videoCall ? Math.round(updatedOverride.rates.videoCall * 100) : null,
-          liveShow: updatedOverride.rates?.liveShow ? Math.round(updatedOverride.rates.liveShow * 100) : null,
-          dedication: updatedOverride.rates?.dedication ? Math.round(updatedOverride.rates.dedication * 100) : null
-        }
-      }
-    });
+    // Return response
+    // If single country was processed, return single object (backward compatibility)
+    // If multiple countries, return array
+    if (countriesToProcess.length === 1 && processedCountries.length === 1) {
+      return res.status(processedCountries[0] ? 200 : 201).json({ 
+        success: true, 
+        data: processedCountries[0],
+        ...(errors.length > 0 && { warnings: errors })
+      });
+    } else {
+      return res.status(200).json({ 
+        success: true, 
+        data: processedCountries,
+        ...(errors.length > 0 && { warnings: errors })
+      });
+    }
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

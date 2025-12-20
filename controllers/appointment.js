@@ -451,47 +451,71 @@ export const listAppointments = async (req, res) => {
       filter = { fanId: req.user._id };
     }
     
-    // Optional date filtering: exact date or range via startDate/endDate (expects YYYY-MM-DD strings)
-    const { date, startDate, endDate, status, page, limit } = req.query || {};
+    // Optional date filtering: exact date or range via startDate/endDate
+    // Accepts both YYYY-MM-DD format and ISO 8601 format (will extract date part)
+    const { date, startDate, endDate, status, page, limit, search } = req.query || {};
     
     console.log(`[ListAppointments] After destructuring - page:`, page, `limit:`, limit);
     console.log(`[ListAppointments] Date filter params - date:`, date, `startDate:`, startDate, `endDate:`, endDate);
+    console.log(`[ListAppointments] Search param:`, search);
+    
+    // Helper function to extract YYYY-MM-DD from ISO 8601 or YYYY-MM-DD format
+    const extractDateString = (dateInput) => {
+      if (!dateInput || typeof dateInput !== 'string') return null;
+      const trimmed = dateInput.trim();
+      
+      // If it's already in YYYY-MM-DD format
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        return trimmed;
+      }
+      
+      // If it's in ISO 8601 format (e.g., 2025-11-14T06:54:19.171Z)
+      if (trimmed.includes('T') || trimmed.includes(' ')) {
+        try {
+          const dateObj = new Date(trimmed);
+          if (!isNaN(dateObj.getTime())) {
+            return dateObj.toISOString().split('T')[0]; // Extract YYYY-MM-DD
+          }
+        } catch (e) {
+          console.error(`[ListAppointments] Error parsing date:`, trimmed, e);
+        }
+      }
+      
+      return null;
+    };
     
     // Track the minimum date for filtering (to exclude cancelled appointments from before this date)
     let minFilterDate = null;
     
     // Apply date filter - this should properly exclude appointments from dates before the filter
     if (date && typeof date === 'string' && date.trim()) {
-      // Exact date match - ensure proper format (YYYY-MM-DD)
-      const trimmedDate = date.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
-        filter.date = trimmedDate;
-        minFilterDate = trimmedDate;
-        console.log(`[ListAppointments] Applied exact date filter:`, trimmedDate);
+      // Exact date match
+      const extractedDate = extractDateString(date);
+      if (extractedDate) {
+        filter.date = extractedDate;
+        minFilterDate = extractedDate;
+        console.log(`[ListAppointments] Applied exact date filter:`, extractedDate);
       }
     } else if (startDate || endDate) {
-      // Normalize date strings (remove whitespace)
-      const normalizedStartDate = startDate && typeof startDate === 'string' ? startDate.trim() : '';
-      const normalizedEndDate = endDate && typeof endDate === 'string' ? endDate.trim() : '';
-      
-      // Validate date format (YYYY-MM-DD)
-      const isValidDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+      // Extract dates from ISO or YYYY-MM-DD format
+      const normalizedStartDate = startDate ? extractDateString(startDate) : null;
+      const normalizedEndDate = endDate ? extractDateString(endDate) : null;
       
       // Date range filtering - if both are same, it's an exact match
-      if (normalizedStartDate && normalizedEndDate && normalizedStartDate === normalizedEndDate && isValidDate(normalizedStartDate)) {
+      if (normalizedStartDate && normalizedEndDate && normalizedStartDate === normalizedEndDate) {
         // Exact date match when both are same
         filter.date = normalizedStartDate;
         minFilterDate = normalizedStartDate;
         console.log(`[ListAppointments] Applied exact date filter (from range):`, normalizedStartDate);
       } else {
-        // Range filtering - ensure both dates are valid strings
+        // Range filtering
         const range = {};
-        if (normalizedStartDate && isValidDate(normalizedStartDate)) {
+        if (normalizedStartDate) {
           range.$gte = normalizedStartDate;
           minFilterDate = normalizedStartDate;
           console.log(`[ListAppointments] Applied startDate filter:`, normalizedStartDate);
         }
-        if (normalizedEndDate && isValidDate(normalizedEndDate)) {
+        if (normalizedEndDate) {
           range.$lte = normalizedEndDate;
           console.log(`[ListAppointments] Applied endDate filter:`, normalizedEndDate);
         }
@@ -500,6 +524,54 @@ export const listAppointments = async (req, res) => {
           filter.date = range;
           console.log(`[ListAppointments] Applied date range filter:`, range);
         }
+      }
+    }
+    
+    // Search filtering (by star name, fan name, or Baroni ID)
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = search.trim();
+      const searchRegex = new RegExp(searchTerm, 'i');
+      
+      // Find matching users (stars and fans)
+      const [starIds, fanIds] = await Promise.all([
+        User.find({
+          $or: [
+            { name: searchRegex },
+            { baroniId: searchRegex },
+            { pseudo: searchRegex }
+          ],
+          role: 'star'
+        }).select('_id').lean(),
+        User.find({
+          $or: [
+            { name: searchRegex },
+            { baroniId: searchRegex },
+            { pseudo: searchRegex }
+          ]
+        }).select('_id').lean()
+      ]);
+      
+      const allSearchIds = [
+        ...starIds.map(s => s._id),
+        ...fanIds.map(u => u._id)
+      ];
+      
+      if (allSearchIds.length > 0) {
+        // Store search condition for later use
+        const searchCondition = {
+          $or: [
+            { starId: { $in: allSearchIds } },
+            { fanId: { $in: allSearchIds } }
+          ]
+        };
+        
+        // Store search condition in filter for later preservation
+        filter._searchCondition = searchCondition;
+        console.log(`[ListAppointments] Applied search filter for:`, searchTerm, `Found ${allSearchIds.length} matching users`);
+      } else {
+        // If no users found, return empty result
+        filter._id = null; // This will match nothing
+        console.log(`[ListAppointments] Search term "${searchTerm}" found no matching users`);
       }
     }
     
@@ -512,6 +584,9 @@ export const listAppointments = async (req, res) => {
       }
     }
     
+    // Track if we have a search filter (stored in $and or $or)
+    const hasSearchFilter = !!(filter.$and || (filter.$or && !filter.date));
+    
     // Ensure date filter is properly applied and exclude cancelled appointments from before the filter date
     if (minFilterDate) {
       const existingDateFilter = filter.date;
@@ -522,10 +597,11 @@ export const listAppointments = async (req, res) => {
       
       // If we have a date filter and no status filter, we need to handle cancelled appointments specially
       if (existingDateFilter && !hasStatusFilter) {
-        // Extract base filters (everything except date and status)
+        // Extract base filters (everything except date, status, $and, $or, _searchCondition)
         const baseFilters = {};
+        const searchCondition = filter._searchCondition; // Preserve search condition
         Object.keys(filter).forEach(key => {
-          if (key !== 'date' && key !== 'status') {
+          if (key !== 'date' && key !== 'status' && key !== '$and' && key !== '$or' && key !== '_searchCondition') {
             baseFilters[key] = filter[key];
           }
         });
@@ -538,6 +614,11 @@ export const listAppointments = async (req, res) => {
         Object.keys(baseFilters).forEach(key => {
           andConditions.push({ [key]: baseFilters[key] });
         });
+        
+        // Add search condition if it exists
+        if (searchCondition) {
+          andConditions.push(searchCondition);
+        }
         
         // Determine the date condition for cancelled appointments
         let cancelledDateCondition;
@@ -598,10 +679,11 @@ export const listAppointments = async (req, res) => {
       const hasStatusFilter = !!filter.status;
       
       if (!hasStatusFilter) {
-        // Extract base filters (everything except status)
+        // Extract base filters (everything except status, $and, $or, and _searchCondition)
         const baseFilters = {};
+        const searchCondition = filter._searchCondition; // Preserve search condition
         Object.keys(filter).forEach(key => {
-          if (key !== 'status') {
+          if (key !== 'status' && key !== '$and' && key !== '$or' && key !== '_searchCondition') {
             baseFilters[key] = filter[key];
           }
         });
@@ -613,6 +695,11 @@ export const listAppointments = async (req, res) => {
         Object.keys(baseFilters).forEach(key => {
           andConditions.push({ [key]: baseFilters[key] });
         });
+        
+        // Add search condition if it exists
+        if (searchCondition) {
+          andConditions.push(searchCondition);
+        }
         
         // Add condition: (non-cancelled) OR (cancelled AND date >= yesterday)
         andConditions.push({
@@ -636,6 +723,11 @@ export const listAppointments = async (req, res) => {
         
         console.log(`[ListAppointments] No date filter - excluding cancelled appointments before:`, yesterdayStr);
       }
+    }
+    
+    // Remove temporary _searchCondition field before querying MongoDB
+    if (filter._searchCondition) {
+      delete filter._searchCondition;
     }
     
     // Log the final filter being applied
