@@ -65,6 +65,21 @@ export const sanitizeUserData = (user) => {
     }
   });
 
+  // Format profession to include both id and name if it exists
+  if (userObj.profession) {
+    if (typeof userObj.profession === 'object' && userObj.profession !== null) {
+      // Already populated - ensure it has id and name
+      userObj.profession = {
+        id: userObj.profession._id || userObj.profession.id || null,
+        name: userObj.profession.name || '',
+        image: userObj.profession.image || null
+      };
+    } else if (typeof userObj.profession === 'string') {
+      // Just an ID string - keep it but we'll format it in createSanitizedUserResponse
+      // For now, leave it as is
+    }
+  }
+
   return userObj;
 };
 
@@ -107,6 +122,35 @@ export const sanitizeNestedUserData = (obj, userFields = []) => {
 };
 
 /**
+ * Formats profession object to include both id and name
+ * @param {Object|String|undefined} profession - Profession object or ID
+ * @returns {Object|null} Formatted profession with id and name
+ */
+export const formatProfession = (profession) => {
+  if (!profession) {
+    return null;
+  }
+  
+  // If it's already an object with _id or id
+  if (typeof profession === 'object') {
+    return {
+      id: profession._id || profession.id || null,
+      name: profession.name || ''
+    };
+  }
+  
+  // If it's just an ID string
+  if (typeof profession === 'string') {
+    return {
+      id: profession,
+      name: ''
+    };
+  }
+  
+  return null;
+};
+
+/**
  * Creates a sanitized user object for API responses
  * This is a more comprehensive version that includes all user fields
  * @param {Object} user - User object to sanitize
@@ -128,7 +172,7 @@ export const createSanitizedUserResponse = (user) => {
     country: sanitized.country,
     about: sanitized.about,
     location: sanitized.location,
-    profession: sanitized.profession,
+    profession: formatProfession(sanitized.profession),
     role: sanitized.role,
     availableForBookings: sanitized.availableForBookings,
     appNotification: sanitized.appNotification,

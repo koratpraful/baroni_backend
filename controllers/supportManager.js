@@ -3,6 +3,7 @@ import { getFirstValidationError } from '../utils/validationHelper.js';
 import ContactSupport from '../models/ContactSupport.js';
 import User from '../models/User.js';
 import { uploadFile } from '../utils/uploadFile.js';
+import { formatProfession } from '../utils/userDataHelper.js';
 import mongoose from 'mongoose';
 
 // Create a new support ticket
@@ -49,13 +50,30 @@ export const createSupportTicket = async (req, res) => {
       category: category || 'general'
     });
 
-    // Populate user details
-    await supportTicket.populate('userId', 'name email baroniId profilePic');
+    // Populate user details with profession
+    await supportTicket.populate({
+      path: 'userId',
+      select: 'name email baroniId profilePic',
+      populate: { path: 'profession', select: 'name image' }
+    });
+
+    // Format ticket data to ensure profession is properly formatted
+    const ticketData = supportTicket.toObject ? supportTicket.toObject() : supportTicket;
+    if (ticketData.userId) {
+      ticketData.userId = {
+        _id: ticketData.userId._id,
+        name: ticketData.userId.name || '',
+        email: ticketData.userId.email || '',
+        baroniId: ticketData.userId.baroniId || '',
+        profilePic: ticketData.userId.profilePic || '',
+        profession: formatProfession(ticketData.userId.profession)
+      };
+    }
 
     return res.status(201).json({
       success: true,
       message: 'Support ticket created successfully',
-      data: supportTicket
+      data: ticketData
     });
   } catch (err) {
     console.error('Error creating support ticket:', err);
@@ -73,7 +91,11 @@ export const getUserSupportTickets = async (req, res) => {
     const userId = req.user.id;
 
     const tickets = await ContactSupport.find({ userId, isDeleted: false })
-      .populate('userId', 'name email baroniId profilePic')
+      .populate({
+        path: 'userId',
+        select: 'name email baroniId profilePic',
+        populate: { path: 'profession', select: 'name image' }
+      })
       .populate('assignedTo', 'name email baroniId')
       .sort({ createdAt: -1 });
 
@@ -104,14 +126,22 @@ export const getSupportTicketById = async (req, res) => {
     // Check if it's a MongoDB ObjectId
     if (mongoose.Types.ObjectId.isValid(id)) {
       ticket = await ContactSupport.findById(id)
-        .populate('userId', 'name email baroniId profilePic')
+        .populate({
+          path: 'userId',
+          select: 'name email baroniId profilePic',
+          populate: { path: 'profession', select: 'name image' }
+        })
         .populate('assignedTo', 'name email baroniId')
         .populate('resolvedBy', 'name email baroniId')
         .populate('messages.sender', 'name email baroniId profilePic');
     } else if (typeof id === 'string' && id.startsWith('#AT')) {
       // Search by ticketId format (#AT0000002)
       ticket = await ContactSupport.findOne({ ticketId: id })
-        .populate('userId', 'name email baroniId profilePic')
+        .populate({
+          path: 'userId',
+          select: 'name email baroniId profilePic',
+          populate: { path: 'profession', select: 'name image' }
+        })
         .populate('assignedTo', 'name email baroniId')
         .populate('resolvedBy', 'name email baroniId')
         .populate('messages.sender', 'name email baroniId profilePic');
@@ -137,10 +167,23 @@ export const getSupportTicketById = async (req, res) => {
       });
     }
 
+    // Format ticket data to ensure profession is properly formatted
+    const ticketData = ticket.toObject ? ticket.toObject() : ticket;
+    if (ticketData.userId) {
+      ticketData.userId = {
+        _id: ticketData.userId._id,
+        name: ticketData.userId.name || '',
+        email: ticketData.userId.email || '',
+        baroniId: ticketData.userId.baroniId || '',
+        profilePic: ticketData.userId.profilePic || '',
+        profession: formatProfession(ticketData.userId.profession)
+      };
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Support ticket retrieved successfully',
-      data: ticket
+      data: ticketData
     });
   } catch (err) {
     console.error('Error fetching support ticket:', err);
@@ -214,13 +257,30 @@ export const updateSupportTicket = async (req, res) => {
       id,
       updateData,
       { new: true, runValidators: true }
-    ).populate('userId', 'name email baroniId profilePic')
+    ).populate({
+      path: 'userId',
+      select: 'name email baroniId profilePic',
+      populate: { path: 'profession', select: 'name image' }
+    })
      .populate('assignedTo', 'name email baroniId');
+
+    // Format ticket data to ensure profession is properly formatted
+    const ticketData = updatedTicket.toObject ? updatedTicket.toObject() : updatedTicket;
+    if (ticketData.userId) {
+      ticketData.userId = {
+        _id: ticketData.userId._id,
+        name: ticketData.userId.name || '',
+        email: ticketData.userId.email || '',
+        baroniId: ticketData.userId.baroniId || '',
+        profilePic: ticketData.userId.profilePic || '',
+        profession: formatProfession(ticketData.userId.profession)
+      };
+    }
 
     return res.status(200).json({
       success: true,
       message: 'Support ticket updated successfully',
-      data: updatedTicket
+      data: ticketData
     });
   } catch (err) {
     console.error('Error updating support ticket:', err);
@@ -336,7 +396,11 @@ export const getAllSupportTickets = async (req, res) => {
     sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
     const tickets = await ContactSupport.find(query)
-      .populate('userId', 'name email baroniId profilePic role _id')
+      .populate({
+        path: 'userId',
+        select: 'name email baroniId profilePic role _id',
+        populate: { path: 'profession', select: 'name image' }
+      })
       .populate('assignedTo', 'name email baroniId role _id')
       .populate('resolvedBy', 'name email baroniId role _id')
       .sort(sortOptions)
@@ -353,11 +417,30 @@ export const getAllSupportTickets = async (req, res) => {
       // Extract userId and userType from populated user object
       if (ticket.userId && typeof ticket.userId === 'object' && ticket.userId._id) {
         // Populated user object - extract ID and role
-        // With .lean(), _id is already a string
-        transformed.userId = String(ticket.userId._id);
+        // With .lean(), _id is already a string/ObjectId
+        const userIdStr = ticket.userId._id.toString ? ticket.userId._id.toString() : String(ticket.userId._id);
+        transformed.userId = userIdStr;
         transformed.userType = ticket.userId.role || null;
+        
         // Keep the full populated user object as 'user' for backward compatibility
-        transformed.user = ticket.userId;
+        // Format profession properly and ensure baroniId is included (especially for stars)
+        transformed.user = {
+          _id: ticket.userId._id,
+          id: userIdStr,
+          name: ticket.userId.name || '',
+          email: ticket.userId.email || '',
+          baroniId: ticket.userId.baroniId || '',
+          profilePic: ticket.userId.profilePic || '',
+          role: ticket.userId.role || null,
+          profession: formatProfession(ticket.userId.profession)
+        };
+        
+        // Also ensure baroniId and profession are at the root level for easier access
+        // This is especially important for stars
+        if (ticket.userId.role === 'star') {
+          transformed.userBaroniId = ticket.userId.baroniId || '';
+          transformed.userProfession = formatProfession(ticket.userId.profession);
+        }
       } else if (ticket.userId) {
         // If userId is already a string/ID (shouldn't happen with populate, but handle it)
         transformed.userId = String(ticket.userId);
@@ -434,16 +517,33 @@ export const updateTicketStatus = async (req, res) => {
 
     // Populate updated ticket
     await ticket.populate([
-      { path: 'userId', select: 'name email baroniId profilePic' },
+      { 
+        path: 'userId', 
+        select: 'name email baroniId profilePic',
+        populate: { path: 'profession', select: 'name image' }
+      },
       { path: 'assignedTo', select: 'name email baroniId' },
       { path: 'resolvedBy', select: 'name email baroniId' },
       { path: 'messages.sender', select: 'name email baroniId profilePic' }
     ]);
 
+    // Format ticket data to ensure profession is properly formatted
+    const ticketData = ticket.toObject ? ticket.toObject() : ticket;
+    if (ticketData.userId) {
+      ticketData.userId = {
+        _id: ticketData.userId._id,
+        name: ticketData.userId.name || '',
+        email: ticketData.userId.email || '',
+        baroniId: ticketData.userId.baroniId || '',
+        profilePic: ticketData.userId.profilePic || '',
+        profession: formatProfession(ticketData.userId.profession)
+      };
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Ticket status updated successfully',
-      data: ticket
+      data: ticketData
     });
   } catch (err) {
     console.error('Error updating ticket status:', err);
@@ -504,15 +604,32 @@ export const assignTicket = async (req, res) => {
 
     // Populate updated ticket
     await ticket.populate([
-      { path: 'userId', select: 'name email baroniId profilePic' },
+      { 
+        path: 'userId', 
+        select: 'name email baroniId profilePic',
+        populate: { path: 'profession', select: 'name image' }
+      },
       { path: 'assignedTo', select: 'name email baroniId' },
       { path: 'messages.sender', select: 'name email baroniId profilePic' }
     ]);
 
+    // Format ticket data to ensure profession is properly formatted
+    const ticketData = ticket.toObject ? ticket.toObject() : ticket;
+    if (ticketData.userId) {
+      ticketData.userId = {
+        _id: ticketData.userId._id,
+        name: ticketData.userId.name || '',
+        email: ticketData.userId.email || '',
+        baroniId: ticketData.userId.baroniId || '',
+        profilePic: ticketData.userId.profilePic || '',
+        profession: formatProfession(ticketData.userId.profession)
+      };
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Ticket assigned successfully',
-      data: ticket
+      data: ticketData
     });
   } catch (err) {
     console.error('Error assigning ticket:', err);
@@ -568,7 +685,11 @@ export const addMessageToTicket = async (req, res) => {
 
     // Populate updated ticket
     await ticket.populate([
-      { path: 'userId', select: 'name email baroniId profilePic' },
+      { 
+        path: 'userId', 
+        select: 'name email baroniId profilePic',
+        populate: { path: 'profession', select: 'name image' }
+      },
       { path: 'assignedTo', select: 'name email baroniId' },
       { path: 'messages.sender', select: 'name email baroniId profilePic' }
     ]);
