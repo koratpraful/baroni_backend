@@ -9,6 +9,106 @@ import LiveShow from '../models/LiveShow.js';
 import Availability from '../models/Availability.js';
 import mongoose from 'mongoose';
 
+// Helper function to get country flag emoji from country name or code
+const getCountryFlag = (country) => {
+  if (!country) return null;
+  
+  const countryToFlag = {
+    // Country names to flag emojis
+    'India': '🇮🇳',
+    'भारत': '🇮🇳',
+    'Bharat': '🇮🇳',
+    'USA': '🇺🇸',
+    'United States': '🇺🇸',
+    'America': '🇺🇸',
+    'United Kingdom': '🇬🇧',
+    'UK': '🇬🇧',
+    'Britain': '🇬🇧',
+    'England': '🇬🇧',
+    'Canada': '🇨🇦',
+    'Australia': '🇦🇺',
+    'France': '🇫🇷',
+    'Germany': '🇩🇪',
+    'Japan': '🇯🇵',
+    'China': '🇨🇳',
+    'Brazil': '🇧🇷',
+    'Mali': '🇲🇱',
+    'Spain': '🇪🇸',
+    'Italy': '🇮🇹',
+    'Russia': '🇷🇺',
+    'South Korea': '🇰🇷',
+    'Mexico': '🇲🇽',
+    'Argentina': '🇦🇷',
+    'South Africa': '🇿🇦',
+    'Nigeria': '🇳🇬',
+    'Egypt': '🇪🇬',
+    'Turkey': '🇹🇷',
+    'Saudi Arabia': '🇸🇦',
+    'UAE': '🇦🇪',
+    'United Arab Emirates': '🇦🇪',
+    'Singapore': '🇸🇬',
+    'Thailand': '🇹🇭',
+    'Indonesia': '🇮🇩',
+    'Philippines': '🇵🇭',
+    'Vietnam': '🇻🇳',
+    'Malaysia': '🇲🇾',
+    // Country codes to flag emojis
+    'IN': '🇮🇳',
+    'US': '🇺🇸',
+    'GB': '🇬🇧',
+    'CA': '🇨🇦',
+    'AU': '🇦🇺',
+    'FR': '🇫🇷',
+    'DE': '🇩🇪',
+    'JP': '🇯🇵',
+    'CN': '🇨🇳',
+    'BR': '🇧🇷',
+    'ML': '🇲🇱',
+    'ES': '🇪🇸',
+    'IT': '🇮🇹',
+    'RU': '🇷🇺',
+    'KR': '🇰🇷',
+    'MX': '🇲🇽',
+    'AR': '🇦🇷',
+    'ZA': '🇿🇦',
+    'NG': '🇳🇬',
+    'EG': '🇪🇬',
+    'TR': '🇹🇷',
+    'SA': '🇸🇦',
+    'AE': '🇦🇪',
+    'SG': '🇸🇬',
+    'TH': '🇹🇭',
+    'ID': '🇮🇩',
+    'PH': '🇵🇭',
+    'VN': '🇻🇳',
+    'MY': '🇲🇾'
+  };
+  
+  // Try direct lookup
+  if (countryToFlag[country]) {
+    return countryToFlag[country];
+  }
+  
+  // Try case-insensitive lookup
+  const normalizedCountry = country.trim();
+  for (const [key, flag] of Object.entries(countryToFlag)) {
+    if (key.toLowerCase() === normalizedCountry.toLowerCase()) {
+      return flag;
+    }
+  }
+  
+  return null;
+};
+
+// Helper function to check if star is online (logged in within last 15 minutes)
+const isStarOnline = (lastLoginAt) => {
+  if (!lastLoginAt) return false;
+  const now = new Date();
+  const lastLogin = new Date(lastLoginAt);
+  const diffInMinutes = (now - lastLogin) / (1000 * 60);
+  return diffInMinutes <= 15; // Consider online if logged in within last 15 minutes
+};
+
 // Get star profile details with comprehensive information
 export const getStarProfile = async (req, res) => {
   try {
@@ -154,12 +254,17 @@ export const getStarProfile = async (req, res) => {
           baroniId: star.baroniId,
           name: star.name,
           pseudo: star.pseudo,
-          email: star.email,
+          email: star.email || null,
           contact: star.contact,
           profilePic: star.profilePic,
           role: star.role,
           country: star.country,
-          profession: star.profession,
+          countryFlag: getCountryFlag(star.country),
+          preferredLanguage: star.preferredLanguage || null,
+          profession: star.profession ? {
+            id: star.profession._id || star.profession.id || null,
+            name: star.profession.name || ''
+          } : null,
           about: star.about,
           location: star.location,
           availableForBookings: finalAvailableForBookings,
@@ -167,6 +272,8 @@ export const getStarProfile = async (req, res) => {
           appNotification: star.appNotification,
           coinBalance: star.coinBalance,
           deviceType: star.deviceType,
+          isAddedInFeatureStar: star.feature_star || false,
+          isOnlineStar: isStarOnline(star.lastLoginAt),
           createdAt: star.createdAt,
           lastLoginAt: star.lastLoginAt
         },
@@ -285,7 +392,10 @@ export const updateStarProfile = async (req, res) => {
           contact: star.contact,
           profilePic: star.profilePic,
           country: star.country,
-          profession: star.profession,
+          profession: star.profession ? {
+            id: star.profession._id || star.profession.id || null,
+            name: star.profession.name || ''
+          } : null,
           about: star.about,
           location: star.location,
           availableForBookings: star.availableBookings,
@@ -894,7 +1004,10 @@ export const getAllStars = async (req, res) => {
           email: star.email,
           profilePic: star.profilePic,
           country: star.country,
-          profession: star.profession,
+          profession: star.profession ? {
+            id: star.profession._id || star.profession.id || null,
+            name: star.profession.name || ''
+          } : null,
           availableForBookings: star.availableForBookings,
           hidden: star.hidden,
           status: star.availableForBookings && !star.hidden ? 'active' : 'blocked',
@@ -1038,7 +1151,10 @@ export const getFeaturedStars = async (req, res) => {
           baroniId: star.baroniId,
           profilePic: star.profilePic,
           country: star.country,
-          profession: star.profession,
+          profession: star.profession ? {
+            id: star.profession._id || star.profession.id || null,
+            name: star.profession.name || ''
+          } : null,
           feature_star: star.feature_star,
           createdAt: star.createdAt
         })),

@@ -370,6 +370,9 @@ export const login = async (req, res) => {
     user.sessionVersion = (typeof user.sessionVersion === 'number' ? user.sessionVersion : 0) + 1;
     updateData.sessionVersion = user.sessionVersion;
     
+    // Update lastLoginAt timestamp
+    updateData.lastLoginAt = new Date();
+    
     console.log(`[LOGIN] User ${user._id} sessionVersion: ${oldSessionVersion} -> ${user.sessionVersion} (incrementing to invalidate old tokens)`);
 
     // Update user with new tokens and session version

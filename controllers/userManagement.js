@@ -134,7 +134,10 @@ export const getAllUsers = async (req, res) => {
           profilePic: user.profilePic,
           role: user.role,
           country: user.country,
-          profession: user.profession,
+          profession: user.profession ? {
+            id: user.profession._id || user.profession.id || null,
+            name: user.profession.name || ''
+          } : null,
           availableForBookings: user.availableForBookings,
           hidden: user.hidden,
           status: user.availableForBookings && !user.hidden ? 'active' : 'blocked',
@@ -416,6 +419,61 @@ export const getUserDetails = async (req, res) => {
       };
     }
 
+    // Helper function to get country flag emoji from country name or code
+    const getCountryFlag = (country) => {
+      if (!country) return null;
+      
+      const countryToFlag = {
+        'India': '🇮🇳', 'भारत': '🇮🇳', 'Bharat': '🇮🇳', 'IN': '🇮🇳',
+        'USA': '🇺🇸', 'United States': '🇺🇸', 'America': '🇺🇸', 'US': '🇺🇸',
+        'United Kingdom': '🇬🇧', 'UK': '🇬🇧', 'Britain': '🇬🇧', 'England': '🇬🇧', 'GB': '🇬🇧',
+        'Canada': '🇨🇦', 'CA': '🇨🇦',
+        'Australia': '🇦🇺', 'AU': '🇦🇺',
+        'France': '🇫🇷', 'FR': '🇫🇷',
+        'Germany': '🇩🇪', 'DE': '🇩🇪',
+        'Japan': '🇯🇵', 'JP': '🇯🇵',
+        'China': '🇨🇳', 'CN': '🇨🇳',
+        'Brazil': '🇧🇷', 'BR': '🇧🇷',
+        'Mali': '🇲🇱', 'ML': '🇲🇱',
+        'Spain': '🇪🇸', 'ES': '🇪🇸',
+        'Italy': '🇮🇹', 'IT': '🇮🇹',
+        'Russia': '🇷🇺', 'RU': '🇷🇺',
+        'South Korea': '🇰🇷', 'KR': '🇰🇷',
+        'Mexico': '🇲🇽', 'MX': '🇲🇽',
+        'Argentina': '🇦🇷', 'AR': '🇦🇷',
+        'South Africa': '🇿🇦', 'ZA': '🇿🇦',
+        'Nigeria': '🇳🇬', 'NG': '🇳🇬',
+        'Egypt': '🇪🇬', 'EG': '🇪🇬',
+        'Turkey': '🇹🇷', 'TR': '🇹🇷',
+        'Saudi Arabia': '🇸🇦', 'SA': '🇸🇦',
+        'UAE': '🇦🇪', 'United Arab Emirates': '🇦🇪', 'AE': '🇦🇪',
+        'Singapore': '🇸🇬', 'SG': '🇸🇬',
+        'Thailand': '🇹🇭', 'TH': '🇹🇭',
+        'Indonesia': '🇮🇩', 'ID': '🇮🇩',
+        'Philippines': '🇵🇭', 'PH': '🇵🇭',
+        'Vietnam': '🇻🇳', 'VN': '🇻🇳',
+        'Malaysia': '🇲🇾', 'MY': '🇲🇾'
+      };
+      
+      if (countryToFlag[country]) return countryToFlag[country];
+      const normalizedCountry = country.trim();
+      for (const [key, flag] of Object.entries(countryToFlag)) {
+        if (key.toLowerCase() === normalizedCountry.toLowerCase()) {
+          return flag;
+        }
+      }
+      return null;
+    };
+
+    // Helper function to check if user is online (logged in within last 15 minutes)
+    const isUserOnline = (lastLoginAt) => {
+      if (!lastLoginAt) return false;
+      const now = new Date();
+      const lastLogin = new Date(lastLoginAt);
+      const diffInMinutes = (now - lastLogin) / (1000 * 60);
+      return diffInMinutes <= 15;
+    };
+
     return res.json({
       success: true,
       message: 'User details retrieved successfully',
@@ -430,12 +488,16 @@ export const getUserDetails = async (req, res) => {
           name: user.name,
           pseudo: user.pseudo,
           profilePic: user.profilePic,
-          preferredLanguage: user.preferredLanguage,
+          preferredLanguage: user.preferredLanguage || null,
           preferredCurrency: user.preferredCurrency,
           country: user.country,
+          countryFlag: getCountryFlag(user.country),
           about: user.about,
           location: user.location,
-          profession: user.profession,
+          profession: user.profession ? {
+            id: user.profession._id || user.profession.id || null,
+            name: user.profession.name || ''
+          } : null,
           role: user.role,
           availableForBookings: user.availableForBookings,
           appNotification: user.appNotification,
@@ -459,8 +521,11 @@ export const getUserDetails = async (req, res) => {
           averageRating: user.averageRating,
           totalReviews: user.totalReviews,
           feature_star: user.feature_star,
+          isAddedInFeatureStar: user.feature_star || false,
+          isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
           createdAt: user.createdAt,
-          updatedAt: user.updatedAt
+          updatedAt: user.updatedAt,
+          lastLoginAt: user.lastLoginAt
         },
         services,
         dedicationSamples,
@@ -743,7 +808,10 @@ export const getManagementUserProfile = async (req, res) => {
           country: user.country,
           about: user.about,
           location: user.location,
-          profession: user.profession,
+          profession: user.profession ? {
+            id: user.profession._id || user.profession.id || null,
+            name: user.profession.name || ''
+          } : null,
           role: user.role,
           availableForBookings: user.availableForBookings,
           appNotification: user.appNotification,
@@ -1041,7 +1109,10 @@ export const updateManagementUserProfile = async (req, res) => {
           contact: user.contact,
           profilePic: user.profilePic,
           country: user.country,
-          profession: user.profession,
+          profession: user.profession ? {
+            id: user.profession._id || user.profession.id || null,
+            name: user.profession.name || ''
+          } : null,
           about: user.about,
           location: user.location,
           availableForBookings: user.availableForBookings,

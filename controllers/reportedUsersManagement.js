@@ -300,7 +300,10 @@ export const getReportedUserDetails = async (req, res) => {
           profilePic: reportedUser.profilePic,
           role: reportedUser.role,
           country: reportedUser.country,
-          profession: reportedUser.profession,
+          profession: reportedUser.profession ? {
+            id: reportedUser.profession._id || reportedUser.profession.id || null,
+            name: reportedUser.profession.name || ''
+          } : null,
           about: reportedUser.about,
           location: reportedUser.location,
           availableForBookings: reportedUser.availableForBookings,
