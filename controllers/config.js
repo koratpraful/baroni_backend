@@ -47,7 +47,16 @@ const sanitizeConfig = (cfg) => ({
   idVerificationFees: cfg.idVerificationFees,
   liveShowFees: cfg.liveShowFees,
   contactSupport: cfg.contactSupport,
-  hideElementsPrice: cfg.hideElementsPrice,
+  // Hide Elements Price - Only for Dedication (as per Figma requirement)
+  hideElementsPrice: cfg.hideElementsPrice && typeof cfg.hideElementsPrice === 'object' 
+    ? {
+        hideDedications: cfg.hideElementsPrice.hideDedications !== undefined && cfg.hideElementsPrice.hideDedications !== null
+          ? cfg.hideElementsPrice.hideDedications
+          : false
+      }
+    : {
+        hideDedications: false
+      },
   hideApplyToBecomeStar: cfg.hideApplyToBecomeStar,
   adsInterval: cfg.adsInterval,
   
@@ -59,6 +68,19 @@ const sanitizeConfig = (cfg) => ({
 export const getGlobalConfig = async (_req, res) => {
   try {
     const cfg = await Config.getSingleton();
+    
+    // Ensure hideElementsPrice has proper defaults
+    if (!cfg.hideElementsPrice) {
+      cfg.hideElementsPrice = {
+        hideDedications: false
+      };
+    } else {
+      // Ensure hideDedications field exists with default
+      if (cfg.hideElementsPrice.hideDedications === undefined || cfg.hideElementsPrice.hideDedications === null) {
+        cfg.hideElementsPrice.hideDedications = false;
+      }
+    }
+    
     return res.json({ 
       success: true, 
       message: 'Global configuration retrieved successfully',
