@@ -656,7 +656,25 @@ export const listAppointments = async (req, res) => {
         console.log(`[ListAppointments] Applied date filter with cancelled exclusion using $and. Date filter:`, existingDateFilter, `minFilterDate:`, minFilterDate, `isExactDate:`, isExactDate, `cancelledDateCondition:`, cancelledDateCondition);
       } else if (existingDateFilter) {
         // Date filter exists and status filter is set - date filter should work as-is
-        // Just ensure it's properly set
+        // But we still need to preserve search condition if it exists
+        const searchCondition = filter._searchCondition;
+        if (searchCondition) {
+          // If filter has simple structure, combine with $and
+          if (!filter.$and) {
+            const baseFilter = { ...filter };
+            delete baseFilter._searchCondition;
+            filter = {
+              $and: [
+                baseFilter,
+                searchCondition
+              ]
+            };
+          } else {
+            // $and already exists, add search to it
+            filter.$and.push(searchCondition);
+            delete filter._searchCondition;
+          }
+        }
         console.log(`[ListAppointments] Date filter applied:`, existingDateFilter);
       } else {
         // No date filter yet, add it
@@ -722,10 +740,30 @@ export const listAppointments = async (req, res) => {
         filter = { $and: andConditions };
         
         console.log(`[ListAppointments] No date filter - excluding cancelled appointments before:`, yesterdayStr);
+      } else {
+        // Has status filter but no date filter - still need to preserve search condition
+        const searchCondition = filter._searchCondition;
+        if (searchCondition) {
+          // If filter has simple structure, combine with $and
+          if (!filter.$and) {
+            const baseFilter = { ...filter };
+            delete baseFilter._searchCondition;
+            filter = {
+              $and: [
+                baseFilter,
+                searchCondition
+              ]
+            };
+          } else {
+            // $and already exists, add search to it
+            filter.$and.push(searchCondition);
+            delete filter._searchCondition;
+          }
+        }
       }
     }
     
-    // Remove temporary _searchCondition field before querying MongoDB
+    // Remove temporary _searchCondition field before querying MongoDB (if still exists)
     if (filter._searchCondition) {
       delete filter._searchCondition;
     }
