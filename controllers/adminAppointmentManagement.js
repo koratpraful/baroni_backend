@@ -848,7 +848,8 @@ export const getDedicationAppointments = async (req, res) => {
       limit,
       status,
       startDate,
-      endDate
+      endDate,
+      search
     } = req.query;
 
     // Build filter - start with empty to get all dedications
@@ -867,6 +868,77 @@ export const getDedicationAppointments = async (req, res) => {
     if (endDate && endDate.trim() !== '') {
       if (!filter.createdAt) filter.createdAt = {};
       filter.createdAt.$lte = new Date(endDate);
+    }
+
+    // Search filtering (by star name, user name, Baroni ID, occasion, eventName, or description)
+    if (search && search.trim() !== '') {
+      const searchTerm = search.trim();
+      const searchRegex = new RegExp(searchTerm, 'i');
+      
+      // Find matching users (stars and fans)
+      const [starIds, userIds] = await Promise.all([
+        User.find({
+          $or: [
+            { name: searchRegex },
+            { baroniId: searchRegex },
+            { pseudo: searchRegex }
+          ],
+          role: 'star'
+        }).select('_id').lean(),
+        User.find({
+          $or: [
+            { name: searchRegex },
+            { baroniId: searchRegex },
+            { pseudo: searchRegex }
+          ]
+        }).select('_id').lean()
+      ]);
+
+      const searchIds = [
+        ...starIds.map(s => s._id),
+        ...userIds.map(u => u._id)
+      ];
+
+      // Build search conditions - search in user fields AND dedication fields
+      const searchConditions = [];
+      
+      // Search in user fields (starId or fanId)
+      if (searchIds.length > 0) {
+        searchConditions.push(
+          { starId: { $in: searchIds } },
+          { fanId: { $in: searchIds } }
+        );
+      }
+      
+      // Search in dedication-specific fields
+      searchConditions.push(
+        { occasion: searchRegex },
+        { eventName: searchRegex },
+        { description: searchRegex }
+      );
+
+      // Combine all search conditions with $or
+      if (searchConditions.length > 0) {
+        // If filter already has other conditions, use $and to combine
+        if (Object.keys(filter).length > 0 && !filter.$and) {
+          const existingFilter = { ...filter };
+          filter = {
+            $and: [
+              existingFilter,
+              { $or: searchConditions }
+            ]
+          };
+        } else if (filter.$and) {
+          // If $and already exists, add search to it
+          filter.$and.push({ $or: searchConditions });
+        } else {
+          // No existing filters, just use $or
+          filter.$or = searchConditions;
+        }
+      } else {
+        // If no matches found at all, return empty result
+        filter._id = null; // This will match nothing
+      }
     }
 
     // Pagination with defaults
@@ -956,7 +1028,8 @@ export const getDedicationAppointments = async (req, res) => {
         filters: {
           status: status || 'all',
           startDate: startDate || null,
-          endDate: endDate || null
+          endDate: endDate || null,
+          search: search || null
         }
       }
     });
