@@ -47,7 +47,7 @@ const sanitizeConfig = (cfg) => ({
   idVerificationFees: cfg.idVerificationFees,
   liveShowFees: cfg.liveShowFees,
   contactSupport: cfg.contactSupport,
-  // Hide Elements Price - Only for Dedication (as per Figma requirement)
+  // Hide Elements Price
   hideElementsPrice: cfg.hideElementsPrice && typeof cfg.hideElementsPrice === 'object' 
     ? {
         hideDedications: cfg.hideElementsPrice.hideDedications !== undefined && cfg.hideElementsPrice.hideDedications !== null
