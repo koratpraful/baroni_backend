@@ -145,19 +145,33 @@ export const getDashboard = async (req, res) => {
         availableStarsCriteria.country = country;
       }
 
+      // Query for online stars (logged in within last 15 minutes) - no limit
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+      const onlineStarsCriteria = {
+        ...availableStarsCriteria,
+        lastLoginAt: { $gte: fifteenMinutesAgo }
+      };
+
+      const onlineStarsQuery = User.find(onlineStarsCriteria)
+        .populate('profession')
+        .select('name pseudo profilePic about profession availableForBookings baroniId feature_star country lastLoginAt')
+        .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 });
+        // No limit - show all online stars
+
       const availableStarsQuery = User.find(availableStarsCriteria)
         .populate('profession')
         .select('name pseudo profilePic about profession availableForBookings baroniId feature_star country')
         .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
-        .limit(15);
+        .limit(30);
 
-      const [categories, liveShows, events, ads, featuredStars, availableStars] = await Promise.all([
+      const [categories, liveShows, events, ads, featuredStars, availableStars, onlineStars] = await Promise.all([
         categoriesQuery,
         liveShowsQuery,
         eventsQuery,
         adsQuery,
         featuredStarsQuery,
-        availableStarsQuery
+        availableStarsQuery,
+        onlineStarsQuery
       ]);
 
       // Combine live shows, events, and ads, format them uniformly
@@ -216,8 +230,8 @@ export const getDashboard = async (req, res) => {
       console.log('Featured stars found:', featuredStars.length);
       console.log('Available stars found:', availableStars.length);
 
-      // Calculate ratings for featured and available stars only
-      const allStars = [...featuredStars, ...availableStars];
+      // Calculate ratings for featured, available, and online stars
+      const allStars = [...featuredStars, ...availableStars, ...onlineStars];
       const starIds = [...new Set(allStars.map(star => star._id.toString()))];
       
       // Get ratings for all stars in one query
@@ -256,6 +270,16 @@ export const getDashboard = async (req, res) => {
               ...sanitized,
               averageRating: starRating.average,
               totalReviews: starRating.count
+            };
+          }),
+          onlineStars: onlineStars.map(star => {
+            const sanitized = sanitizeUser(star);
+            const starRating = ratingsMap[star._id.toString()] || { average: 0, count: 0 };
+            return {
+              ...sanitized,
+              averageRating: starRating.average,
+              totalReviews: starRating.count,
+              isOnline: true
             };
           }),
           categories: categories.map(cat => ({
@@ -584,19 +608,33 @@ export const getGuestDashboard = async (req, res) => {
       availableStarsCriteria.country = country;
     }
 
+    // Query for online stars (logged in within last 15 minutes) - no limit
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const onlineStarsCriteria = {
+      ...availableStarsCriteria,
+      lastLoginAt: { $gte: fifteenMinutesAgo }
+    };
+
+    const onlineStarsQuery = User.find(onlineStarsCriteria)
+      .populate('profession')
+      .select('name pseudo profilePic about profession availableForBookings baroniId feature_star country lastLoginAt')
+      .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 });
+      // No limit - show all online stars
+
     const availableStarsQuery = User.find(availableStarsCriteria)
       .populate('profession')
       .select('name pseudo profilePic about profession availableForBookings baroniId feature_star country')
       .sort({ feature_star: -1, profileImpressions: -1, createdAt: -1 })
-      .limit(15);
+      .limit(30);
 
-    const [categories, liveShows, events, ads, featuredStars, availableStars] = await Promise.all([
+    const [categories, liveShows, events, ads, featuredStars, availableStars, onlineStars] = await Promise.all([
       categoriesQuery,
       liveShowsQuery,
       eventsQuery,
       adsQuery,
       featuredStarsQuery,
-      availableStarsQuery
+      availableStarsQuery,
+      onlineStarsQuery
     ]);
 
     // Combine live shows, events, and ads, format them uniformly
@@ -655,8 +693,8 @@ export const getGuestDashboard = async (req, res) => {
     console.log('[GuestDashboard] Featured stars found:', featuredStars.length);
     console.log('[GuestDashboard] Available stars found:', availableStars.length);
 
-    // Calculate ratings for featured and available stars only
-    const allStars = [...featuredStars, ...availableStars];
+    // Calculate ratings for featured, available, and online stars
+    const allStars = [...featuredStars, ...availableStars, ...onlineStars];
     const starIds = [...new Set(allStars.map(star => star._id.toString()))];
     
     // Get ratings for all stars in one query
@@ -693,6 +731,16 @@ export const getGuestDashboard = async (req, res) => {
             ...sanitized,
             averageRating: starRating.average,
             totalReviews: starRating.count
+          };
+        }),
+        onlineStars: onlineStars.map(star => {
+          const sanitized = sanitizeUser(star);
+          const starRating = ratingsMap[star._id.toString()] || { average: 0, count: 0 };
+          return {
+            ...sanitized,
+            averageRating: starRating.average,
+            totalReviews: starRating.count,
+            isOnline: true
           };
         }),
         categories: categories.map(cat => ({

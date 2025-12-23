@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import Review from '../models/Review.js';
 import Service from '../models/Service.js';
+import Dedication from '../models/Dedication.js';
 import DedicationSample from '../models/DedicationSample.js';
 import ReportUser from '../models/ReportUser.js';
 import Transaction from '../models/Transaction.js';
@@ -207,11 +208,36 @@ export const getUserDetails = async (req, res) => {
       });
     }
 
-    // Get user's services
-    const services = await Service.find({ userId: user._id }).lean();
+    // Get user's services (Video call charges)
+    const servicesRaw = await Service.find({ userId: user._id }).lean();
+    const services = servicesRaw.map(s => ({
+      id: s._id,
+      type: s.type,
+      price: s.price,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt
+    }));
+
+    // Get user's dedications (Dedication charges)
+    const dedicationsRaw = await Dedication.find({ userId: user._id }).lean();
+    const dedications = dedicationsRaw.map(d => ({
+      id: d._id,
+      type: d.type,
+      price: d.price,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt
+    }));
 
     // Get user's dedication samples
-    const dedicationSamples = await DedicationSample.find({ userId: user._id }).lean();
+    const dedicationSamplesRaw = await DedicationSample.find({ userId: user._id }).lean();
+    const dedicationSamples = dedicationSamplesRaw.map(s => ({
+      id: s._id,
+      type: s.type,
+      video: s.video,
+      description: s.description,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt
+    }));
 
     // Get user's reviews (if star)
     let reviews = [];
@@ -528,6 +554,7 @@ export const getUserDetails = async (req, res) => {
           lastLoginAt: user.lastLoginAt
         },
         services,
+        dedications,
         dedicationSamples,
         reviews: reviews.map(review => ({
           id: review._id,
@@ -617,8 +644,18 @@ export const getManagementUserProfile = async (req, res) => {
       });
     }
 
+    // Helper function to check if user is online (logged in within last 15 minutes)
+    const isUserOnline = (lastLoginAt) => {
+      if (!lastLoginAt) return false;
+      const now = new Date();
+      const lastLogin = new Date(lastLoginAt);
+      const diffInMinutes = (now - lastLogin) / (1000 * 60);
+      return diffInMinutes <= 15; // Consider online if logged in within last 15 minutes
+    };
+
     // Shared data
     const services = await Service.find({ userId: user._id }).lean();
+    const dedications = await Dedication.find({ userId: user._id }).lean();
     const dedicationSamples = await DedicationSample.find({ userId: user._id }).lean();
 
     // Transaction stats (covers both fan and star money flow)
@@ -829,10 +866,14 @@ export const getManagementUserProfile = async (req, res) => {
           averageRating: user.averageRating,
           totalReviews: user.totalReviews,
           feature_star: user.feature_star,
+          isAddedInFeatureStar: user.feature_star || false,
+          isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
           createdAt: user.createdAt,
-          updatedAt: user.updatedAt
+          updatedAt: user.updatedAt,
+          lastLoginAt: user.lastLoginAt
         },
         services,
+        dedications,
         dedicationSamples,
         reviews: reviews.map(review => ({
           id: review._id,
@@ -1067,7 +1108,9 @@ export const updateManagementUserProfile = async (req, res) => {
       // Services management (for stars)
       services,
       // Dedication samples management (for stars)
-      dedicationSamples
+      dedicationSamples,
+      // Online status (for stars) - updates lastLoginAt
+      isOnlineStar
     } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -1086,15 +1129,25 @@ export const updateManagementUserProfile = async (req, res) => {
     }
 
     // Email uniqueness check if changing email
-    if (email && email !== user.email) {
-      const existing = await User.findOne({ email: email.toLowerCase(), _id: { $ne: id } });
-      if (existing) {
-        return res.status(409).json({
-          success: false,
-          message: 'Email already in use'
+    if (email !== undefined && email !== null && email !== '') {
+      const normalizedEmail = email.toLowerCase();
+      // Check if email is different (case-insensitive comparison)
+      if (user.email?.toLowerCase() !== normalizedEmail) {
+        const existing = await User.findOne({ 
+          email: normalizedEmail, 
+          _id: { $ne: id } 
         });
+        if (existing) {
+          return res.status(409).json({
+            success: false,
+            message: 'Email already in use'
+          });
+        }
+        user.email = normalizedEmail;
+      } else {
+        // Even if same email, ensure it's stored in lowercase
+        user.email = normalizedEmail;
       }
-      user.email = email.toLowerCase();
     }
 
     // Update basic profile fields
@@ -1163,6 +1216,18 @@ export const updateManagementUserProfile = async (req, res) => {
     if (introVideo !== undefined) {
       // Allow empty string to remove intro video
       user.introVideo = introVideo === '' || introVideo === null ? null : introVideo;
+    }
+
+    // Handle isOnlineStar - updates lastLoginAt to make star appear online
+    // Only works for stars
+    if (isOnlineStar !== undefined && user.role === 'star') {
+      if (isOnlineStar === true) {
+        // Set lastLoginAt to current time to make star appear online
+        user.lastLoginAt = new Date();
+      } else if (isOnlineStar === false) {
+        // Set lastLoginAt to 1 hour ago to make star appear offline
+        user.lastLoginAt = new Date(Date.now() - 60 * 60 * 1000);
+      }
     }
 
     // Save user first
@@ -1328,6 +1393,15 @@ export const updateManagementUserProfile = async (req, res) => {
       updatedSamples = await DedicationSample.find({ userId: user._id }).lean();
     }
 
+    // Helper function to check if user is online (logged in within last 15 minutes)
+    const isUserOnline = (lastLoginAt) => {
+      if (!lastLoginAt) return false;
+      const now = new Date();
+      const lastLogin = new Date(lastLoginAt);
+      const diffInMinutes = (now - lastLogin) / (1000 * 60);
+      return diffInMinutes <= 15; // Consider online if logged in within last 15 minutes
+    };
+
     return res.json({
       success: true,
       message: 'User profile updated successfully',
@@ -1354,6 +1428,8 @@ export const updateManagementUserProfile = async (req, res) => {
           appNotification: user.appNotification,
           isVerified: user.isVerified || false,
           feature_star: user.role === 'star' ? (user.feature_star || false) : undefined,
+          isAddedInFeatureStar: user.role === 'star' ? (user.feature_star || false) : false,
+          isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
           introVideo: user.introVideo || null,
           status: user.availableForBookings && !user.hidden ? 'active' : 'blocked',
           // Only include services and samples for stars

@@ -392,10 +392,28 @@ export const updateStarProfile = async (req, res) => {
       }
     }
 
+    // Email uniqueness check if changing email
+    if (email !== undefined && email !== null && email !== '') {
+      const normalizedEmail = email.toLowerCase();
+      // Check if email is different (case-insensitive comparison)
+      if (star.email?.toLowerCase() !== normalizedEmail) {
+        const existing = await User.findOne({ 
+          email: normalizedEmail, 
+          _id: { $ne: starId } 
+        });
+        if (existing) {
+          return res.status(409).json({
+            success: false,
+            message: 'Email already in use'
+          });
+        }
+        star.email = normalizedEmail;
+      }
+    }
+
     // Update fields
     if (name !== undefined) star.name = name;
     if (pseudo !== undefined) star.pseudo = pseudo;
-    if (email !== undefined) star.email = email;
     if (contact !== undefined) star.contact = contact;
     if (profilePic !== undefined) {
       // Allow empty string to clear profile picture
@@ -793,7 +811,7 @@ export const getStarDedicationSamples = async (req, res) => {
   }
 };
 
-// Add star dedication sample
+// Add star dedication sample (supports both file upload and video URL)
 export const addStarDedicationSample = async (req, res) => {
   try {
     const admin = req.user;
@@ -805,7 +823,8 @@ export const addStarDedicationSample = async (req, res) => {
     }
 
     const { starId } = req.params;
-    const { type, video, description } = req.body;
+    const { type, description } = req.body;
+    let { video } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
       return res.status(400).json({
@@ -822,17 +841,30 @@ export const addStarDedicationSample = async (req, res) => {
       });
     }
 
-    if (!type || !video) {
+    if (!type) {
       return res.status(400).json({
         success: false,
-        message: 'Sample type and video are required'
+        message: 'Sample type is required'
       });
     }
 
+    // Handle video: either from file upload or URL
+    if (!video) {
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Video is required (either upload a file or provide a video URL)'
+        });
+      }
+      // Upload video file
+      const { uploadVideo } = await import('../utils/uploadFile.js');
+      video = await uploadVideo(req.file.buffer);
+    }
+
     const sample = new DedicationSample({
-      type,
-      video,
-      description: description || '',
+      type: type.trim(),
+      video: String(video).trim(),
+      description: description ? description.trim() : '',
       userId: star._id
     });
 
@@ -847,7 +879,8 @@ export const addStarDedicationSample = async (req, res) => {
           type: sample.type,
           video: sample.video,
           description: sample.description,
-          createdAt: sample.createdAt
+          createdAt: sample.createdAt,
+          updatedAt: sample.updatedAt
         }
       }
     });
@@ -861,7 +894,7 @@ export const addStarDedicationSample = async (req, res) => {
   }
 };
 
-// Update star dedication sample
+// Update star dedication sample (supports both file upload and video URL)
 export const updateStarDedicationSample = async (req, res) => {
   try {
     const admin = req.user;
@@ -873,7 +906,8 @@ export const updateStarDedicationSample = async (req, res) => {
     }
 
     const { starId, sampleId } = req.params;
-    const { type, video, description } = req.body;
+    const { type, description } = req.body;
+    let { video } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(starId) || !mongoose.Types.ObjectId.isValid(sampleId)) {
       return res.status(400).json({
@@ -898,9 +932,17 @@ export const updateStarDedicationSample = async (req, res) => {
       });
     }
 
-    if (type) sample.type = type;
-    if (video) sample.video = video;
-    if (description !== undefined) sample.description = description;
+    if (type) sample.type = type.trim();
+    if (description !== undefined) sample.description = description ? description.trim() : '';
+    
+    // Handle video: either from file upload or URL
+    if (video) {
+      sample.video = String(video).trim();
+    } else if (req.file && req.file.buffer) {
+      // Upload video file
+      const { uploadVideo } = await import('../utils/uploadFile.js');
+      sample.video = await uploadVideo(req.file.buffer);
+    }
 
     await sample.save();
 

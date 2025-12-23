@@ -503,8 +503,18 @@ export const addStarDedicationSampleValidator = [
     .isLength({ min: 1, max: 50 })
     .withMessage('Sample type must be between 1 and 50 characters'),
   body('video')
-    .isURL()
-    .withMessage('Video must be a valid URL'),
+    .optional()
+    .custom((val, { req }) => {
+      const hasFile = !!(req.file && req.file.buffer);
+      const hasUrl = typeof val === 'string' && val.trim().length > 0;
+      if (!hasFile && !hasUrl) {
+        throw new Error('Video is required (either upload a file or provide a video URL)');
+      }
+      if (hasUrl && !val.match(/^https?:\/\/.+/)) {
+        throw new Error('Video must be a valid URL if provided');
+      }
+      return true;
+    }),
   body('description')
     .optional()
     .isString()
@@ -528,8 +538,18 @@ export const updateStarDedicationSampleValidator = [
     .withMessage('Sample type must be between 1 and 50 characters'),
   body('video')
     .optional()
-    .isURL()
-    .withMessage('Video must be a valid URL'),
+    .custom((val, { req }) => {
+      if (val === undefined && !(req.file && req.file.buffer)) return true;
+      const hasFile = !!(req.file && req.file.buffer);
+      const hasUrl = typeof val === 'string' && val.trim().length > 0;
+      if (!hasFile && !hasUrl) {
+        throw new Error('Provide a non-empty video URL or upload a file');
+      }
+      if (hasUrl && !val.match(/^https?:\/\/.+/)) {
+        throw new Error('Video must be a valid URL if provided');
+      }
+      return true;
+    }),
   body('description')
     .optional()
     .isString()
