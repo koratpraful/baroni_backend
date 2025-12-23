@@ -12,6 +12,7 @@ import { deleteConversationBetweenUsers } from '../services/messagingCleanup.js'
 import { sanitizeUserData } from '../utils/userDataHelper.js';
 import { moveEscrowToJackpot, refundEscrow } from '../services/starWalletService.js';
 import Review from '../models/Review.js';
+import mongoose from 'mongoose';
 
 const sanitize = (doc) => ({
   id: doc._id,
@@ -667,6 +668,69 @@ export const uploadDedicationVideo = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Admin deletes dedication video
+export const deleteDedicationVideo = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid dedication request ID'
+      });
+    }
+
+    const dedicationRequest = await DedicationRequest.findById(id);
+    if (!dedicationRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dedication request not found'
+      });
+    }
+
+    if (!dedicationRequest.videoUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'No video found for this dedication request'
+      });
+    }
+
+    // Remove video URL
+    dedicationRequest.videoUrl = null;
+    
+    // If status was completed, change it back to approved (since video is removed)
+    if (dedicationRequest.status === 'completed') {
+      dedicationRequest.status = 'approved';
+      dedicationRequest.completedAt = null;
+    }
+
+    await dedicationRequest.save();
+
+    return res.json({
+      success: true,
+      message: 'Dedication video deleted successfully',
+      data: {
+        dedicationRequest: sanitize(dedicationRequest)
+      }
+    });
+
+  } catch (err) {
+    console.error('Delete dedication video error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete dedication video'
+    });
   }
 };
 

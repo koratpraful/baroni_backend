@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Service from '../models/Service.js';
+import Dedication from '../models/Dedication.js';
 import DedicationSample from '../models/DedicationSample.js';
 import Review from '../models/Review.js';
 import Transaction from '../models/Transaction.js';
@@ -757,6 +758,59 @@ export const deleteStarService = async (req, res) => {
   }
 };
 
+// Get star dedications (charges)
+export const getStarDedications = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    const dedications = await Dedication.find({ userId: star._id }).lean();
+
+    return res.json({
+      success: true,
+      message: 'Star dedications retrieved successfully',
+      data: {
+        dedications: dedications.map(dedication => ({
+          id: dedication._id,
+          type: dedication.type,
+          price: dedication.price,
+          createdAt: dedication.createdAt,
+          updatedAt: dedication.updatedAt
+        }))
+      }
+    });
+
+  } catch (err) {
+    console.error('Get star dedications error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get dedications'
+    });
+  }
+};
+
 // Manage star dedication samples
 export const getStarDedicationSamples = async (req, res) => {
   try {
@@ -1017,6 +1071,65 @@ export const deleteStarDedicationSample = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to delete dedication sample'
+    });
+  }
+};
+
+// Delete star dedication (charges)
+export const deleteStarDedication = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId, dedicationId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(starId) || !mongoose.Types.ObjectId.isValid(dedicationId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID or dedication ID'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    const dedication = await Dedication.findOne({ _id: dedicationId, userId: star._id });
+    if (!dedication) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dedication not found'
+      });
+    }
+
+    await Dedication.deleteOne({ _id: dedicationId });
+
+    return res.json({
+      success: true,
+      message: 'Dedication deleted successfully',
+      data: {
+        dedication: {
+          id: dedication._id,
+          type: dedication.type,
+          price: dedication.price
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Delete star dedication error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete dedication'
     });
   }
 };

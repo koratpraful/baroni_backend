@@ -487,6 +487,21 @@ export const deleteStarServiceValidator = [
     .withMessage('Invalid service ID')
 ];
 
+export const getStarDedicationsValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID')
+];
+
+export const deleteStarDedicationValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  param('dedicationId')
+    .isMongoId()
+    .withMessage('Invalid dedication ID')
+];
+
 export const getStarDedicationSamplesValidator = [
   param('starId')
     .isMongoId()
