@@ -121,6 +121,7 @@ export const getStarProfile = async (req, res) => {
     }
 
     const { starId } = req.params;
+    const { period = '30' } = req.query; // Default to 30 days
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
       return res.status(400).json({
@@ -128,6 +129,10 @@ export const getStarProfile = async (req, res) => {
         message: 'Invalid star ID'
       });
     }
+
+    // Validate period
+    const validPeriods = ['7', '15', '30', '60', '90'];
+    const periodDays = validPeriods.includes(period) ? parseInt(period) : 30;
 
     const star = await User.findById(starId)
       .populate('profession', 'name')
@@ -152,8 +157,8 @@ export const getStarProfile = async (req, res) => {
       ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length 
       : 0;
 
-    // Get star's revenue and activity stats (last 30 days)
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    // Get star's revenue and activity stats (based on period)
+    const periodStartDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
 
     // Revenue insights
     const revenueStats = await Transaction.aggregate([
@@ -161,7 +166,7 @@ export const getStarProfile = async (req, res) => {
         $match: {
           receiverId: star._id,
           status: 'completed',
-          createdAt: { $gte: thirtyDaysAgo }
+          createdAt: { $gte: periodStartDate }
         }
       },
       {
@@ -179,52 +184,52 @@ export const getStarProfile = async (req, res) => {
 
     const revenue = revenueStats[0] || { totalRevenue: 0, escrowAmount: 0 };
 
-    // Activity overview (last 30 days)
+    // Activity overview (based on period)
     const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
       Appointment.countDocuments({
         starId: star._id,
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       DedicationRequest.countDocuments({
         starId: star._id,
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       LiveShow.countDocuments({
         starId: star._id,
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       Transaction.distinct('payerId', {
         receiverId: star._id,
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }).then(users => users.length)
     ]);
 
-    // Cancelled activities (last 30 days)
+    // Cancelled activities (based on period)
     const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows, rejectedByStarCalls, rejectedByStarDedications] = await Promise.all([
       Appointment.countDocuments({
         starId: star._id,
         status: 'cancelled',
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       DedicationRequest.countDocuments({
         starId: star._id,
         status: 'cancelled',
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       LiveShow.countDocuments({
         starId: star._id,
         status: 'cancelled',
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       Appointment.countDocuments({
         starId: star._id,
         status: 'rejected',
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       }),
       DedicationRequest.countDocuments({
         starId: star._id,
         status: 'rejected',
-        createdAt: { $gte: thirtyDaysAgo }
+        createdAt: { $gte: periodStartDate }
       })
     ]);
 
@@ -274,6 +279,8 @@ export const getStarProfile = async (req, res) => {
           deviceType: star.deviceType,
           isAddedInFeatureStar: star.feature_star || false,
           isOnlineStar: isStarOnline(star.lastLoginAt),
+          isVerified: star.isVerified || false,
+          introVideo: star.introVideo || null,
           createdAt: star.createdAt,
           lastLoginAt: star.lastLoginAt
         },
@@ -295,16 +302,18 @@ export const getStarProfile = async (req, res) => {
           createdAt: sample.createdAt
         })),
         overview: {
+          period: `${periodDays} days`,
           videoCalls,
           dedications,
           liveShows,
           engagedUsers
         },
         cancelled: {
+          period: `${periodDays} days`,
           videoCalls: cancelledVideoCalls,
           dedications: cancelledDedications,
-        liveShows: cancelledLiveShows,
-        rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
+          liveShows: cancelledLiveShows,
+          rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
         },
         revenue: {
           total: revenue.totalRevenue,
@@ -342,11 +351,18 @@ export const updateStarProfile = async (req, res) => {
       profilePic,
       country,
       profession,
+      category,
       about,
       location,
+      preferredLanguage,
       availableForBookings,
       hidden,
-      appNotification
+      appNotification,
+      role,
+      isVerified,
+      introVideo,
+      status,
+      feature_star
     } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
@@ -357,11 +373,23 @@ export const updateStarProfile = async (req, res) => {
     }
 
     const star = await User.findById(starId);
-    if (!star || star.role !== 'star') {
+    if (!star) {
       return res.status(404).json({
         success: false,
-        message: 'Star not found'
+        message: 'User not found'
       });
+    }
+
+    // Validate about field minimum length if provided
+    // Allow empty string/null to clear, but if provided, must be at least 100 characters
+    if (about !== undefined && about !== null && about !== '') {
+      const trimmedAbout = typeof about === 'string' ? about.trim() : '';
+      if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'About field must be at least 100 characters if provided'
+        });
+      }
     }
 
     // Update fields
@@ -369,16 +397,59 @@ export const updateStarProfile = async (req, res) => {
     if (pseudo !== undefined) star.pseudo = pseudo;
     if (email !== undefined) star.email = email;
     if (contact !== undefined) star.contact = contact;
-    if (profilePic !== undefined) star.profilePic = profilePic;
+    if (profilePic !== undefined) {
+      // Allow empty string to clear profile picture
+      star.profilePic = profilePic === '' ? null : profilePic;
+    }
     if (country !== undefined) star.country = country;
+    // Support both profession and category (they refer to the same field)
     if (profession !== undefined) star.profession = profession;
-    if (about !== undefined) star.about = about;
+    if (category !== undefined) star.profession = category;
+    if (about !== undefined) {
+      // Only update if it meets minimum length requirement or is being cleared
+      if (about === '' || about === null) {
+        star.about = about;
+      } else if (about.trim().length >= 100) {
+        star.about = about;
+      }
+      // If it doesn't meet requirement, validation should have caught it
+    }
     if (location !== undefined) star.location = location;
+    if (preferredLanguage !== undefined) star.preferredLanguage = preferredLanguage;
     if (availableForBookings !== undefined) star.availableForBookings = availableForBookings;
     if (hidden !== undefined) star.hidden = hidden;
     if (appNotification !== undefined) star.appNotification = appNotification;
+    if (introVideo !== undefined) {
+      // Allow empty string to remove intro video
+      star.introVideo = introVideo === '' || introVideo === null ? null : introVideo;
+    }
+    
+    // Update role (only if changing to star or fan, not admin)
+    if (role !== undefined && ['star', 'fan'].includes(role)) {
+      star.role = role;
+    }
+    
+    // Update verified status
+    if (isVerified !== undefined) star.isVerified = isVerified;
+    
+    // Update featured star status
+    if (feature_star !== undefined) star.feature_star = feature_star;
+    
+    // Update status (maps to availableForBookings and hidden)
+    if (status !== undefined) {
+      if (status === 'active') {
+        star.availableForBookings = true;
+        star.hidden = false;
+      } else if (status === 'blocked' || status === 'inactive') {
+        star.availableForBookings = false;
+        star.hidden = true;
+      }
+    }
 
     await star.save();
+
+    // Populate profession for response
+    await star.populate('profession', 'name');
 
     return res.json({
       success: true,
@@ -386,21 +457,31 @@ export const updateStarProfile = async (req, res) => {
       data: {
         star: {
           id: star._id,
+          baroniId: star.baroniId,
           name: star.name,
           pseudo: star.pseudo,
           email: star.email,
           contact: star.contact,
           profilePic: star.profilePic,
           country: star.country,
+          countryFlag: getCountryFlag(star.country),
           profession: star.profession ? {
             id: star.profession._id || star.profession.id || null,
             name: star.profession.name || ''
           } : null,
           about: star.about,
           location: star.location,
-          availableForBookings: star.availableBookings,
+          preferredLanguage: star.preferredLanguage,
+          availableForBookings: star.availableForBookings,
           hidden: star.hidden,
-          appNotification: star.appNotification
+          appNotification: star.appNotification,
+          role: star.role,
+          isVerified: star.isVerified || false,
+          feature_star: star.feature_star || false,
+          introVideo: star.introVideo || null,
+          status: star.availableForBookings && !star.hidden ? 'active' : 'blocked',
+          createdAt: star.createdAt,
+          lastLoginAt: star.lastLoginAt
         }
       }
     });
@@ -1236,6 +1317,322 @@ export const bulkUpdateFeaturedStars = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to bulk update featured stars'
+    });
+  }
+};
+
+// ==================== STAR STATUS MANAGEMENT ====================
+
+// Block/Unblock star
+export const updateStarStatus = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+    const { action, reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    if (!['block', 'unblock'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid action. Use "block" or "unblock"'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    // Update star status
+    if (action === 'block') {
+      star.availableForBookings = false;
+      star.hidden = true;
+    } else {
+      star.availableForBookings = true;
+      star.hidden = false;
+    }
+
+    await star.save();
+
+    return res.json({
+      success: true,
+      message: `Star ${action}ed successfully`,
+      data: {
+        star: {
+          id: star._id,
+          name: star.name,
+          pseudo: star.pseudo,
+          status: star.availableForBookings && !star.hidden ? 'active' : 'blocked',
+          availableForBookings: star.availableForBookings,
+          hidden: star.hidden,
+          reason: reason || null
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Update star status error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update star status'
+    });
+  }
+};
+
+// Reset star password
+export const resetStarPassword = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+    const { newPassword } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password is required and must be at least 6 characters'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    // Hash new password
+    const bcrypt = (await import('bcryptjs')).default;
+    const salt = await bcrypt.genSalt(10);
+    star.password = await bcrypt.hash(newPassword, salt);
+    star.passwordResetToken = undefined;
+    star.passwordResetExpires = undefined;
+    star.sessionVersion = (star.sessionVersion || 0) + 1; // Invalidate existing sessions
+    await star.save();
+
+    return res.json({
+      success: true,
+      message: 'Star password reset successfully',
+      data: {
+        star: {
+          id: star._id,
+          name: star.name,
+          pseudo: star.pseudo
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Reset star password error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset star password'
+    });
+  }
+};
+
+// Delete star (soft delete)
+export const deleteStar = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+    const { reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    // Soft delete
+    star.isDeleted = true;
+    star.deletedAt = new Date();
+    star.availableForBookings = false;
+    star.hidden = true;
+    await star.save();
+
+    return res.json({
+      success: true,
+      message: 'Star deleted successfully',
+      data: {
+        star: {
+          id: star._id,
+          name: star.name,
+          pseudo: star.pseudo,
+          isDeleted: star.isDeleted,
+          deletedAt: star.deletedAt,
+          reason: reason || null
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Delete star error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete star'
+    });
+  }
+};
+
+// Update star verified status
+export const updateStarVerifiedStatus = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+    const { isVerified } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    if (typeof isVerified !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'isVerified must be a boolean value (true/false)'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    star.isVerified = isVerified;
+    await star.save();
+
+    return res.json({
+      success: true,
+      message: `Star ${isVerified ? 'verified' : 'unverified'} successfully`,
+      data: {
+        star: {
+          id: star._id,
+          name: star.name,
+          pseudo: star.pseudo,
+          isVerified: star.isVerified
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Update star verified status error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update star verified status'
+    });
+  }
+};
+
+// Update star intro video
+export const updateStarIntroVideo = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+    const { introVideo } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    const star = await User.findById(starId);
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    // If introVideo is empty string, set to null to remove it
+    star.introVideo = introVideo === '' || introVideo === null ? null : introVideo;
+    await star.save();
+
+    return res.json({
+      success: true,
+      message: 'Star intro video updated successfully',
+      data: {
+        star: {
+          id: star._id,
+          name: star.name,
+          pseudo: star.pseudo,
+          introVideo: star.introVideo
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Update star intro video error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update star intro video'
     });
   }
 };

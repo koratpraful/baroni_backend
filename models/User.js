@@ -54,6 +54,10 @@ const userSchema = new mongoose.Schema(
     feature_star: { type: Boolean, default: false, index: true },
     // Last login timestamp
     lastLoginAt: { type: Date, default: null, index: true },
+    // Intro video URL for star profile
+    introVideo: { type: String, trim: true },
+    // Verified status - managed by admin
+    isVerified: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

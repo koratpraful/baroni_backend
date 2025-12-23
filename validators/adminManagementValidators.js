@@ -243,8 +243,19 @@ export const updateStarProfileValidator = [
     .withMessage('Contact must be less than 20 characters'),
   body('profilePic')
     .optional()
-    .isURL()
-    .withMessage('Profile picture must be a valid URL'),
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value === 'string') {
+        try {
+          new URL(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    })
+    .withMessage('Profile picture must be a valid URL or empty string'),
   body('country')
     .optional()
     .isString()
@@ -255,18 +266,32 @@ export const updateStarProfileValidator = [
     .optional()
     .isMongoId()
     .withMessage('Invalid profession ID'),
+  body('category')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid category ID'),
   body('about')
     .optional()
     .isString()
     .trim()
-    .isLength({ max: 1000 })
-    .withMessage('About must be less than 1000 characters'),
+    .custom((value) => {
+      if (value === undefined || value === null || value === '') return true;
+      if (typeof value === 'string' && value.trim().length >= 100) return true;
+      return false;
+    })
+    .withMessage('About must be at least 100 characters if provided'),
   body('location')
     .optional()
     .isString()
     .trim()
     .isLength({ max: 100 })
     .withMessage('Location must be less than 100 characters'),
+  body('preferredLanguage')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Preferred language must be less than 50 characters'),
   body('availableForBookings')
     .optional()
     .isBoolean()
@@ -278,7 +303,38 @@ export const updateStarProfileValidator = [
   body('appNotification')
     .optional()
     .isBoolean()
-    .withMessage('App notification must be a boolean')
+    .withMessage('App notification must be a boolean'),
+  body('role')
+    .optional()
+    .isIn(['star', 'fan'])
+    .withMessage('Role must be star or fan'),
+  body('isVerified')
+    .optional()
+    .isBoolean()
+    .withMessage('isVerified must be a boolean'),
+  body('feature_star')
+    .optional()
+    .isBoolean()
+    .withMessage('feature_star must be a boolean'),
+  body('status')
+    .optional()
+    .isIn(['active', 'blocked', 'inactive'])
+    .withMessage('Status must be active, blocked, or inactive'),
+  body('introVideo')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        try {
+          new URL(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    })
+    .withMessage('Intro video must be a valid URL or empty string to remove')
 ];
 
 export const getStarServicesValidator = [
@@ -387,6 +443,75 @@ export const deleteStarDedicationSampleValidator = [
   param('sampleId')
     .isMongoId()
     .withMessage('Invalid sample ID')
+];
+
+export const updateStarStatusValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  body('action')
+    .isIn(['block', 'unblock'])
+    .withMessage('Action must be block or unblock'),
+  body('reason')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Reason must be less than 500 characters')
+];
+
+export const resetStarPasswordValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  body('newPassword')
+    .isString()
+    .trim()
+    .isLength({ min: 6, max: 100 })
+    .withMessage('New password must be between 6 and 100 characters')
+];
+
+export const deleteStarValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  body('reason')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Reason must be less than 500 characters')
+];
+
+export const updateStarVerifiedStatusValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  body('isVerified')
+    .isBoolean()
+    .withMessage('isVerified must be a boolean value (true/false)')
+];
+
+export const updateStarIntroVideoValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  body('introVideo')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        // Basic URL validation
+        try {
+          new URL(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    })
+    .withMessage('Intro video must be a valid URL or empty string to remove')
 ];
 
 // Review Management Validators
