@@ -1020,7 +1020,7 @@ export const getManagementUserOverview = async (req, res) => {
   }
 };
 
-// Update profile for fan or star (admin only)
+// Update profile for fan or star (admin only) - Comprehensive update including services and samples
 export const updateManagementUserProfile = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -1041,6 +1041,7 @@ export const updateManagementUserProfile = async (req, res) => {
 
     const { id } = req.params;
     const {
+      // Basic profile fields
       name,
       pseudo,
       email,
@@ -1048,11 +1049,25 @@ export const updateManagementUserProfile = async (req, res) => {
       profilePic,
       country,
       profession,
+      category,
       about,
       location,
+      preferredLanguage,
+      // Toggle fields
       availableForBookings,
       hidden,
-      appNotification
+      appNotification,
+      isVerified,
+      feature_star,
+      role,
+      // Status field
+      status,
+      // Intro video
+      introVideo,
+      // Services management (for stars)
+      services,
+      // Dedication samples management (for stars)
+      dedicationSamples
     } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -1082,19 +1097,236 @@ export const updateManagementUserProfile = async (req, res) => {
       user.email = email.toLowerCase();
     }
 
+    // Update basic profile fields
     if (name !== undefined) user.name = name;
     if (pseudo !== undefined) user.pseudo = pseudo;
     if (contact !== undefined) user.contact = contact;
-    if (profilePic !== undefined) user.profilePic = profilePic;
+    if (profilePic !== undefined) {
+      // Allow empty string to clear profile picture
+      user.profilePic = profilePic === '' || profilePic === null ? null : profilePic;
+    }
     if (country !== undefined) user.country = country;
+    // Support both profession and category (they refer to the same field)
     if (profession !== undefined) user.profession = profession;
-    if (about !== undefined) user.about = about;
+    if (category !== undefined) user.profession = category;
+    if (about !== undefined) {
+      // Validate about field minimum length if provided (only for stars)
+      if (user.role === 'star' && about !== null && about !== '' && typeof about === 'string') {
+        const trimmedAbout = about.trim();
+        if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
+          return res.status(400).json({
+            success: false,
+            message: 'About field must be at least 100 characters if provided for stars'
+          });
+        }
+        user.about = trimmedAbout;
+      } else {
+        // For fans, no minimum length requirement
+        user.about = typeof about === 'string' ? about.trim() : about;
+      }
+    }
     if (location !== undefined) user.location = location;
+    if (preferredLanguage !== undefined) user.preferredLanguage = preferredLanguage;
+
+    // Update toggle fields (available for both fan and star)
     if (availableForBookings !== undefined) user.availableForBookings = availableForBookings;
     if (hidden !== undefined) user.hidden = hidden;
     if (appNotification !== undefined) user.appNotification = appNotification;
+    if (isVerified !== undefined) user.isVerified = isVerified;
+    
+    // Star-specific fields (only update if user is or becomes a star)
+    if (feature_star !== undefined) {
+      // Only allow feature_star for stars
+      if (user.role === 'star' || (role !== undefined && role === 'star')) {
+        user.feature_star = feature_star;
+      }
+      // Silently ignore for fans
+    }
 
+    // Update role (only if changing to star or fan, not admin)
+    if (role !== undefined && ['star', 'fan'].includes(role)) {
+      user.role = role;
+    }
+
+    // Update status (maps to availableForBookings and hidden)
+    if (status !== undefined) {
+      if (status === 'active') {
+        user.availableForBookings = true;
+        user.hidden = false;
+      } else if (status === 'blocked' || status === 'inactive') {
+        user.availableForBookings = false;
+        user.hidden = true;
+      }
+    }
+
+    // Update intro video (typically for stars, but allow for fans too)
+    if (introVideo !== undefined) {
+      // Allow empty string to remove intro video
+      user.introVideo = introVideo === '' || introVideo === null ? null : introVideo;
+    }
+
+    // Save user first
     await user.save();
+
+    // Handle services management (only for stars)
+    // If services are provided for a fan, ignore them silently
+    if (services !== undefined && Array.isArray(services) && services.length > 0) {
+      if (user.role !== 'star') {
+        // Silently ignore services for non-stars
+      } else {
+      for (const serviceOp of services) {
+        if (!serviceOp || typeof serviceOp !== 'object') continue;
+
+        const { operation, id: serviceId, type, price } = serviceOp;
+
+        if (operation === 'add') {
+          // Add new service
+          if (!type || price === undefined) {
+            return res.status(400).json({
+              success: false,
+              message: 'Service type and price are required for add operation'
+            });
+          }
+
+          // Check if service already exists
+          const existingService = await Service.findOne({ userId: user._id, type });
+          if (existingService) {
+            return res.status(409).json({
+              success: false,
+              message: `Service type "${type}" already exists for this star`
+            });
+          }
+
+          const newService = new Service({
+            type,
+            price: parseFloat(price),
+            userId: user._id
+          });
+          await newService.save();
+        } else if (operation === 'update') {
+          // Update existing service
+          if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Valid service ID is required for update operation'
+            });
+          }
+
+          const service = await Service.findOne({ _id: serviceId, userId: user._id });
+          if (!service) {
+            return res.status(404).json({
+              success: false,
+              message: 'Service not found'
+            });
+          }
+
+          if (type !== undefined) service.type = type;
+          if (price !== undefined) service.price = parseFloat(price);
+          await service.save();
+        } else if (operation === 'delete') {
+          // Delete service
+          if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Valid service ID is required for delete operation'
+            });
+          }
+
+          const service = await Service.findOne({ _id: serviceId, userId: user._id });
+          if (!service) {
+            return res.status(404).json({
+              success: false,
+              message: 'Service not found'
+            });
+          }
+
+          await Service.deleteOne({ _id: serviceId });
+        }
+      }
+      }
+    }
+
+    // Handle dedication samples management (only for stars)
+    // If samples are provided for a fan, ignore them silently
+    if (dedicationSamples !== undefined && Array.isArray(dedicationSamples) && dedicationSamples.length > 0) {
+      if (user.role !== 'star') {
+        // Silently ignore samples for non-stars
+      } else {
+      for (const sampleOp of dedicationSamples) {
+        if (!sampleOp || typeof sampleOp !== 'object') continue;
+
+        const { operation, id: sampleId, type, video, description } = sampleOp;
+
+        if (operation === 'add') {
+          // Add new dedication sample
+          if (!type || !video) {
+            return res.status(400).json({
+              success: false,
+              message: 'Sample type and video are required for add operation'
+            });
+          }
+
+          const newSample = new DedicationSample({
+            type,
+            video,
+            description: description || '',
+            userId: user._id
+          });
+          await newSample.save();
+        } else if (operation === 'update') {
+          // Update existing dedication sample
+          if (!sampleId || !mongoose.Types.ObjectId.isValid(sampleId)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Valid sample ID is required for update operation'
+            });
+          }
+
+          const sample = await DedicationSample.findOne({ _id: sampleId, userId: user._id });
+          if (!sample) {
+            return res.status(404).json({
+              success: false,
+              message: 'Dedication sample not found'
+            });
+          }
+
+          if (type !== undefined) sample.type = type;
+          if (video !== undefined) sample.video = video;
+          if (description !== undefined) sample.description = description;
+          await sample.save();
+        } else if (operation === 'delete') {
+          // Delete dedication sample
+          if (!sampleId || !mongoose.Types.ObjectId.isValid(sampleId)) {
+            return res.status(400).json({
+              success: false,
+              message: 'Valid sample ID is required for delete operation'
+            });
+          }
+
+          const sample = await DedicationSample.findOne({ _id: sampleId, userId: user._id });
+          if (!sample) {
+            return res.status(404).json({
+              success: false,
+              message: 'Dedication sample not found'
+            });
+          }
+
+          await DedicationSample.deleteOne({ _id: sampleId });
+        }
+      }
+      }
+    }
+
+    // Populate profession for response
+    await user.populate('profession', 'name');
+
+    // Get updated services and samples for response (only for stars)
+    let updatedServices = [];
+    let updatedSamples = [];
+    if (user.role === 'star') {
+      updatedServices = await Service.find({ userId: user._id }).lean();
+      updatedSamples = await DedicationSample.find({ userId: user._id }).lean();
+    }
 
     return res.json({
       success: true,
@@ -1102,6 +1334,7 @@ export const updateManagementUserProfile = async (req, res) => {
       data: {
         user: {
           id: user._id,
+          baroniId: user.baroniId,
           role: user.role,
           name: user.name,
           pseudo: user.pseudo,
@@ -1115,9 +1348,32 @@ export const updateManagementUserProfile = async (req, res) => {
           } : null,
           about: user.about,
           location: user.location,
+          preferredLanguage: user.preferredLanguage,
           availableForBookings: user.availableForBookings,
           hidden: user.hidden,
           appNotification: user.appNotification,
+          isVerified: user.isVerified || false,
+          feature_star: user.role === 'star' ? (user.feature_star || false) : undefined,
+          introVideo: user.introVideo || null,
+          status: user.availableForBookings && !user.hidden ? 'active' : 'blocked',
+          // Only include services and samples for stars
+          ...(user.role === 'star' ? {
+            services: updatedServices.map(s => ({
+              id: s._id,
+              type: s.type,
+              price: s.price,
+              createdAt: s.createdAt,
+              updatedAt: s.updatedAt
+            })),
+            dedicationSamples: updatedSamples.map(s => ({
+              id: s._id,
+              type: s.type,
+              video: s.video,
+              description: s.description,
+              createdAt: s.createdAt,
+              updatedAt: s.updatedAt
+            }))
+          } : {}),
           updatedAt: user.updatedAt
         }
       }
