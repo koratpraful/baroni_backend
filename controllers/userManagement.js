@@ -210,7 +210,7 @@ export const getUserDetails = async (req, res) => {
 
     // Get user's services (Video call charges)
     const servicesRaw = await Service.find({ userId: user._id }).lean();
-    const services = servicesRaw.map(s => ({
+    const videoCallServices = servicesRaw.map(s => ({
       id: s._id,
       type: s.type,
       price: s.price,
@@ -220,13 +220,16 @@ export const getUserDetails = async (req, res) => {
 
     // Get user's dedications (Dedication charges)
     const dedicationsRaw = await Dedication.find({ userId: user._id }).lean();
-    const dedications = dedicationsRaw.map(d => ({
+    const dedicationServices = dedicationsRaw.map(d => ({
       id: d._id,
       type: d.type,
       price: d.price,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt
     }));
+
+    // Merge dedications into services array
+    const services = [...videoCallServices, ...dedicationServices];
 
     // Get user's dedication samples
     const dedicationSamplesRaw = await DedicationSample.find({ userId: user._id }).lean();
@@ -554,7 +557,6 @@ export const getUserDetails = async (req, res) => {
           lastLoginAt: user.lastLoginAt
         },
         services,
-        dedications,
         dedicationSamples,
         reviews: reviews.map(review => ({
           id: review._id,
@@ -654,9 +656,28 @@ export const getManagementUserProfile = async (req, res) => {
     };
 
     // Shared data
-    const services = await Service.find({ userId: user._id }).lean();
-    const dedications = await Dedication.find({ userId: user._id }).lean();
+    const servicesRaw = await Service.find({ userId: user._id }).lean();
+    const dedicationsRaw = await Dedication.find({ userId: user._id }).lean();
     const dedicationSamples = await DedicationSample.find({ userId: user._id }).lean();
+
+    // Merge dedications into services array
+    const videoCallServices = servicesRaw.map(s => ({
+      id: s._id,
+      type: s.type,
+      price: s.price,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt
+    }));
+
+    const dedicationServices = dedicationsRaw.map(d => ({
+      id: d._id,
+      type: d.type,
+      price: d.price,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt
+    }));
+
+    const services = [...videoCallServices, ...dedicationServices];
 
     // Transaction stats (covers both fan and star money flow)
     const transactionStats = await Transaction.aggregate([
@@ -873,7 +894,6 @@ export const getManagementUserProfile = async (req, res) => {
           lastLoginAt: user.lastLoginAt
         },
         services,
-        dedications,
         dedicationSamples,
         reviews: reviews.map(review => ({
           id: review._id,
