@@ -91,8 +91,19 @@ export const updateManagementUserProfileValidator = [
     .withMessage('Contact must be less than 20 characters'),
   body('profilePic')
     .optional()
-    .isURL()
-    .withMessage('Profile picture must be a valid URL'),
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value === 'string') {
+        try {
+          new URL(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    })
+    .withMessage('Profile picture must be a valid URL or empty string'),
   body('country')
     .optional()
     .isString()
@@ -103,6 +114,10 @@ export const updateManagementUserProfileValidator = [
     .optional()
     .isMongoId()
     .withMessage('Invalid profession ID'),
+  body('category')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid category ID'),
   body('about')
     .optional()
     .isString()
@@ -115,6 +130,12 @@ export const updateManagementUserProfileValidator = [
     .trim()
     .isLength({ max: 100 })
     .withMessage('Location must be less than 100 characters'),
+  body('preferredLanguage')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Preferred language must be less than 50 characters'),
   body('availableForBookings')
     .optional()
     .isBoolean()
@@ -126,7 +147,88 @@ export const updateManagementUserProfileValidator = [
   body('appNotification')
     .optional()
     .isBoolean()
-    .withMessage('App notification must be a boolean')
+    .withMessage('App notification must be a boolean'),
+  body('isVerified')
+    .optional()
+    .isBoolean()
+    .withMessage('isVerified must be a boolean'),
+  body('feature_star')
+    .optional()
+    .isBoolean()
+    .withMessage('feature_star must be a boolean'),
+  body('role')
+    .optional()
+    .isIn(['star', 'fan'])
+    .withMessage('Role must be star or fan'),
+  body('status')
+    .optional()
+    .isIn(['active', 'blocked', 'inactive'])
+    .withMessage('Status must be active, blocked, or inactive'),
+  body('introVideo')
+    .optional()
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        try {
+          new URL(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    })
+    .withMessage('Intro video must be a valid URL or empty string to remove'),
+  body('services')
+    .optional()
+    .isArray()
+    .withMessage('Services must be an array'),
+  body('services.*.operation')
+    .optional()
+    .isIn(['add', 'update', 'delete'])
+    .withMessage('Service operation must be add, update, or delete'),
+  body('services.*.id')
+    .optional()
+    .isMongoId()
+    .withMessage('Service ID must be a valid MongoDB ObjectId'),
+  body('services.*.type')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Service type must be between 1 and 50 characters'),
+  body('services.*.price')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Service price must be a positive number'),
+  body('dedicationSamples')
+    .optional()
+    .isArray()
+    .withMessage('Dedication samples must be an array'),
+  body('dedicationSamples.*.operation')
+    .optional()
+    .isIn(['add', 'update', 'delete'])
+    .withMessage('Dedication sample operation must be add, update, or delete'),
+  body('dedicationSamples.*.id')
+    .optional()
+    .isMongoId()
+    .withMessage('Dedication sample ID must be a valid MongoDB ObjectId'),
+  body('dedicationSamples.*.type')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Sample type must be between 1 and 50 characters'),
+  body('dedicationSamples.*.video')
+    .optional()
+    .isURL()
+    .withMessage('Sample video must be a valid URL'),
+  body('dedicationSamples.*.description')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Sample description must be less than 500 characters')
 ];
 
 export const updateUserStatusValidator = [
