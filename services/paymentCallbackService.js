@@ -656,10 +656,16 @@ const sendStarPromotionNotification = async (transaction, session) => {
 
     const userName = user.name || user.pseudo || 'Star';
     
-    // Prepare notification data
+    // Prepare notification data (with French translation)
     const notificationData = {
-      title: 'Congratulations! You are now a Baroni Star 🌟',
-      body: `Welcome to the stars, ${userName}! You can now receive bookings and create content for your fans.`,
+      title: {
+        en: 'Congratulations! You are now a Baroni Star 🌟',
+        fr: 'Félicitations ! Vous êtes maintenant une star Baroni 🌟'
+      },
+      body: {
+        en: `Welcome to the stars, ${userName}! You can now receive bookings and create content for your fans.`,
+        fr: `Bienvenue parmi les stars, ${userName} ! Vous pouvez maintenant recevoir des réservations et créer du contenu pour vos fans.`
+      },
       type: 'star_promotion'
     };
 

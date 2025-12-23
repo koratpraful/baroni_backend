@@ -418,7 +418,27 @@ export const completeProfile = async (req, res) => {
 
     // Pseudo (nickname) is no longer enforced to be unique
 
-    if (email) user.email = email.toLowerCase();
+    // Email uniqueness check if changing email
+    if (email !== undefined && email !== null && email !== '') {
+      const normalizedEmail = email.toLowerCase();
+      // Check if email is different (case-insensitive comparison)
+      if (user.email?.toLowerCase() !== normalizedEmail) {
+        const existing = await User.findOne({ 
+          email: normalizedEmail, 
+          _id: { $ne: user._id } 
+        });
+        if (existing) {
+          return res.status(409).json({
+            success: false,
+            message: 'Email already in use'
+          });
+        }
+        user.email = normalizedEmail;
+      } else {
+        // Even if same email, ensure it's stored in lowercase
+        user.email = normalizedEmail;
+      }
+    }
     if (contact) user.contact = contact;
     if (name) user.name = name;
     if (pseudo) user.pseudo = pseudo;
