@@ -564,3 +564,5 @@ For complete API documentation, see:
 - `STAR_PROFILE_MANAGEMENT_API.md` - Detailed star profile APIs
 - `ADMIN_MANAGEMENT_API.md` - Complete admin management APIs
 
+
+

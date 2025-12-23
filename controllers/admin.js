@@ -9,6 +9,7 @@ import Otp from '../models/otp.js';
 import crypto from 'crypto';
 import axios from 'axios';
 import qs from 'qs';
+import mongoose from 'mongoose';
 import { normalizeContact, removePlusPrefix } from '../utils/normalizeContact.js';
 
 const sanitizeUser = (user) => createSanitizedUserResponse(user);
@@ -297,6 +298,72 @@ export const adminResetPassword = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to reset password'
+    });
+  }
+};
+
+// Admin Reset User Password (admin only - resets any user's password to default)
+export const adminResetUserPassword = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Default password
+    const defaultPassword = 'Baroni@2025';
+
+    // Hash the default password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(defaultPassword, salt);
+
+    // Update user password
+    user.password = hashedPassword;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    user.sessionVersion = (user.sessionVersion || 0) + 1; // Invalidate existing sessions
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'User password reset successfully',
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          pseudo: user.pseudo,
+          email: user.email,
+          role: user.role
+        },
+        newPassword: defaultPassword
+      }
+    });
+
+  } catch (err) {
+    console.error('Admin reset user password error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset user password'
     });
   }
 };

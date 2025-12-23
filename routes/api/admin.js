@@ -4,6 +4,7 @@ import {
   adminForgotPassword,
   adminResetPassword,
   adminChangePassword,
+  adminResetUserPassword,
   createAdmin,
   getAdminProfile,
   updateAdminProfile,
@@ -37,6 +38,7 @@ router.post('/create', createAdminValidator, createAdmin); // For initial admin 
 router.get('/profile', requireAuth, requireRole('admin'), getAdminProfile);
 router.put('/profile', requireAuth, requireRole('admin'), updateAdminProfileValidator, updateAdminProfile);
 router.post('/change-password', requireAuth, requireRole('admin'), adminChangePasswordValidator, adminChangePassword);
+router.post('/forgot-password/user/:id', requireAuth, requireRole('admin'), adminResetUserPassword);
 
 // Database cleanup route (password protected)
 router.post('/database-cleanup', databaseCleanup);

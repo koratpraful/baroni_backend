@@ -10,6 +10,7 @@ import {
   deleteUser,
   getUserStats
 } from '../../controllers/userManagement.js';
+import { uploadVideoOnly } from '../../middlewares/upload.js';
 import {
   getAllStars,
   getStarProfile,
@@ -110,8 +111,9 @@ router.get('/user/:id', getManagementUserProfileValidator, getManagementUserProf
 // Overview metrics (fan or star) by ID with period filter
 router.get('/user/:id/overview', getManagementUserOverviewValidator, getManagementUserOverview);
 
-// Update profile (fan or star) by ID
+// Update profile (fan or star) by ID (supports both PATCH and PUT)
 router.patch('/user/:id', updateManagementUserProfileValidator, updateManagementUserProfile);
+router.put('/user/:id', updateManagementUserProfileValidator, updateManagementUserProfile);
 
 // Update user status (block/unblock)
 router.patch('/users/:userId/status', updateUserStatusValidator, updateUserStatus);
@@ -151,11 +153,11 @@ router.delete('/stars/:starId/services/:serviceId', deleteStarServiceValidator, 
 // Get star dedication samples
 router.get('/stars/:starId/dedication-samples', getStarDedicationSamplesValidator, getStarDedicationSamples);
 
-// Add star dedication sample
-router.post('/stars/:starId/dedication-samples', addStarDedicationSampleValidator, addStarDedicationSample);
+// Add star dedication sample (supports file upload or video URL)
+router.post('/stars/:starId/dedication-samples', uploadVideoOnly.single('video'), addStarDedicationSampleValidator, addStarDedicationSample);
 
-// Update star dedication sample
-router.put('/stars/:starId/dedication-samples/:sampleId', updateStarDedicationSampleValidator, updateStarDedicationSample);
+// Update star dedication sample (supports file upload or video URL)
+router.put('/stars/:starId/dedication-samples/:sampleId', uploadVideoOnly.single('video'), updateStarDedicationSampleValidator, updateStarDedicationSample);
 
 // Delete star dedication sample
 router.delete('/stars/:starId/dedication-samples/:sampleId', deleteStarDedicationSampleValidator, deleteStarDedicationSample);
