@@ -19,6 +19,8 @@ import {
   addStarService,
   updateStarService,
   deleteStarService,
+  getStarDedications,
+  deleteStarDedication,
   getStarDedicationSamples,
   addStarDedicationSample,
   updateStarDedicationSample,
@@ -66,6 +68,8 @@ import {
   addStarServiceValidator,
   updateStarServiceValidator,
   deleteStarServiceValidator,
+  getStarDedicationsValidator,
+  deleteStarDedicationValidator,
   getStarDedicationSamplesValidator,
   addStarDedicationSampleValidator,
   updateStarDedicationSampleValidator,
@@ -149,6 +153,12 @@ router.put('/stars/:starId/services/:serviceId', updateStarServiceValidator, upd
 
 // Delete star service
 router.delete('/stars/:starId/services/:serviceId', deleteStarServiceValidator, deleteStarService);
+
+// Get star dedications (charges)
+router.get('/stars/:starId/dedications', getStarDedicationsValidator, getStarDedications);
+
+// Delete star dedication (charges)
+router.delete('/stars/:starId/dedications/:dedicationId', deleteStarDedicationValidator, deleteStarDedication);
 
 // Get star dedication samples
 router.get('/stars/:starId/dedication-samples', getStarDedicationSamplesValidator, getStarDedicationSamples);

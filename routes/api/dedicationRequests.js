@@ -8,6 +8,7 @@ import {
   approveDedicationRequest,
   rejectDedicationRequest,
   uploadDedicationVideo,
+  deleteDedicationVideo,
   completeDedicationByFan,
   cancelDedicationRequest,
   getDedicationRequestByTrackingId
@@ -31,6 +32,9 @@ router.put('/:id/approve', requireRole('star', 'admin'), idParamValidator, appro
 router.put('/:id/reject', requireRole('star', 'admin'), idParamValidator, rejectDedicationRequest);
 // Star uploads the dedication video
 router.put('/:id/upload-video', requireRole('star', 'admin'), idParamValidator, uploadVideoOnly.single('video'), uploadDedicationVideo);
+
+// Admin deletes dedication video
+router.delete('/:id/video', requireRole('admin'), idParamValidator, deleteDedicationVideo);
 
 // Fan confirms completion after viewing the video
 router.put('/:id/complete', requireRole('fan', 'admin'), idParamValidator, completeDedicationByFan);
