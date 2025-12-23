@@ -24,7 +24,12 @@ import {
   deleteStarDedicationSample,
   toggleFeaturedStar,
   getFeaturedStars,
-  bulkUpdateFeaturedStars
+  bulkUpdateFeaturedStars,
+  updateStarStatus,
+  resetStarPassword,
+  deleteStar,
+  updateStarVerifiedStatus,
+  updateStarIntroVideo
 } from '../../controllers/starManagement.js';
 import {
   getAllReviews,
@@ -64,6 +69,11 @@ import {
   addStarDedicationSampleValidator,
   updateStarDedicationSampleValidator,
   deleteStarDedicationSampleValidator,
+  updateStarStatusValidator,
+  resetStarPasswordValidator,
+  deleteStarValidator,
+  updateStarVerifiedStatusValidator,
+  updateStarIntroVideoValidator,
   getAllReviewsValidator,
   getReviewDetailsValidator,
   updateReviewValidator,
@@ -203,5 +213,20 @@ router.get('/featured-stars', getFeaturedStars);
 
 // Bulk update featured stars
 router.patch('/stars/bulk-feature', bulkUpdateFeaturedStars);
+
+// Update star status (block/unblock)
+router.patch('/stars/:starId/status', updateStarStatusValidator, updateStarStatus);
+
+// Reset star password
+router.post('/stars/:starId/reset-password', resetStarPasswordValidator, resetStarPassword);
+
+// Delete star (soft delete)
+router.delete('/stars/:starId', deleteStarValidator, deleteStar);
+
+// Update star verified status
+router.patch('/stars/:starId/verified', updateStarVerifiedStatusValidator, updateStarVerifiedStatus);
+
+// Update star intro video
+router.patch('/stars/:starId/intro-video', updateStarIntroVideoValidator, updateStarIntroVideo);
 
 export default router;
