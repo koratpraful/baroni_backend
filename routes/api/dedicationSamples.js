@@ -3,7 +3,7 @@ import { requireAuth, requireRole } from '../../middlewares/auth.js';
 import { idParamValidator } from '../../validators/commonValidators.js';
 import { body } from 'express-validator';
 import { uploadVideoOnly } from '../../middlewares/upload.js';
-import { createDedicationSample, listMyDedicationSamples, getDedicationSample, updateDedicationSample, deleteDedicationSample } from '../../controllers/dedicationSample.js';
+import { createDedicationSample, listMyDedicationSamples, getDedicationSample, updateDedicationSample, deleteDedicationSample, deleteDedicationSampleVideo } from '../../controllers/dedicationSample.js';
 
 const router = express.Router();
 
@@ -41,6 +41,7 @@ router.get('/:id', idParamValidator, getDedicationSample);
 router.post('/', uploadVideoOnly.single('video'), sampleCreateValidator, createDedicationSample);
 router.put('/:id', idParamValidator, uploadVideoOnly.single('video'), sampleUpdateValidator, updateDedicationSample);
 router.delete('/:id', idParamValidator, deleteDedicationSample);
+router.delete('/:id/video', idParamValidator, deleteDedicationSampleVideo);
 
 export default router;
 

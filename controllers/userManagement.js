@@ -550,7 +550,7 @@ export const getUserDetails = async (req, res) => {
           averageRating: user.averageRating,
           totalReviews: user.totalReviews,
           feature_star: user.feature_star,
-          isAddedInFeatureStar: user.feature_star || false,
+          isAddedInFeatureStar: Boolean(user.feature_star),
           isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
@@ -887,7 +887,7 @@ export const getManagementUserProfile = async (req, res) => {
           averageRating: user.averageRating,
           totalReviews: user.totalReviews,
           feature_star: user.feature_star,
-          isAddedInFeatureStar: user.feature_star || false,
+          isAddedInFeatureStar: Boolean(user.feature_star),
           isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
@@ -1120,6 +1120,7 @@ export const updateManagementUserProfile = async (req, res) => {
       appNotification,
       isVerified,
       feature_star,
+      isAddedInFeatureStar, // Accept both feature_star and isAddedInFeatureStar
       role,
       // Status field
       status,
@@ -1208,10 +1209,12 @@ export const updateManagementUserProfile = async (req, res) => {
     if (isVerified !== undefined) user.isVerified = isVerified;
     
     // Star-specific fields (only update if user is or becomes a star)
-    if (feature_star !== undefined) {
+    // Accept both feature_star and isAddedInFeatureStar (they mean the same thing)
+    const featureStarValue = feature_star !== undefined ? feature_star : isAddedInFeatureStar;
+    if (featureStarValue !== undefined) {
       // Only allow feature_star for stars
       if (user.role === 'star' || (role !== undefined && role === 'star')) {
-        user.feature_star = feature_star;
+        user.feature_star = Boolean(featureStarValue);
       }
       // Silently ignore for fans
     }
@@ -1447,8 +1450,8 @@ export const updateManagementUserProfile = async (req, res) => {
           hidden: user.hidden,
           appNotification: user.appNotification,
           isVerified: user.isVerified || false,
-          feature_star: user.role === 'star' ? (user.feature_star || false) : undefined,
-          isAddedInFeatureStar: user.role === 'star' ? (user.feature_star || false) : false,
+          feature_star: user.role === 'star' ? Boolean(user.feature_star) : undefined,
+          isAddedInFeatureStar: user.role === 'star' ? Boolean(user.feature_star) : false,
           isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
           introVideo: user.introVideo || null,
           status: user.availableForBookings && !user.hidden ? 'active' : 'blocked',

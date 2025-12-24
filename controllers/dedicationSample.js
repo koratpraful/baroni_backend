@@ -113,4 +113,56 @@ export const deleteDedicationSample = async (req, res) => {
   }
 };
 
+export const deleteDedicationSampleVideo = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      const errorMessage = getFirstValidationError(errors);
+      return res.status(400).json({ success: false, message: errorMessage || 'Validation failed' });
+    }
+
+    const { id } = req.params;
+    const user = req.user;
+
+    // Find the dedication sample - star can only delete their own, admin can delete any
+    const filter = { _id: id };
+    if (user.role !== 'admin') {
+      filter.userId = user._id;
+    }
+
+    const dedicationSample = await DedicationSample.findOne(filter);
+    if (!dedicationSample) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Dedication sample not found' 
+      });
+    }
+
+    if (!dedicationSample.video) {
+      return res.status(400).json({
+        success: false,
+        message: 'No video found for this dedication sample'
+      });
+    }
+
+    // Remove video URL
+    dedicationSample.video = null;
+    const updated = await dedicationSample.save();
+
+    return res.json({
+      success: true,
+      message: 'Dedication sample video deleted successfully',
+      data: {
+        dedicationSample: sanitize(updated)
+      }
+    });
+  } catch (err) {
+    console.error('Delete dedication sample video error:', err);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete dedication sample video' 
+    });
+  }
+};
+
 

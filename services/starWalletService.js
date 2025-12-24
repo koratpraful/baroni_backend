@@ -105,7 +105,36 @@ export const moveEscrowToJackpot = async (starId, appointmentId = null, dedicati
       }
       
       console.log(`[moveEscrowToJackpot] Looking for star transaction with filter:`, filter);
-      const starTransaction = await StarTransaction.findOne(filter).session(session);
+      let starTransaction = await StarTransaction.findOne(filter).session(session);
+      
+      // If not found by appointmentId and this is an appointment, try finding by transactionId
+      // This handles rescheduled appointments where the StarTransaction is linked to the original appointment
+      if (!starTransaction && appointmentId) {
+        try {
+          const Appointment = (await import('../models/Appointment.js')).default;
+          const appointment = await Appointment.findById(appointmentId).session(session);
+          
+          if (appointment && appointment.transactionId) {
+            console.log(`[moveEscrowToJackpot] Appointment not found by appointmentId, trying to find by transactionId: ${appointment.transactionId}`);
+            const transactionFilter = {
+              starId,
+              status: 'pending',
+              escrowMovement: 'deposit',
+              transactionId: appointment.transactionId
+            };
+            starTransaction = await StarTransaction.findOne(transactionFilter).session(session);
+            
+            if (starTransaction) {
+              console.log(`[moveEscrowToJackpot] Found star transaction by transactionId: ${starTransaction._id} (original appointmentId: ${starTransaction.appointmentId})`);
+              // Update the appointmentId to the current appointment (for rescheduled appointments)
+              starTransaction.appointmentId = appointmentId;
+            }
+          }
+        } catch (lookupError) {
+          console.warn(`[moveEscrowToJackpot] Error looking up appointment by transactionId:`, lookupError);
+          // Continue with original error handling
+        }
+      }
       
       if (!starTransaction) {
         // Try to find any transaction for this appointment/dedication to provide better error message
