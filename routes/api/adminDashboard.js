@@ -13,7 +13,8 @@ import {
   createEvent,
   getEvents,
   updateEventStatus,
-  getDashboardOverview
+  getDashboardOverview,
+  getTopStarsList
 } from '../../controllers/adminDashboard.js';
 import {
   dashboardSummaryValidator,
@@ -25,7 +26,8 @@ import {
   completeDashboardValidator,
   serviceRevenueBreakdownValidator,
   deviceChangeStatsValidator,
-  reportedUsersDetailsValidator
+  reportedUsersDetailsValidator,
+  topStarsListValidator
 } from '../../validators/adminDashboardValidators.js';
 import { requireAuth, requireRole } from '../../middlewares/auth.js';
 
@@ -52,6 +54,9 @@ router.get('/service-insights/:serviceType', serviceInsightsValidator, getServic
 
 // Top Stars
 router.get('/top-stars', topStarsValidator, getTopStars);
+
+// Top 50 Stars List with Filters
+router.get('/top-stars-list', topStarsListValidator, getTopStarsList);
 
 // Complete Dashboard Data (All in one)
 router.get('/complete', completeDashboardValidator, getCompleteDashboard);

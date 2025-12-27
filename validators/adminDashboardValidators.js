@@ -283,3 +283,11 @@ export const deleteEventValidator = [
     .isMongoId()
     .withMessage('Event ID must be a valid MongoDB ObjectId')
 ];
+
+// Top Stars List Validator
+export const topStarsListValidator = [
+  query('filter')
+    .optional()
+    .isIn(['income', 'videoCalls', 'dedications'])
+    .withMessage('Filter must be one of: income, videoCalls, dedications')
+];
