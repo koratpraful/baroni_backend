@@ -36,6 +36,14 @@ export const createAndSendNotification = async (req, res) => {
       });
     }
 
+    // Validate target audience if provided
+    if (targetAudience && !['All Fans', 'All Stars', 'All Users', 'By Country', 'Specific Users'].includes(targetAudience)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid target audience. Must be one of: All Fans, All Stars, All Users, By Country, Specific Users'
+      });
+    }
+
     // Build user query based on target audience
     let userQuery = { isDeleted: { $ne: true } };
     let users = [];
@@ -45,20 +53,28 @@ export const createAndSendNotification = async (req, res) => {
       if (country) {
         userQuery.country = country;
       }
+      // Only get users who have app notifications enabled
+      userQuery.appNotification = { $ne: false };
       users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
     } else if (targetAudience === 'All Stars') {
       userQuery.role = 'star';
       if (country) {
         userQuery.country = country;
       }
+      // Only get users who have app notifications enabled
+      userQuery.appNotification = { $ne: false };
       users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
     } else if (targetAudience === 'All Users') {
       if (country) {
         userQuery.country = country;
       }
+      // Only get users who have app notifications enabled
+      userQuery.appNotification = { $ne: false };
       users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
     } else if (targetAudience === 'By Country' && country) {
       userQuery.country = country;
+      // Only get users who have app notifications enabled
+      userQuery.appNotification = { $ne: false };
       users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
     } else if (targetAudience === 'Specific Users') {
       if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
@@ -75,12 +91,14 @@ export const createAndSendNotification = async (req, res) => {
           message: `Invalid user IDs: ${invalidUserIds.join(', ')}`
         });
       }
-      users = await User.find({ _id: { $in: userIds }, isDeleted: { $ne: true } })
-        .select('_id fcmToken apnsToken appNotification');
+      userQuery._id = { $in: userIds };
+      // Only get users who have app notifications enabled
+      userQuery.appNotification = { $ne: false };
+      users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
     } else {
       return res.status(400).json({
         success: false,
-        message: 'Invalid target audience or missing required fields'
+        message: 'Target audience is required. Must be one of: All Fans, All Stars, All Users, By Country, Specific Users'
       });
     }
     

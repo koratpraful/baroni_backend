@@ -2183,3 +2183,154 @@ export const getDashboardOverview = async (req, res) => {
     });
   }
 };
+
+// Top 50 Stars List with Filters (Income, Video Calls, Dedications)
+export const getTopStarsList = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { filter = 'income' } = req.query;
+
+    // Validate filter
+    const validFilters = ['income', 'videoCalls', 'dedications'];
+    if (!validFilters.includes(filter)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid filter. Must be one of: ${validFilters.join(', ')}`
+      });
+    }
+
+    // Get all stars
+    const stars = await User.find({
+      role: 'star',
+      isDeleted: { $ne: true }
+    }).select('_id name pseudo profilePic baroniId createdAt');
+
+    // Get star IDs
+    const starIds = stars.map(star => star._id);
+
+    // Calculate income for each star (from completed transactions)
+    const incomeData = await Transaction.aggregate([
+      {
+        $match: {
+          receiverId: { $in: starIds },
+          status: 'completed',
+          type: { $in: ['appointment_payment', 'dedication_request_payment'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$receiverId',
+          totalIncome: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // Count completed video calls (appointments) for each star
+    const videoCallsData = await Appointment.aggregate([
+      {
+        $match: {
+          starId: { $in: starIds },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$starId',
+          videoCallsCount: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Count completed dedications for each star
+    const dedicationsData = await DedicationRequest.aggregate([
+      {
+        $match: {
+          starId: { $in: starIds },
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: '$starId',
+          dedicationsCount: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Create maps for quick lookup
+    const incomeMap = new Map();
+    incomeData.forEach(item => {
+      incomeMap.set(item._id.toString(), item.totalIncome);
+    });
+
+    const videoCallsMap = new Map();
+    videoCallsData.forEach(item => {
+      videoCallsMap.set(item._id.toString(), item.videoCallsCount);
+    });
+
+    const dedicationsMap = new Map();
+    dedicationsData.forEach(item => {
+      dedicationsMap.set(item._id.toString(), item.dedicationsCount);
+    });
+
+    // Combine data for each star
+    const starsWithStats = stars.map(star => {
+      const starIdStr = star._id.toString();
+      return {
+        id: star._id,
+        baroniId: star.baroniId,
+        name: star.name,
+        pseudo: star.pseudo,
+        profilePic: star.profilePic,
+        totalIncome: incomeMap.get(starIdStr) || 0,
+        videoCallsCount: videoCallsMap.get(starIdStr) || 0,
+        dedicationsCount: dedicationsMap.get(starIdStr) || 0,
+        createdAt: star.createdAt
+      };
+    });
+
+    // Sort based on filter
+    let sortedStars;
+    switch (filter) {
+      case 'income':
+        sortedStars = starsWithStats.sort((a, b) => b.totalIncome - a.totalIncome);
+        break;
+      case 'videoCalls':
+        sortedStars = starsWithStats.sort((a, b) => b.videoCallsCount - a.videoCallsCount);
+        break;
+      case 'dedications':
+        sortedStars = starsWithStats.sort((a, b) => b.dedicationsCount - a.dedicationsCount);
+        break;
+      default:
+        sortedStars = starsWithStats.sort((a, b) => b.totalIncome - a.totalIncome);
+    }
+
+    // Get top 50
+    const top50Stars = sortedStars.slice(0, 50);
+
+    return res.json({
+      success: true,
+      message: 'Top 50 stars retrieved successfully',
+      data: {
+        filter,
+        totalStars: stars.length,
+        stars: top50Stars
+      }
+    });
+
+  } catch (err) {
+    console.error('Top stars list error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get top stars list',
+      error: err.message
+    });
+  }
+};
