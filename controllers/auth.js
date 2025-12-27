@@ -308,7 +308,7 @@ export const login = async (req, res) => {
     }
 
     if (!user) {
-      return res.status(401).json({ success: false, message: 'User not found' });
+      return res.status(401).json({ success: false, message: 'Veuillez vous connecter avec Gmail / Apple ou vous inscrire.' });
     }
 
     // For mobile login, password is required

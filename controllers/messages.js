@@ -307,9 +307,36 @@ export const storeMessage = async (req, res) => {
 export const listMessages = async (req, res) => {
     try {
         const { conversationId } = req.params;
+        const { 
+            sortBy = 'createdAt', 
+            sortOrder = 'asc', 
+            page = 1, 
+            limit = 50 
+        } = req.query;
 
+        // Validate sortBy field
+        const allowedSortFields = ['createdAt', 'updatedAt'];
+        const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+
+        // Validate sortOrder
+        const sortDirection = sortOrder.toLowerCase() === 'desc' ? -1 : 1;
+
+        // Validate pagination
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 50));
+        const skip = (pageNum - 1) * limitNum;
+
+        // Build sort object
+        const sortObj = { [sortField]: sortDirection };
+
+        // Get total count for pagination
+        const totalMessages = await MessageModel.countDocuments({ conversationId });
+
+        // Get messages with sorting and pagination
         const messages = await MessageModel.find({ conversationId })
-            .sort({ createdAt: 1 })
+            .sort(sortObj)
+            .skip(skip)
+            .limit(limitNum)
             .populate('senderId', 'name pseudo profilePic baroniId role agoraKey')
             .populate('receiverId', 'name pseudo profilePic baroniId role agoraKey')
             .lean();
@@ -328,9 +355,24 @@ export const listMessages = async (req, res) => {
             };
         });
 
+        const totalPages = Math.ceil(totalMessages / limitNum);
+
         res.json({
             success: true,
-            data: messagesWithOwnership
+            message: 'Messages retrieved successfully',
+            data: messagesWithOwnership,
+            pagination: {
+                currentPage: pageNum,
+                totalPages: totalPages,
+                totalMessages: totalMessages,
+                limit: limitNum,
+                hasNextPage: pageNum < totalPages,
+                hasPrevPage: pageNum > 1
+            },
+            sort: {
+                sortBy: sortField,
+                sortOrder: sortOrder.toLowerCase() === 'desc' ? 'desc' : 'asc'
+            }
         });
     } catch (error) {
         res.status(500).json({
