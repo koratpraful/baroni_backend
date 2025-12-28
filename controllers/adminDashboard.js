@@ -2291,50 +2291,74 @@ export const getTopStarsList = async (req, res) => {
       dedicationsMap.set(item._id.toString(), item.dedicationsCount);
     });
 
-    // Combine data for each star with all user fields
+    // Combine data for each star with all user fields - Top Stars List Response Model
     const starsWithStats = stars.map(star => {
       const starIdStr = star._id.toString();
       return {
+        // Basic Info
         id: star._id,
         baroniId: star.baroniId,
-        contact: star.contact,
-        email: star.email || null,
-        coinBalance: star.coinBalance,
         name: star.name,
         pseudo: star.pseudo,
         profilePic: star.profilePic,
+        
+        // Contact & Communication
+        contact: star.contact || null,
+        email: star.email || null,
+        
+        // Location & Profile
+        country: star.country || null,
+        location: star.location || null,
+        about: star.about || null,
         preferredLanguage: star.preferredLanguage || null,
-        preferredCurrency: star.preferredCurrency,
-        country: star.country,
-        about: star.about,
-        location: star.location,
+        preferredCurrency: star.preferredCurrency || null,
+        
+        // Profession
         profession: star.profession ? {
           id: star.profession._id || star.profession.id || null,
           name: star.profession.name || ''
         } : null,
+        
+        // Role & Status
         role: star.role,
-        availableForBookings: star.availableForBookings,
-        appNotification: star.appNotification,
-        hidden: star.hidden,
-        deviceType: star.deviceType,
-        isDev: star.isDev,
-        favorites: star.favorites || [],
-        isDeleted: star.isDeleted,
-        deletedAt: star.deletedAt,
-        providers: star.providers,
-        profileImpressions: star.profileImpressions,
-        sessionVersion: star.sessionVersion,
-        agoraKey: star.agoraKey,
-        paymentStatus: star.paymentStatus,
-        averageRating: star.averageRating,
-        totalReviews: star.totalReviews,
-        feature_star: star.feature_star,
+        availableForBookings: star.availableForBookings !== undefined ? star.availableForBookings : true,
+        appNotification: star.appNotification !== undefined ? star.appNotification : true,
+        hidden: star.hidden !== undefined ? star.hidden : false,
+        
+        // Device & Technical
+        deviceType: star.deviceType || null,
+        isDev: star.isDev !== undefined ? star.isDev : false,
+        
+        // Financial
+        coinBalance: star.coinBalance || 0,
+        
+        // Features & Settings
+        feature_star: star.feature_star !== undefined ? star.feature_star : false,
         isAddedInFeatureStar: Boolean(star.feature_star),
         isOnlineStar: isUserOnline(star.lastLoginAt),
+        
+        // Ratings & Reviews
+        averageRating: star.averageRating || 0,
+        totalReviews: star.totalReviews || 0,
+        
+        // Payment Status
+        paymentStatus: star.paymentStatus || null,
+        
+        // Other Fields
+        favorites: Array.isArray(star.favorites) ? star.favorites : [],
+        providers: star.providers || null,
+        profileImpressions: star.profileImpressions || 0,
+        sessionVersion: star.sessionVersion || 0,
+        agoraKey: star.agoraKey || null,
+        isDeleted: star.isDeleted !== undefined ? star.isDeleted : false,
+        deletedAt: star.deletedAt || null,
+        
+        // Timestamps
         createdAt: star.createdAt,
-        updatedAt: star.updatedAt,
-        lastLoginAt: star.lastLoginAt,
-        // Stats
+        updatedAt: star.updatedAt || star.createdAt,
+        lastLoginAt: star.lastLoginAt || null,
+        
+        // Stats (Performance Metrics)
         totalIncome: incomeMap.get(starIdStr) || 0,
         videoCallsCount: videoCallsMap.get(starIdStr) || 0,
         dedicationsCount: dedicationsMap.get(starIdStr) || 0
