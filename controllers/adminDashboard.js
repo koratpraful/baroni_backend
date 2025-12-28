@@ -2206,11 +2206,22 @@ export const getTopStarsList = async (req, res) => {
       });
     }
 
-    // Get all stars
+    // Helper function to check if user is online (logged in within last 15 minutes)
+    const isUserOnline = (lastLoginAt) => {
+      if (!lastLoginAt) return false;
+      const now = new Date();
+      const lastLogin = new Date(lastLoginAt);
+      const diffInMinutes = (now - lastLogin) / (1000 * 60);
+      return diffInMinutes <= 15;
+    };
+
+    // Get all stars with all fields
     const stars = await User.find({
       role: 'star',
       isDeleted: { $ne: true }
-    }).select('_id name pseudo profilePic baroniId createdAt');
+    })
+      .populate('profession', 'name')
+      .lean();
 
     // Get star IDs
     const starIds = stars.map(star => star._id);
@@ -2280,19 +2291,53 @@ export const getTopStarsList = async (req, res) => {
       dedicationsMap.set(item._id.toString(), item.dedicationsCount);
     });
 
-    // Combine data for each star
+    // Combine data for each star with all user fields
     const starsWithStats = stars.map(star => {
       const starIdStr = star._id.toString();
       return {
         id: star._id,
         baroniId: star.baroniId,
+        contact: star.contact,
+        email: star.email || null,
+        coinBalance: star.coinBalance,
         name: star.name,
         pseudo: star.pseudo,
         profilePic: star.profilePic,
+        preferredLanguage: star.preferredLanguage || null,
+        preferredCurrency: star.preferredCurrency,
+        country: star.country,
+        about: star.about,
+        location: star.location,
+        profession: star.profession ? {
+          id: star.profession._id || star.profession.id || null,
+          name: star.profession.name || ''
+        } : null,
+        role: star.role,
+        availableForBookings: star.availableForBookings,
+        appNotification: star.appNotification,
+        hidden: star.hidden,
+        deviceType: star.deviceType,
+        isDev: star.isDev,
+        favorites: star.favorites || [],
+        isDeleted: star.isDeleted,
+        deletedAt: star.deletedAt,
+        providers: star.providers,
+        profileImpressions: star.profileImpressions,
+        sessionVersion: star.sessionVersion,
+        agoraKey: star.agoraKey,
+        paymentStatus: star.paymentStatus,
+        averageRating: star.averageRating,
+        totalReviews: star.totalReviews,
+        feature_star: star.feature_star,
+        isAddedInFeatureStar: Boolean(star.feature_star),
+        isOnlineStar: isUserOnline(star.lastLoginAt),
+        createdAt: star.createdAt,
+        updatedAt: star.updatedAt,
+        lastLoginAt: star.lastLoginAt,
+        // Stats
         totalIncome: incomeMap.get(starIdStr) || 0,
         videoCallsCount: videoCallsMap.get(starIdStr) || 0,
-        dedicationsCount: dedicationsMap.get(starIdStr) || 0,
-        createdAt: star.createdAt
+        dedicationsCount: dedicationsMap.get(starIdStr) || 0
       };
     });
 
