@@ -712,12 +712,14 @@ export const listWithdrawals = async (req, res) => {
       const approvedBy = withdrawal.approvedBy;
       const rejectedBy = withdrawal.rejectedBy;
       
-      // Calculate commission and net amount
+      // Calculate commission and net amount based on admin commission configuration
       let commissionAmount = 0;
       let netAmount = withdrawal.amount;
       
       try {
         const countryCode = star?.country;
+        // Use videoCall service type for jackpot withdrawals (jackpot comes from all services)
+        // Admin config will provide country override, service default, or global default
         const commissionRate = await getEffectiveCommission({ 
           serviceType: 'videoCall',
           countryCode 
@@ -727,9 +729,21 @@ export const listWithdrawals = async (req, res) => {
         netAmount = net;
       } catch (err) {
         console.error('Error calculating withdrawal commission:', err);
-        // Use default commission calculation
-        commissionAmount = Math.round(withdrawal.amount * 0.1 * 100) / 100;
-        netAmount = Math.round((withdrawal.amount - commissionAmount) * 100) / 100;
+        // Fallback: try to get global default from config
+        try {
+          const CommissionConfig = (await import('../models/CommissionConfig.js')).default;
+          const cfg = await CommissionConfig.getSingleton();
+          const fallbackRate = cfg.globalDefault || 0.15; // Use global default or 15% as last resort
+          const { commission, netAmount: net } = applyCommission(withdrawal.amount, fallbackRate);
+          commissionAmount = commission;
+          netAmount = net;
+        } catch (fallbackErr) {
+          console.error('Error getting fallback commission rate:', fallbackErr);
+          // Last resort: use 15% (0.15) as default
+          const { commission, netAmount: net } = applyCommission(withdrawal.amount, 0.15);
+          commissionAmount = commission;
+          netAmount = net;
+        }
       }
       
       // Map DB status to UI status

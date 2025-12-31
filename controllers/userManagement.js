@@ -1533,18 +1533,51 @@ export const updateUserStatus = async (req, res) => {
 
     await user.save();
 
+    // Populate profession if exists
+    await user.populate('profession', 'name image');
+
+    // Build complete user response for FAN/STAR view
+    const userResponse = {
+      id: user._id,
+      baroniId: user.baroniId || null,
+      name: user.name || '',
+      pseudo: user.pseudo || '',
+      email: user.email || null,
+      contact: user.contact || null,
+      profilePic: user.profilePic || null,
+      role: user.role || 'fan',
+      country: user.country || null,
+      profession: user.profession ? {
+        id: user.profession._id || user.profession.id || null,
+        name: user.profession.name || ''
+      } : null,
+      about: user.about || null,
+      location: user.location || null,
+      availableForBookings: user.availableForBookings !== undefined ? user.availableForBookings : true,
+      hidden: user.hidden !== undefined ? user.hidden : false,
+      status: (user.availableForBookings === true && user.hidden !== true) ? 'active' : 'blocked',
+      isVerified: user.isVerified !== undefined ? user.isVerified : false,
+      coinBalance: user.coinBalance || 0,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt || user.createdAt,
+      lastLoginAt: user.lastLoginAt || null
+    };
+
+    // Add star-specific fields if user is a star
+    if (user.role === 'star') {
+      userResponse.feature_star = user.feature_star !== undefined ? user.feature_star : false;
+      userResponse.isAddedInFeatureStar = Boolean(user.feature_star);
+      userResponse.averageRating = user.averageRating || 0;
+      userResponse.totalReviews = user.totalReviews || 0;
+      userResponse.introVideo = user.introVideo || null;
+    }
+
     return res.json({
       success: true,
-      message: `User ${action}ed successfully`,
+      message: `${user.role === 'star' ? 'Star' : 'User'} ${action}ed successfully`,
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          pseudo: user.pseudo,
-          status: user.availableForBookings && !user.hidden ? 'active' : 'blocked',
-          availableForBookings: user.availableForBookings,
-          hidden: user.hidden
-        }
+        user: userResponse,
+        reason: reason || null
       }
     });
 

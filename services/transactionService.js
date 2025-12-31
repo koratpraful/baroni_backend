@@ -420,18 +420,47 @@ export const refundTransaction = async (transactionId) => {
         throw new Error('Transaction is not in completed status');
       }
 
-      // Reverse completion: deduct from receiver and credit payer, regardless of payment mode
+      // Reverse completion: deduct from receiver
       await User.findByIdAndUpdate(
         transaction.receiverId,
         { $inc: { coinBalance: -transaction.amount } },
         { session, new: true }
       );
 
-      await User.findByIdAndUpdate(
-        transaction.payerId,
-        { $inc: { coinBalance: transaction.amount } },
-        { session, new: true }
-      );
+      // Check if this is a refund case (dedication, video call, or live show)
+      const isRefundCase = transaction.type === TRANSACTION_TYPES.APPOINTMENT_PAYMENT ||
+                          transaction.type === TRANSACTION_TYPES.DEDICATION_REQUEST_PAYMENT ||
+                          transaction.type === TRANSACTION_TYPES.LIVE_SHOW_ATTENDANCE_PAYMENT ||
+                          transaction.type === TRANSACTION_TYPES.LIVE_SHOW_HOSTING_PAYMENT;
+
+      if (isRefundCase) {
+        // For refund cases: Set payer's coin balance to 0
+        // This handles the case where coins were already added to wallet from cancellation
+        // When refund is triggered, user's coins should become 0 (not negative)
+        const payer = await User.findById(transaction.payerId).session(session);
+        if (!payer) {
+          throw new Error('Payer not found');
+        }
+
+        const currentBalance = payer.coinBalance || 0;
+        
+        // Set balance to 0 for refund cases (don't add more coins, just set to 0)
+        // This ensures coins from cancellation are removed, and balance never goes negative
+        await User.findByIdAndUpdate(
+          transaction.payerId,
+          { $set: { coinBalance: 0 } },
+          { session, new: true }
+        );
+        
+        console.log(`[RefundTransaction] Refund case: Payer ${transaction.payerId} balance set to 0 (was ${currentBalance}, refund amount: ${transaction.amount})`);
+      } else {
+        // For other transaction types, use the original logic (add coins to payer)
+        await User.findByIdAndUpdate(
+          transaction.payerId,
+          { $inc: { coinBalance: transaction.amount } },
+          { session, new: true }
+        );
+      }
 
       // Update transaction status to refunded
       transaction.status = 'refunded';
