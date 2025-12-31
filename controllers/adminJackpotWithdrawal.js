@@ -186,23 +186,57 @@ export const listWithdrawalRequests = async (req, res) => {
       const approvedBy = request.approvedBy;
       const rejectedBy = request.rejectedBy;
       
-      // Calculate commission and net amount
+      // Calculate commission and net amount based on admin commission configuration
       let commissionAmount = 0;
-      let netAmount = request.amount;
+      let netAmount = request.amount || 0;
       
-      try {
-        const countryCode = star?.country;
-        const commissionRate = await getEffectiveCommission({ 
-          serviceType: 'videoCall',
-          countryCode 
-        });
-        const { commission, netAmount: net } = applyCommission(request.amount, commissionRate);
-        commissionAmount = commission;
-        netAmount = net;
-      } catch (err) {
-        console.error('Error calculating withdrawal commission:', err);
-        commissionAmount = Math.round(request.amount * 0.1 * 100) / 100;
-        netAmount = Math.round((request.amount - commissionAmount) * 100) / 100;
+      // Ensure amount is a valid number
+      const grossAmount = Number(request.amount) || 0;
+      
+      if (grossAmount > 0) {
+        try {
+          const countryCode = star?.country;
+          // Use videoCall service type for jackpot withdrawals (jackpot comes from all services)
+          // Admin config will provide country override, service default, or global default
+          const commissionRate = await getEffectiveCommission({ 
+            serviceType: 'videoCall',
+            countryCode 
+          });
+          
+          if (commissionRate && commissionRate > 0) {
+            const { commission, netAmount: net } = applyCommission(grossAmount, commissionRate);
+            commissionAmount = commission;
+            netAmount = net;
+          } else {
+            console.warn(`[ListWithdrawalRequests] Invalid commission rate: ${commissionRate}, using fallback`);
+            // Fallback to global default
+            const CommissionConfig = (await import('../models/CommissionConfig.js')).default;
+            const cfg = await CommissionConfig.getSingleton();
+            const fallbackRate = cfg.globalDefault || 0.15;
+            const { commission, netAmount: net } = applyCommission(grossAmount, fallbackRate);
+            commissionAmount = commission;
+            netAmount = net;
+          }
+        } catch (err) {
+          console.error('Error calculating withdrawal commission:', err);
+          // Fallback: try to get global default from config
+          try {
+            const CommissionConfig = (await import('../models/CommissionConfig.js')).default;
+            const cfg = await CommissionConfig.getSingleton();
+            const fallbackRate = cfg.globalDefault || 0.15; // Use global default or 15% as last resort
+            const { commission, netAmount: net } = applyCommission(grossAmount, fallbackRate);
+            commissionAmount = commission;
+            netAmount = net;
+          } catch (fallbackErr) {
+            console.error('Error getting fallback commission rate:', fallbackErr);
+            // Last resort: use 15% (0.15) as default
+            const { commission, netAmount: net } = applyCommission(grossAmount, 0.15);
+            commissionAmount = commission;
+            netAmount = net;
+          }
+        }
+      } else {
+        console.warn(`[ListWithdrawalRequests] Invalid or zero amount for request ${request._id}: ${request.amount}`);
       }
       
       // Map DB status to UI status
@@ -353,37 +387,50 @@ export const approveWithdrawalRequest = async (req, res) => {
     // Process the withdrawal
     // NOTE: Amount was already deducted from jackpot when request was created (pending status)
     // So we just need to update totalWithdrawn and create transaction record
+    const session = await mongoose.startSession();
+    
     try {
-      const session = await mongoose.startSession();
-      
-      try {
-        await session.withTransaction(async () => {
-          // Get wallet within transaction
-          const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
-          if (!walletDoc) {
-            throw new Error('Star wallet not found');
-          }
-          
-          // Amount already deducted when request was created, just update totalWithdrawn
-          walletDoc.totalWithdrawn = (walletDoc.totalWithdrawn || 0) + request.amount;
-          await walletDoc.save({ session });
-          
-          // Create transaction record
-          await StarTransaction.create([{
-            starId: request.starId,
-            amount: request.amount,
-            type: 'withdrawal',
-            status: 'completed',
-            escrowMovement: 'release',
-            completedAt: new Date(),
-            fanId: req.user._id // adminId stored as fanId in transaction
-          }], { session });
-          
-          console.log(`[ApproveWithdrawal] Updated totalWithdrawn. Amount: ${request.amount}, TotalWithdrawn: ${walletDoc.totalWithdrawn}`);
-        });
-      } finally {
-        await session.endSession();
-      }
+      await session.withTransaction(async () => {
+        // Get wallet within transaction
+        const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
+        if (!walletDoc) {
+          throw new Error('Star wallet not found');
+        }
+        
+        // Verify jackpot balance is correct (amount should already be deducted)
+        const currentJackpot = walletDoc.jackpot || 0;
+        const expectedJackpot = (wallet.jackpot || 0); // Should match the balance we checked earlier
+        
+        // Double-check: if jackpot is higher than expected, it means amount wasn't deducted
+        // This shouldn't happen, but we'll handle it
+        if (currentJackpot > expectedJackpot + request.amount) {
+          console.warn(`[ApproveWithdrawal] Warning: Jackpot balance mismatch. Current: ${currentJackpot}, Expected: ${expectedJackpot}, Amount: ${request.amount}`);
+        }
+        
+        // Amount already deducted when request was created, just update totalWithdrawn
+        walletDoc.totalWithdrawn = (walletDoc.totalWithdrawn || 0) + request.amount;
+        await walletDoc.save({ session });
+        
+        // Create transaction record
+        await StarTransaction.create([{
+          starId: request.starId,
+          amount: request.amount,
+          type: 'withdrawal',
+          status: 'completed',
+          escrowMovement: 'release',
+          completedAt: new Date(),
+          fanId: req.user._id // adminId stored as fanId in transaction
+        }], { session });
+        
+        // Update request status to approved within transaction
+        request.status = 'approved';
+        request.approvedBy = req.user._id;
+        request.processedAt = new Date();
+        if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
+        await request.save({ session });
+        
+        console.log(`[ApproveWithdrawal] Updated totalWithdrawn. Amount: ${request.amount}, TotalWithdrawn: ${walletDoc.totalWithdrawn}`);
+      });
       
       // Verify wallet was updated correctly
       const updatedWallet = await StarWallet.findOne({ starId: request.starId });
@@ -391,15 +438,8 @@ export const approveWithdrawalRequest = async (req, res) => {
         throw new Error('Failed to verify wallet update after withdrawal');
       }
       
-      console.log(`[ApproveWithdrawal] Request approved. Jackpot: ${updatedWallet.jackpot}, TotalWithdrawn: ${updatedWallet.totalWithdrawn}, Amount: ${request.amount}`);
+      console.log(`[ApproveWithdrawal] Request approved successfully. Jackpot: ${updatedWallet.jackpot}, TotalWithdrawn: ${updatedWallet.totalWithdrawn}, Amount: ${request.amount}`);
       
-      // Update request status to approved
-      request.status = 'approved';
-      request.approvedBy = req.user._id;
-      request.processedAt = new Date();
-      if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
-      await request.save();
-
       // Populate for response
       await request.populate('starId', 'name pseudo baroniId');
       await request.populate('approvedBy', 'name baroniId');
@@ -420,19 +460,30 @@ export const approveWithdrawalRequest = async (req, res) => {
         }
       });
     } catch (err) {
-      // Update request status to rejected due to processing error
-      request.status = 'rejected';
-      const errorMsg = err.message || 'Payment processing failed';
-      request.rejectionReason = `Payment failed - ${errorMsg}`;
-      request.rejectedBy = req.user._id;
-      request.processedAt = new Date();
-      request.metadata = { ...request.metadata, error: errorMsg };
-      await request.save();
+      console.error('[ApproveWithdrawal] Transaction error:', err);
+      
+      // Only update to rejected if transaction failed and request is still pending
+      // If transaction partially succeeded, we need to handle it carefully
+      if (request.status === 'pending') {
+        try {
+          request.status = 'rejected';
+          const errorMsg = err.message || 'Payment processing failed';
+          request.rejectionReason = `Payment failed - ${errorMsg}`;
+          request.rejectedBy = req.user._id;
+          request.processedAt = new Date();
+          request.metadata = { ...request.metadata, error: errorMsg };
+          await request.save();
+        } catch (saveErr) {
+          console.error('[ApproveWithdrawal] Error updating request status:', saveErr);
+        }
+      }
 
       return res.status(400).json({
         success: false,
-        message: 'Failed to process withdrawal: ' + errorMsg
+        message: 'Failed to process withdrawal: ' + (err.message || 'Unknown error')
       });
+    } finally {
+      await session.endSession();
     }
   } catch (err) {
     console.error('Error approving withdrawal request:', err);
@@ -657,22 +708,57 @@ export const getWithdrawalRequestDetails = async (req, res) => {
     // Get star wallet for current balance
     const wallet = await StarWallet.findOne({ starId: request.starId }).lean();
 
-    // Calculate commission
+    // Calculate commission based on admin commission configuration
     let commissionAmount = 0;
-    let netAmount = request.amount;
+    let netAmount = request.amount || 0;
     
-    try {
-      const countryCode = request.starId?.country;
-      const commissionRate = await getEffectiveCommission({ 
-        serviceType: 'videoCall',
-        countryCode 
-      });
-      const { commission, netAmount: net } = applyCommission(request.amount, commissionRate);
-      commissionAmount = commission;
-      netAmount = net;
-    } catch (err) {
-      commissionAmount = Math.round(request.amount * 0.1 * 100) / 100;
-      netAmount = Math.round((request.amount - commissionAmount) * 100) / 100;
+    // Ensure amount is a valid number
+    const grossAmount = Number(request.amount) || 0;
+    
+    if (grossAmount > 0) {
+      try {
+        const countryCode = request.starId?.country;
+        // Use videoCall service type for jackpot withdrawals (jackpot comes from all services)
+        // Admin config will provide country override, service default, or global default
+        const commissionRate = await getEffectiveCommission({ 
+          serviceType: 'videoCall',
+          countryCode 
+        });
+        
+        if (commissionRate && commissionRate > 0) {
+          const { commission, netAmount: net } = applyCommission(grossAmount, commissionRate);
+          commissionAmount = commission;
+          netAmount = net;
+        } else {
+          console.warn(`[GetWithdrawalRequestDetails] Invalid commission rate: ${commissionRate}, using fallback`);
+          // Fallback to global default
+          const CommissionConfig = (await import('../models/CommissionConfig.js')).default;
+          const cfg = await CommissionConfig.getSingleton();
+          const fallbackRate = cfg.globalDefault || 0.15;
+          const { commission, netAmount: net } = applyCommission(grossAmount, fallbackRate);
+          commissionAmount = commission;
+          netAmount = net;
+        }
+      } catch (err) {
+        console.error('Error calculating withdrawal commission:', err);
+        // Fallback: try to get global default from config
+        try {
+          const CommissionConfig = (await import('../models/CommissionConfig.js')).default;
+          const cfg = await CommissionConfig.getSingleton();
+          const fallbackRate = cfg.globalDefault || 0.15; // Use global default or 15% as last resort
+          const { commission, netAmount: net } = applyCommission(grossAmount, fallbackRate);
+          commissionAmount = commission;
+          netAmount = net;
+        } catch (fallbackErr) {
+          console.error('Error getting fallback commission rate:', fallbackErr);
+          // Last resort: use 15% (0.15) as default
+          const { commission, netAmount: net } = applyCommission(grossAmount, 0.15);
+          commissionAmount = commission;
+          netAmount = net;
+        }
+      }
+    } else {
+      console.warn(`[GetWithdrawalRequestDetails] Invalid or zero amount for request ${request._id}: ${request.amount}`);
     }
 
     // Map DB status to UI status

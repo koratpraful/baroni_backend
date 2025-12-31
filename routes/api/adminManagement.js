@@ -49,7 +49,8 @@ import {
   blockReportedUser,
   unblockReportedUser,
   deleteReport,
-  getReportedUsersStats
+  getReportedUsersStats,
+  getReportedUsersGrouped
 } from '../../controllers/reportedUsersManagement.js';
 import {
   getAllUsersValidator,
@@ -193,6 +194,9 @@ router.get('/stars/:starId/reviews', getStarReviewsValidator, getStarReviews);
 router.get('/reviews-stats', getReviewStatsValidator, getReviewStats);
 
 // ==================== REPORTED USERS MANAGEMENT ROUTES ====================
+
+// Get reported users grouped by user (for Reported Users screen)
+router.get('/reported-users-grouped', getAllReportedUsersValidator, getReportedUsersGrouped);
 
 // Get all reported users with filtering and search
 router.get('/reported-users', getAllReportedUsersValidator, getAllReportedUsers);

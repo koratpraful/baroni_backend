@@ -446,6 +446,9 @@ export const blockReportedUser = async (req, res) => {
     reportedUser.hidden = true;
     await reportedUser.save();
 
+    // Populate profession if exists
+    await reportedUser.populate('profession', 'name image');
+
     // Update report status
     report.status = 'resolved';
     report.adminNotes = `User blocked by admin. Reason: ${reason || 'Multiple reports'}`;
@@ -453,24 +456,54 @@ export const blockReportedUser = async (req, res) => {
     report.reviewedAt = new Date();
     await report.save();
 
+    // Build complete user response for FAN/STAR view
+    const userResponse = {
+      id: reportedUser._id,
+      baroniId: reportedUser.baroniId || null,
+      name: reportedUser.name || '',
+      pseudo: reportedUser.pseudo || '',
+      email: reportedUser.email || null,
+      contact: reportedUser.contact || null,
+      profilePic: reportedUser.profilePic || null,
+      role: reportedUser.role || 'fan',
+      country: reportedUser.country || null,
+      profession: reportedUser.profession ? {
+        id: reportedUser.profession._id || reportedUser.profession.id || null,
+        name: reportedUser.profession.name || ''
+      } : null,
+      about: reportedUser.about || null,
+      location: reportedUser.location || null,
+      availableForBookings: reportedUser.availableForBookings !== undefined ? reportedUser.availableForBookings : false,
+      hidden: reportedUser.hidden !== undefined ? reportedUser.hidden : true,
+      status: 'blocked',
+      isVerified: reportedUser.isVerified !== undefined ? reportedUser.isVerified : false,
+      coinBalance: reportedUser.coinBalance || 0,
+      createdAt: reportedUser.createdAt,
+      updatedAt: reportedUser.updatedAt || reportedUser.createdAt,
+      lastLoginAt: reportedUser.lastLoginAt || null
+    };
+
+    // Add star-specific fields if user is a star
+    if (reportedUser.role === 'star') {
+      userResponse.feature_star = reportedUser.feature_star !== undefined ? reportedUser.feature_star : false;
+      userResponse.isAddedInFeatureStar = Boolean(reportedUser.feature_star);
+      userResponse.averageRating = reportedUser.averageRating || 0;
+      userResponse.totalReviews = reportedUser.totalReviews || 0;
+      userResponse.introVideo = reportedUser.introVideo || null;
+    }
+
     return res.json({
       success: true,
       message: 'User blocked successfully',
       data: {
-        user: {
-          id: reportedUser._id,
-          name: reportedUser.name,
-          pseudo: reportedUser.pseudo,
-          status: 'blocked',
-          availableForBookings: reportedUser.availableForBookings,
-          hidden: reportedUser.hidden
-        },
+        user: userResponse,
         report: {
           id: report._id,
           status: report.status,
           adminNotes: report.adminNotes,
           reviewedAt: report.reviewedAt
-        }
+        },
+        reason: reason || null
       }
     });
 
@@ -521,6 +554,9 @@ export const unblockReportedUser = async (req, res) => {
     reportedUser.hidden = false;
     await reportedUser.save();
 
+    // Populate profession if exists
+    await reportedUser.populate('profession', 'name image');
+
     // Update report status
     report.status = 'resolved';
     report.adminNotes = `User unblocked by admin. Reason: ${reason || 'Investigation completed'}`;
@@ -528,24 +564,54 @@ export const unblockReportedUser = async (req, res) => {
     report.reviewedAt = new Date();
     await report.save();
 
+    // Build complete user response for FAN/STAR view
+    const userResponse = {
+      id: reportedUser._id,
+      baroniId: reportedUser.baroniId || null,
+      name: reportedUser.name || '',
+      pseudo: reportedUser.pseudo || '',
+      email: reportedUser.email || null,
+      contact: reportedUser.contact || null,
+      profilePic: reportedUser.profilePic || null,
+      role: reportedUser.role || 'fan',
+      country: reportedUser.country || null,
+      profession: reportedUser.profession ? {
+        id: reportedUser.profession._id || reportedUser.profession.id || null,
+        name: reportedUser.profession.name || ''
+      } : null,
+      about: reportedUser.about || null,
+      location: reportedUser.location || null,
+      availableForBookings: reportedUser.availableForBookings !== undefined ? reportedUser.availableForBookings : true,
+      hidden: reportedUser.hidden !== undefined ? reportedUser.hidden : false,
+      status: 'active',
+      isVerified: reportedUser.isVerified !== undefined ? reportedUser.isVerified : false,
+      coinBalance: reportedUser.coinBalance || 0,
+      createdAt: reportedUser.createdAt,
+      updatedAt: reportedUser.updatedAt || reportedUser.createdAt,
+      lastLoginAt: reportedUser.lastLoginAt || null
+    };
+
+    // Add star-specific fields if user is a star
+    if (reportedUser.role === 'star') {
+      userResponse.feature_star = reportedUser.feature_star !== undefined ? reportedUser.feature_star : false;
+      userResponse.isAddedInFeatureStar = Boolean(reportedUser.feature_star);
+      userResponse.averageRating = reportedUser.averageRating || 0;
+      userResponse.totalReviews = reportedUser.totalReviews || 0;
+      userResponse.introVideo = reportedUser.introVideo || null;
+    }
+
     return res.json({
       success: true,
       message: 'User unblocked successfully',
       data: {
-        user: {
-          id: reportedUser._id,
-          name: reportedUser.name,
-          pseudo: reportedUser.pseudo,
-          status: 'active',
-          availableForBookings: reportedUser.availableForBookings,
-          hidden: reportedUser.hidden
-        },
+        user: userResponse,
         report: {
           id: report._id,
           status: report.status,
           adminNotes: report.adminNotes,
           reviewedAt: report.reviewedAt
-        }
+        },
+        reason: reason || null
       }
     });
 
@@ -598,6 +664,241 @@ export const deleteReport = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to delete report'
+    });
+  }
+};
+
+// Get reported users grouped by user (for Reported Users screen)
+export const getReportedUsersGrouped = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      status = '',
+      reportedUserRole = '',
+      country = ''
+    } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build filter for reports
+    const reportFilter = {};
+
+    // Add search filter (search in reported user name or baroniId)
+    let reportedUserIds = [];
+    if (search) {
+      const searchRegex = { $regex: search, $options: 'i' };
+      reportedUserIds = await User.find({
+        $or: [
+          { name: searchRegex },
+          { pseudo: searchRegex },
+          { baroniId: searchRegex }
+        ],
+        isDeleted: { $ne: true }
+      }).distinct('_id');
+      
+      if (reportedUserIds.length > 0) {
+        reportFilter.reportedUserId = { $in: reportedUserIds };
+      } else {
+        // No users found matching search, return empty result
+        return res.json({
+          success: true,
+          message: 'Reported users retrieved successfully',
+          data: {
+            users: [],
+            pagination: {
+              page: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              pages: 0
+            },
+            filters: {
+              countries: [],
+              roles: ['star', 'fan'],
+              statuses: ['active', 'blocked']
+            }
+          }
+        });
+      }
+    }
+
+    // Add reported user role filter
+    if (reportedUserRole && reportedUserRole !== 'all') {
+      reportFilter.reportedUserRole = reportedUserRole;
+    }
+
+    // Get unique reported users with their report counts
+    const reportedUsersAgg = await ReportUser.aggregate([
+      { $match: reportFilter },
+      {
+        $group: {
+          _id: '$reportedUserId',
+          reportCount: { $sum: 1 },
+          latestReportDate: { $max: '$createdAt' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: '$user' },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'user.profession',
+          foreignField: '_id',
+          as: 'profession'
+        }
+      },
+      {
+        $unwind: {
+          path: '$profession',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $match: {
+          'user.isDeleted': { $ne: true },
+          ...(country && country !== 'all' ? { 'user.country': country } : {}),
+          ...(reportedUserRole && reportedUserRole !== 'all' ? { 'user.role': reportedUserRole } : {}),
+          ...(status && status !== 'all' ? (
+            status === 'active' 
+              ? { 'user.availableForBookings': true, 'user.hidden': { $ne: true } }
+              : { $or: [{ 'user.availableForBookings': false }, { 'user.hidden': true }] }
+          ) : {})
+        }
+      },
+      { $sort: { reportCount: -1, latestReportDate: -1 } },
+      { $skip: skip },
+      { $limit: parseInt(limit) }
+    ]);
+
+    // Get total count with same filters
+    const totalCountAgg = await ReportUser.aggregate([
+      { $match: reportFilter },
+      {
+        $group: {
+          _id: '$reportedUserId',
+          reportCount: { $sum: 1 }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: '$user' },
+      {
+        $match: {
+          'user.isDeleted': { $ne: true },
+          ...(country && country !== 'all' ? { 'user.country': country } : {}),
+          ...(reportedUserRole && reportedUserRole !== 'all' ? { 'user.role': reportedUserRole } : {}),
+          ...(status && status !== 'all' ? (
+            status === 'active' 
+              ? { 'user.availableForBookings': true, 'user.hidden': { $ne: true } }
+              : { $or: [{ 'user.availableForBookings': false }, { 'user.hidden': true }] }
+          ) : {})
+        }
+      }
+    ]);
+
+    const totalCount = totalCountAgg.length;
+
+    // Get unique countries for filter options (from reported users)
+    const countries = await ReportUser.aggregate([
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reportedUserId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: '$user' },
+      {
+        $match: {
+          'user.country': { $exists: true, $ne: null, $ne: '' },
+          'user.isDeleted': { $ne: true }
+        }
+      },
+      {
+        $group: {
+          _id: '$user.country'
+        }
+      }
+    ]);
+
+    const countryList = countries.map(c => c._id).sort();
+
+    // Format response
+    const users = reportedUsersAgg.map(item => {
+      const user = item.user;
+      const userStatus = (user.availableForBookings === true && user.hidden !== true) 
+        ? 'active' 
+        : 'blocked';
+
+      return {
+        id: user._id,
+        baroniId: user.baroniId || null,
+        name: user.name || '',
+        pseudo: user.pseudo || '',
+        profilePic: user.profilePic || null,
+        role: user.role || 'fan',
+        country: user.country || null,
+        contact: user.contact || null,
+        profession: item.profession ? {
+          id: item.profession._id || null,
+          name: item.profession.name || ''
+        } : null,
+        reportCount: item.reportCount,
+        status: userStatus,
+        availableForBookings: user.availableForBookings !== undefined ? user.availableForBookings : true,
+        hidden: user.hidden !== undefined ? user.hidden : false,
+        lastReportDate: item.latestReportDate
+      };
+    });
+
+    return res.json({
+      success: true,
+      message: 'Reported users retrieved successfully',
+      data: {
+        users,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: totalCount,
+          pages: Math.ceil(totalCount / parseInt(limit))
+        },
+        filters: {
+          countries: countryList,
+          roles: ['star', 'fan'],
+          statuses: ['active', 'blocked']
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('Get reported users grouped error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get reported users',
+      error: err.message
     });
   }
 };

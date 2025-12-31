@@ -54,17 +54,35 @@ export const adminResetPasswordValidator = [
     .withMessage('New password is required')
 ];
 
-// Admin Change Password Validator
+// Admin Change Credentials Validator (email and/or password)
 export const adminChangePasswordValidator = [
+  body('email')
+    .optional()
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+  
   body('currentPassword')
+    .optional()
     .notEmpty()
-    .withMessage('Current password is required'),
+    .withMessage('Current password cannot be empty'),
   
   body('newPassword')
+    .optional()
     .isLength({ min: 6 })
     .withMessage('New password must be at least 6 characters long')
     .notEmpty()
-    .withMessage('New password is required')
+    .withMessage('New password cannot be empty'),
+  
+  body('confirmPassword')
+    .optional()
+    .custom((value, { req }) => {
+      // If newPassword is provided, confirmPassword must match
+      if (req.body.newPassword && value !== req.body.newPassword) {
+        throw new Error('New password and confirm password do not match');
+      }
+      return true;
+    })
 ];
 
 // Create Admin Validator
