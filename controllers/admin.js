@@ -407,7 +407,7 @@ export const adminChangePassword = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Confirm password is required'
-        });
+      });
       }
       if (newPassword !== confirmPassword) {
         return res.status(400).json({
@@ -428,24 +428,24 @@ export const adminChangePassword = async (req, res) => {
 
     // If password is being changed, verify current password
     if (newPassword) {
-      if (!adminData.password) {
-        return res.status(400).json({
-          success: false,
-          message: 'Admin account not properly configured'
-        });
-      }
+    if (!adminData.password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin account not properly configured'
+      });
+    }
 
-      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, adminData.password);
-      if (!isCurrentPasswordValid) {
-        return res.status(400).json({
-          success: false,
-          message: 'Current password is incorrect'
-        });
-      }
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, adminData.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
 
-      // Hash new password
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(newPassword, salt);
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
       adminData.password = hashedPassword;
       adminData.sessionVersion = (adminData.sessionVersion || 0) + 1; // Invalidate existing sessions
     }
