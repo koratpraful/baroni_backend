@@ -1566,7 +1566,7 @@ export const updateStarStatus = async (req, res) => {
       data: {
         star: starResponse,
         user: starResponse, // Also include as 'user' for consistency
-        reason: reason || null
+          reason: reason || null
       }
     });
 

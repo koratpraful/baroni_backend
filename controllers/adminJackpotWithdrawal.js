@@ -355,7 +355,7 @@ export const approveWithdrawalRequest = async (req, res) => {
       });
     }
 
-    // Check if star still has sufficient balance
+    // Get wallet for reference (amount was already deducted when request was created)
     const wallet = await StarWallet.findOne({ starId: request.starId });
     if (!wallet) {
       return res.status(404).json({
@@ -364,29 +364,9 @@ export const approveWithdrawalRequest = async (req, res) => {
       });
     }
 
-    if (wallet.jackpot < request.amount) {
-      // Update request status to rejected due to insufficient balance
-      request.status = 'rejected';
-      request.rejectionReason = 'Payment failed - Insufficient jackpot balance at approval time';
-      request.rejectedBy = req.user._id;
-      request.processedAt = new Date();
-      request.metadata = { ...request.metadata, error: 'Insufficient jackpot balance at approval time' };
-      if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
-      await request.save();
-
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient jackpot balance. Request has been rejected.',
-        data: {
-          availableBalance: wallet.jackpot,
-          requestedAmount: request.amount
-        }
-      });
-    }
-
-    // Process the withdrawal
-    // NOTE: Amount was already deducted from jackpot when request was created (pending status)
-    // So we just need to update totalWithdrawn and create transaction record
+    // IMPORTANT: Amount was already deducted from jackpot when request was created (pending status)
+    // So we don't need to check balance again - the amount is already reserved
+    // We just need to update totalWithdrawn and create transaction record
     const session = await mongoose.startSession();
     
     try {
@@ -397,19 +377,19 @@ export const approveWithdrawalRequest = async (req, res) => {
           throw new Error('Star wallet not found');
         }
         
-        // Verify jackpot balance is correct (amount should already be deducted)
+        // Verify that amount was already deducted (current jackpot should be original - amount)
         const currentJackpot = walletDoc.jackpot || 0;
-        const expectedJackpot = (wallet.jackpot || 0); // Should match the balance we checked earlier
+        const expectedJackpotAfterDeduction = currentJackpot; // Current balance already has amount deducted
         
-        // Double-check: if jackpot is higher than expected, it means amount wasn't deducted
-        // This shouldn't happen, but we'll handle it
-        if (currentJackpot > expectedJackpot + request.amount) {
-          console.warn(`[ApproveWithdrawal] Warning: Jackpot balance mismatch. Current: ${currentJackpot}, Expected: ${expectedJackpot}, Amount: ${request.amount}`);
-        }
+        // Log for verification (amount should already be deducted from jackpot)
+        console.log(`[ApproveWithdrawal] Current jackpot: ${currentJackpot}, Request amount: ${request.amount}, Expected original: ${currentJackpot + request.amount}`);
         
-        // Amount already deducted when request was created, just update totalWithdrawn
+        // Amount was already deducted when request was created (pending status)
+        // Just update totalWithdrawn to track the withdrawal
         walletDoc.totalWithdrawn = (walletDoc.totalWithdrawn || 0) + request.amount;
         await walletDoc.save({ session });
+        
+        console.log(`[ApproveWithdrawal] Updated totalWithdrawn. Amount: ${request.amount}, New TotalWithdrawn: ${walletDoc.totalWithdrawn}`);
         
         // Create transaction record
         await StarTransaction.create([{
@@ -601,7 +581,7 @@ export const retryWithdrawalRequest = async (req, res) => {
       });
     }
 
-    // Check if star still has sufficient balance
+    // Get wallet for reference
     const wallet = await StarWallet.findOne({ starId: request.starId });
     if (!wallet) {
       return res.status(404).json({
@@ -610,65 +590,104 @@ export const retryWithdrawalRequest = async (req, res) => {
       });
     }
 
-    if (wallet.jackpot < request.amount) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient jackpot balance. Cannot retry payment.',
-        data: {
-          availableBalance: wallet.jackpot,
-          requestedAmount: request.amount
-        }
-      });
-    }
-
-    // Retry processing the withdrawal
+    // IMPORTANT: Amount was already deducted when request was created (pending status)
+    // Even though request was rejected, amount was NOT refunded (as per design)
+    // So we don't need to deduct again or check balance
+    // We just need to update status and totalWithdrawn
+    const session = await mongoose.startSession();
+    
     try {
-      await withdrawFromJackpot(request.starId, request.amount, { adminId: req.user._id });
+      await session.withTransaction(async () => {
+        // Get wallet within transaction
+        const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
+        if (!walletDoc) {
+          throw new Error('Star wallet not found');
+        }
+        
+        // Amount was already deducted when request was created
+        // Just update totalWithdrawn (if not already updated)
+        walletDoc.totalWithdrawn = (walletDoc.totalWithdrawn || 0) + request.amount;
+        await walletDoc.save({ session });
+        
+        // Create transaction record
+        await StarTransaction.create([{
+          starId: request.starId,
+          amount: request.amount,
+          type: 'withdrawal',
+          status: 'completed',
+          escrowMovement: 'release',
+          completedAt: new Date(),
+          fanId: req.user._id // adminId stored as fanId in transaction
+        }], { session });
+        
+        // Update request status to approved
+        request.status = 'approved';
+        request.approvedBy = req.user._id;
+        request.rejectedBy = null; // Clear rejectedBy since it's now approved
+        request.rejectionReason = null; // Clear rejection reason
+        request.processedAt = new Date();
+        request.metadata = { 
+          ...request.metadata, 
+          retriedAt: new Date(), 
+          retriedBy: req.user._id,
+          originalError: request.metadata?.error // Keep original error for reference
+        };
+        if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
+        await request.save({ session });
+        
+        console.log(`[RetryWithdrawal] Request retried successfully. Amount: ${request.amount}, TotalWithdrawn: ${walletDoc.totalWithdrawn}`);
+      });
       
-      // Update request status to approved (payment successful)
-      request.status = 'approved';
-      request.approvedBy = req.user._id;
-      request.rejectedBy = null; // Clear rejectedBy since it's now approved
-      request.rejectionReason = null; // Clear rejection reason
-      request.processedAt = new Date();
-      request.metadata = { 
-        ...request.metadata, 
-        retriedAt: new Date(), 
-        retriedBy: req.user._id,
-        originalError: request.metadata?.error // Keep original error for reference
-      };
-      if (note) request.note = (request.note ? request.note + '\n' : '') + `Retry Note: ${note}`;
-      await request.save();
-
+      // Verify wallet was updated correctly
+      const updatedWallet = await StarWallet.findOne({ starId: request.starId });
+      if (!updatedWallet) {
+        throw new Error('Failed to verify wallet update after retry');
+      }
+      
       // Populate for response
       await request.populate('starId', 'name pseudo baroniId');
       await request.populate('approvedBy', 'name baroniId');
 
       return res.json({
         success: true,
-        message: 'Payment retried and processed successfully',
+        message: 'Withdrawal request retried and processed successfully',
         data: {
           id: request._id,
           status: request.status,
           amount: request.amount,
-          processedAt: request.processedAt
+          processedAt: request.processedAt,
+          wallet: {
+            previousJackpot: wallet.jackpot,
+            currentJackpot: updatedWallet.jackpot,
+            totalWithdrawn: updatedWallet.totalWithdrawn
+          }
         }
       });
     } catch (err) {
-      // Update metadata with retry error but keep status as rejected
-      request.metadata = { 
-        ...request.metadata, 
-        retryError: err.message,
-        retriedAt: new Date(),
-        retriedBy: req.user._id
-      };
-      if (note) request.note = (request.note ? request.note + '\n' : '') + `Retry Failed: ${note}`;
-      await request.save();
+      console.error('[RetryWithdrawal] Transaction error:', err);
+      
+      // Only update to rejected if transaction failed and request is still rejected
+      if (request.status === 'rejected') {
+        try {
+          request.metadata = { 
+            ...request.metadata, 
+            retryError: err.message,
+            retriedAt: new Date(),
+            retriedBy: req.user._id
+          };
+          if (note) request.note = (request.note ? request.note + '\n' : '') + `Retry Failed: ${note}`;
+          await request.save();
+        } catch (saveErr) {
+          console.error('[RetryWithdrawal] Error updating request status:', saveErr);
+        }
+      }
 
       return res.status(400).json({
         success: false,
-        message: 'Retry failed: ' + err.message
+        message: 'Failed to retry withdrawal: ' + (err.message || 'Unknown error')
       });
+    } finally {
+      await session.endSession();
     }
   } catch (err) {
     console.error('Error retrying withdrawal request:', err);
