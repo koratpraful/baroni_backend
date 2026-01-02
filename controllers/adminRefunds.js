@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
+import Config from '../models/Config.js';
 import { refundTransaction } from '../services/transactionService.js';
 import { getEffectiveCommission, applyCommission } from '../utils/commissionHelper.js';
 import mongoose from 'mongoose';
@@ -22,16 +23,35 @@ export const getRefundMetrics = async (req, res) => {
     if (createdAt) match.createdAt = createdAt;
     if (service) match.type = service;
 
+    // Define refundable transaction types (service payments that can be refunded)
+    const refundableTypes = [
+      'appointment_payment',
+      'dedication_request_payment',
+      'live_show_attendance_payment',
+      'live_show_hosting_payment'
+    ];
+
+    // Build match conditions for refundable transactions only
+    const refundableMatch = {
+      ...match,
+      type: { $in: refundableTypes }
+    };
+
+    // Total Refunded: Only count refunded service transactions
     const totalRefundedAgg = await Transaction.aggregate([
-      { $match: { ...match, status: 'refunded' } },
+      { $match: { ...refundableMatch, status: 'refunded' } },
       { $group: { _id: null, amount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
+
+    // Failed Refunds: Only count failed service transactions (refundable ones)
     const failedAgg = await Transaction.aggregate([
-      { $match: { ...match, status: 'failed' } },
+      { $match: { ...refundableMatch, status: 'failed' } },
       { $group: { _id: null, amount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
+
+    // Pending Refunds: Count pending/initiated service transactions (these are pending payments that may need refunds)
     const pendingAgg = await Transaction.aggregate([
-      { $match: { ...match, status: { $in: ['pending', 'initiated'] } } },
+      { $match: { ...refundableMatch, status: { $in: ['pending', 'initiated'] } } },
       { $group: { _id: null, amount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
 
@@ -145,6 +165,11 @@ export const listRefundables = async (req, res) => {
       .limit(limit)
       .lean();
 
+    // Get video call slot duration from config once (outside the loop for efficiency)
+    const config = await Config.getSingleton();
+    const defaultSlotDurationMinutes = config.serviceLimits?.slotDuration || 10;
+    const defaultSlotDuration = `${defaultSlotDurationMinutes} min`;
+
     // Enrich transactions with service details, commission, and formatted data
     const enrichedItems = await Promise.all(transactions.map(async (txn) => {
       const payer = txn.payerId;
@@ -174,8 +199,10 @@ export const listRefundables = async (req, res) => {
               serviceDuration = getDurationFromTimeRange(slot.slot);
             }
           }
-          // Default to 15 min if not found
-          if (!serviceDuration) serviceDuration = '15 min';
+          // Default to config slot duration if not found
+          if (!serviceDuration) {
+            serviceDuration = defaultSlotDuration;
+          }
         }
       } else if (txn.type === 'dedication_request_payment') {
         serviceType = 'Dedication';
@@ -184,7 +211,7 @@ export const listRefundables = async (req, res) => {
           serviceId = `SRV-${dedication._id.toString().slice(-8).toUpperCase()}`;
           serviceDetails = dedication;
         }
-      } else if (txn.type === 'live_show_payment') {
+      } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
         serviceType = 'Live Show';
         const liveShow = await LiveShow.findOne({ transactionId: txn._id }).lean();
         if (liveShow) {
@@ -193,24 +220,41 @@ export const listRefundables = async (req, res) => {
         }
       }
       
-      // Calculate commission and net amount
+      // Calculate commission and net amount based on admin commission configuration
       let commissionAmount = 0;
       let netAmount = txn.amount;
       
-      if (txn.type === 'appointment_payment' || txn.type === 'dedication_request_payment' || txn.type === 'live_show_payment') {
+      if (txn.type === 'appointment_payment' || 
+          txn.type === 'dedication_request_payment' || 
+          txn.type === 'live_show_attendance_payment' || 
+          txn.type === 'live_show_hosting_payment') {
         try {
-          const serviceTypeKey = txn.type === 'appointment_payment' ? 'videoCall' : 
-                                 txn.type === 'dedication_request_payment' ? 'dedication' : 'liveShow';
+          // Map transaction type to service type key for commission calculation
+          let serviceTypeKey;
+          if (txn.type === 'appointment_payment') {
+            serviceTypeKey = 'videoCall';
+          } else if (txn.type === 'dedication_request_payment') {
+            serviceTypeKey = 'dedication';
+          } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
+            serviceTypeKey = 'liveShow';
+          }
+          
+          // Get country code from receiver or payer
           const countryCode = receiver?.country || payer?.country;
+          
+          // Get effective commission rate from admin configuration
           const commissionRate = await getEffectiveCommission({ 
             serviceType: serviceTypeKey, 
             countryCode 
           });
+          
+          // Calculate commission and net amount based on percentage
           const { commission, netAmount: net } = applyCommission(txn.amount, commissionRate);
           commissionAmount = commission;
           netAmount = net;
         } catch (err) {
           console.error('Error calculating commission:', err);
+          // If commission calculation fails, keep default values (0 commission, full amount as net)
         }
       }
       
@@ -243,7 +287,7 @@ export const listRefundables = async (req, res) => {
         } else if (txn.type === 'dedication_request_payment' && serviceDetails.eventDate) {
           // Format dedication event date
           scheduledDateTime = formatDate(serviceDetails.eventDate);
-        } else if (txn.type === 'live_show_payment' && serviceDetails.date) {
+        } else if ((txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') && serviceDetails.date) {
           // Format live show date
           scheduledDateTime = formatDate(serviceDetails.date);
         }

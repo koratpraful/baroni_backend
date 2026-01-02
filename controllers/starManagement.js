@@ -1525,19 +1525,48 @@ export const updateStarStatus = async (req, res) => {
 
     await star.save();
 
+    // Populate profession if exists
+    await star.populate('profession', 'name image');
+
+    // Build complete star response for FAN/STAR view
+    const starResponse = {
+      id: star._id,
+      baroniId: star.baroniId || null,
+      name: star.name || '',
+      pseudo: star.pseudo || '',
+      email: star.email || null,
+      contact: star.contact || null,
+      profilePic: star.profilePic || null,
+      role: star.role || 'star',
+      country: star.country || null,
+      profession: star.profession ? {
+        id: star.profession._id || star.profession.id || null,
+        name: star.profession.name || ''
+      } : null,
+      about: star.about || null,
+      location: star.location || null,
+      availableForBookings: star.availableForBookings !== undefined ? star.availableForBookings : true,
+      hidden: star.hidden !== undefined ? star.hidden : false,
+      status: (star.availableForBookings === true && star.hidden !== true) ? 'active' : 'blocked',
+      isVerified: star.isVerified !== undefined ? star.isVerified : false,
+      coinBalance: star.coinBalance || 0,
+      feature_star: star.feature_star !== undefined ? star.feature_star : false,
+      isAddedInFeatureStar: Boolean(star.feature_star),
+      averageRating: star.averageRating || 0,
+      totalReviews: star.totalReviews || 0,
+      introVideo: star.introVideo || null,
+      createdAt: star.createdAt,
+      updatedAt: star.updatedAt || star.createdAt,
+      lastLoginAt: star.lastLoginAt || null
+    };
+
     return res.json({
       success: true,
       message: `Star ${action}ed successfully`,
       data: {
-        star: {
-          id: star._id,
-          name: star.name,
-          pseudo: star.pseudo,
-          status: star.availableForBookings && !star.hidden ? 'active' : 'blocked',
-          availableForBookings: star.availableForBookings,
-          hidden: star.hidden,
+        star: starResponse,
+        user: starResponse, // Also include as 'user' for consistency
           reason: reason || null
-        }
       }
     });
 

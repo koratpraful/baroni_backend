@@ -368,7 +368,7 @@ export const adminResetUserPassword = async (req, res) => {
   }
 };
 
-// Admin Change Password (for logged-in admin)
+// Admin Change Credentials (for logged-in admin - can change email and/or password)
 export const adminChangePassword = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -385,13 +385,36 @@ export const adminChangePassword = async (req, res) => {
       });
     }
 
-    const { currentPassword, newPassword } = req.body;
+    const { email, currentPassword, newPassword, confirmPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
+    // At least one field must be provided
+    if (!email && !newPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Current password and new password are required'
+        message: 'Either email or new password must be provided'
       });
+    }
+
+    // If password is being changed, current password and confirm password are required
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Current password is required to change password'
+        });
+      }
+      if (!confirmPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Confirm password is required'
+      });
+      }
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'New password and confirm password do not match'
+        });
+      }
     }
 
     // Get fresh admin data
@@ -403,7 +426,8 @@ export const adminChangePassword = async (req, res) => {
       });
     }
 
-    // Verify current password
+    // If password is being changed, verify current password
+    if (newPassword) {
     if (!adminData.password) {
       return res.status(400).json({
         success: false,
@@ -422,21 +446,57 @@ export const adminChangePassword = async (req, res) => {
     // Hash new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
+      adminData.password = hashedPassword;
+      adminData.sessionVersion = (adminData.sessionVersion || 0) + 1; // Invalidate existing sessions
+    }
 
-    // Update password
-    adminData.password = hashedPassword;
+    // If email is being changed, check if it's already taken
+    if (email && email.toLowerCase() !== adminData.email?.toLowerCase()) {
+      const emailExists = await User.findOne({ 
+        email: email.toLowerCase(),
+        _id: { $ne: adminData._id },
+        isDeleted: { $ne: true }
+      });
+      
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is already in use by another account'
+        });
+      }
+      
+      adminData.email = email.toLowerCase();
+    }
+
     await adminData.save();
+
+    const updatedFields = [];
+    if (email) updatedFields.push('email');
+    if (newPassword) updatedFields.push('password');
 
     return res.json({
       success: true,
-      message: 'Password changed successfully'
+      message: `Credentials updated successfully. Changed: ${updatedFields.join(', ')}`,
+      data: {
+        email: adminData.email,
+        updatedFields
+      }
     });
 
   } catch (err) {
-    console.error('Admin change password error:', err);
+    console.error('Admin change credentials error:', err);
+    
+    // Handle duplicate email error
+    if (err.code === 11000 && err.keyPattern?.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is already in use by another account'
+      });
+    }
+    
     return res.status(500).json({
       success: false,
-      message: 'Failed to change password'
+      message: 'Failed to update credentials'
     });
   }
 };

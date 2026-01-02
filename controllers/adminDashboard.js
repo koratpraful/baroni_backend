@@ -83,7 +83,7 @@ export const getDashboardSummary = async (req, res) => {
       isDeleted: { $ne: true }
     });
 
-    // Device repartition
+    // Device repartition (all users with device type)
     const androidUsers = await User.countDocuments({
       deviceType: 'android',
       isDeleted: { $ne: true }
@@ -91,6 +91,13 @@ export const getDashboardSummary = async (req, res) => {
 
     const iosUsers = await User.countDocuments({
       deviceType: 'ios',
+      isDeleted: { $ne: true }
+    });
+
+    // Online users (logged in within last 15 minutes)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const onlineUsers = await User.countDocuments({
+      lastLoginAt: { $gte: fifteenMinutesAgo },
       isDeleted: { $ne: true }
     });
 
@@ -110,6 +117,7 @@ export const getDashboardSummary = async (req, res) => {
         newUsers,
         engagedFans,
         totalActiveUsers: activeUsers,
+        onlineUsers,
         deviceRepartition: {
           androidUsers: { count: androidUsers, change: 0 }, // You can calculate change
           iosUsers: { count: iosUsers, change: 0 }
@@ -234,19 +242,31 @@ export const getActiveUsersByCountry = async (req, res) => {
     const { period = 'current_month', limit = 10 } = req.query;
     const { startDate, endDate } = getDateRange(period);
 
+    // Get active user IDs first (users who made transactions in the period)
+    const activeUserIds = await Transaction.distinct('payerId', {
+      createdAt: { $gte: startDate, $lte: endDate }
+    });
+
+    // Build match condition for active users
+    const matchCondition = {
+      country: { $exists: true, $ne: null, $ne: '' },
+      isDeleted: { $ne: true }
+    };
+
+    // Add active user conditions
+    if (activeUserIds.length > 0) {
+      matchCondition.$or = [
+        { lastLoginAt: { $gte: startDate, $lte: endDate } },
+        { _id: { $in: activeUserIds } }
+      ];
+    } else {
+      matchCondition.lastLoginAt = { $gte: startDate, $lte: endDate };
+    }
+
     // Get active users by country
     const countryStats = await User.aggregate([
       {
-        $match: {
-          country: { $exists: true, $ne: null },
-          isDeleted: { $ne: true },
-          $or: [
-            { lastLoginAt: { $gte: startDate, $lte: endDate } },
-            { _id: { $in: await Transaction.distinct('payerId', {
-              createdAt: { $gte: startDate, $lte: endDate }
-            })}}
-          ]
-        }
+        $match: matchCondition
       },
       {
         $group: {
@@ -761,10 +781,18 @@ const getDashboardSummaryData = async (period) => {
     isDeleted: { $ne: true }
   });
 
+  // Online users (logged in within last 15 minutes)
+  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const onlineUsers = await User.countDocuments({
+    lastLoginAt: { $gte: fifteenMinutesAgo },
+    isDeleted: { $ne: true }
+  });
+
   return {
     newUsers,
     engagedFans,
     totalActiveUsers,
+    onlineUsers,
     deviceRepartition: {
       androidUsers: { count: androidUsers, change: 0 },
       iosUsers: { count: iosUsers, change: 0 }
@@ -814,12 +842,30 @@ const getRevenueInsightsData = async (period) => {
 const getActiveUsersByCountryData = async (period) => {
   const { startDate, endDate } = getDateRange(period);
   
+  // Get active user IDs first (users who made transactions in the period)
+  const activeUserIds = await Transaction.distinct('payerId', {
+    createdAt: { $gte: startDate, $lte: endDate }
+  });
+
+  // Build match condition for active users
+  const matchCondition = {
+    country: { $exists: true, $ne: null, $ne: '' },
+    isDeleted: { $ne: true }
+  };
+
+  // Add active user conditions
+  if (activeUserIds.length > 0) {
+    matchCondition.$or = [
+      { lastLoginAt: { $gte: startDate, $lte: endDate } },
+      { _id: { $in: activeUserIds } }
+    ];
+  } else {
+    matchCondition.lastLoginAt = { $gte: startDate, $lte: endDate };
+  }
+  
   const countryStats = await User.aggregate([
     {
-      $match: {
-        country: { $exists: true, $ne: null },
-        isDeleted: { $ne: true }
-      }
+      $match: matchCondition
     },
     {
       $group: {
@@ -1753,6 +1799,9 @@ export const getDashboardOverview = async (req, res) => {
       countryMatchCondition.lastLoginAt = { $gte: startDate, $lte: endDate };
     }
 
+    // Calculate online users (users logged in within last 15 minutes)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    
     // Execute all queries in parallel for better performance
     const [
       newUsers,
@@ -1760,6 +1809,7 @@ export const getDashboardOverview = async (req, res) => {
       engagedFans,
       previousEngagedFans,
       totalActiveUsers,
+      onlineUsers,
       revenueData,
       escrowData,
       serviceRevenue,
@@ -1797,6 +1847,11 @@ export const getDashboardOverview = async (req, res) => {
           { lastLoginAt: { $gte: startDate, $lte: endDate } },
           { _id: { $in: activeUserIds } }
         ],
+        isDeleted: { $ne: true }
+      }),
+      // Online Users (logged in within last 15 minutes)
+      User.countDocuments({
+        lastLoginAt: { $gte: fifteenMinutesAgo },
         isDeleted: { $ne: true }
       }),
       // Total Revenue
@@ -1867,13 +1922,12 @@ export const getDashboardOverview = async (req, res) => {
           $limit: 10
         }
       ]),
-      // Device Type Current
+      // Device Type Current (all users with device type, not filtered by date)
       User.aggregate([
         {
           $match: {
             deviceType: { $exists: true, $ne: null },
-            isDeleted: { $ne: true },
-            createdAt: { $lte: endDate }
+            isDeleted: { $ne: true }
           }
         },
         {
@@ -1883,7 +1937,7 @@ export const getDashboardOverview = async (req, res) => {
           }
         }
       ]),
-      // Device Type Previous
+      // Device Type Previous (all users with device type up to previous period end)
       User.aggregate([
         {
           $match: {
@@ -2107,6 +2161,7 @@ export const getDashboardOverview = async (req, res) => {
         // Active Users per Country
         activeUsersByCountry: {
           totalActiveUsers: totalActiveUsers,
+          onlineUsers: onlineUsers,
           countries: countryData.map(country => ({
             name: country._id,
             stars: country.stars,

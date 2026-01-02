@@ -1,5 +1,6 @@
 import Availability from '../models/Availability.js';
 import User from '../models/User.js';
+import Config from '../models/Config.js';
 import { convertLocalToUTC } from './timezoneHelper.js';
 
 /**
@@ -30,6 +31,11 @@ export const createDefaultDailySlots = async (userId) => {
 
         console.log(`[DefaultSlots] Creating default weekly slots for star ${userId}`);
 
+        // Get video call slot duration from config
+        const config = await Config.getSingleton();
+        const slotDurationMinutes = config.serviceLimits?.slotDuration || 10; // Default to 10 minutes if not set
+        console.log(`[DefaultSlots] Using slot duration: ${slotDurationMinutes} minutes from config`);
+
         // Helper function to calculate UTC times for a slot
         const calculateUTCTimes = (slotString, dateStr, country) => {
             try {
@@ -54,14 +60,31 @@ export const createDefaultDailySlots = async (userId) => {
             }
         };
 
-        // Generate 5 slots of 10 minutes each starting from 21:00
-        const slotStrings = [
-            '21:00 - 21:10',
-            '21:10 - 21:20',
-            '21:20 - 21:30',
-            '21:30 - 21:40',
-            '21:40 - 21:50'
-        ];
+        // Helper function to format time with leading zeros
+        const formatTime = (hours, minutes) => {
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        };
+
+        // Generate 5 slots based on config slotDuration starting from 21:00
+        const startHour = 21;
+        const startMinute = 0;
+        const slotStrings = [];
+        
+        for (let i = 0; i < 5; i++) {
+            const slotStartMinutes = startMinute + (i * slotDurationMinutes);
+            const slotStartHour = startHour + Math.floor(slotStartMinutes / 60);
+            const slotStartMin = slotStartMinutes % 60;
+            
+            const slotEndMinutes = slotStartMinutes + slotDurationMinutes;
+            const slotEndHour = startHour + Math.floor(slotEndMinutes / 60);
+            const slotEndMin = slotEndMinutes % 60;
+            
+            const slotStart = formatTime(slotStartHour, slotStartMin);
+            const slotEnd = formatTime(slotEndHour, slotEndMin);
+            slotStrings.push(`${slotStart} - ${slotEnd}`);
+        }
+        
+        console.log(`[DefaultSlots] Generated ${slotStrings.length} slots: ${slotStrings.join(', ')}`);
 
         // Get today's date in YYYY-MM-DD format based on star's country timezone
         const { getCountryTimezoneOffset } = await import('./timezoneHelper.js');

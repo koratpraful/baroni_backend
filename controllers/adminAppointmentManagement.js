@@ -4,9 +4,22 @@ import Availability from '../models/Availability.js';
 import Transaction from '../models/Transaction.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
+import Config from '../models/Config.js';
 import mongoose from 'mongoose';
 import { validationResult } from 'express-validator';
 import { getFirstValidationError } from '../utils/validationHelper.js';
+
+// Helper function to get video call slot duration from config
+const getVideoCallSlotDuration = async () => {
+  try {
+    const config = await Config.getSingleton();
+    const slotDurationMinutes = config.serviceLimits?.slotDuration || 10; // Default to 10 minutes if not set
+    return `${slotDurationMinutes} min`;
+  } catch (error) {
+    console.error('Error getting video call slot duration from config:', error);
+    return '10 min'; // Fallback default
+  }
+};
 
 // Get appointments with comprehensive admin filters
 /**
@@ -27,6 +40,9 @@ import { getFirstValidationError } from '../utils/validationHelper.js';
  */
 export const getAppointmentsWithFilters = async (req, res) => {
   try {
+    // Get video call slot duration from config
+    const defaultSlotDuration = await getVideoCallSlotDuration();
+    
     const {
       page,
       limit,
@@ -227,7 +243,7 @@ export const getAppointmentsWithFilters = async (req, res) => {
         user: userData,
         service: {
           type: 'Video Call',
-          duration: '15 min', // Default or from availability
+          duration: defaultSlotDuration, // From config serviceLimits.slotDuration
           price: appointment.price || 0
         },
         scheduledDateTime: scheduledDateTime,
@@ -568,6 +584,8 @@ export const cancelAppointment = async (req, res) => {
 // Get appointment details
 export const getAppointmentDetails = async (req, res) => {
   try {
+    // Get video call slot duration from config
+    const defaultSlotDuration = await getVideoCallSlotDuration();
     // Check validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -669,7 +687,7 @@ export const getAppointmentDetails = async (req, res) => {
           user: userData,
           service: {
             type: 'Video Call',
-            duration: '15 min',
+            duration: defaultSlotDuration, // From config serviceLimits.slotDuration
             price: appointment.price || 0
           },
           scheduledDateTime: scheduledDateTime,
