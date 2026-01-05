@@ -8,6 +8,7 @@ import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
 import Availability from '../models/Availability.js';
+import { getOrCreateStarWallet } from '../services/starWalletService.js';
 import mongoose from 'mongoose';
 
 // Helper function to get country flag emoji from country name or code
@@ -161,46 +162,57 @@ export const getStarProfile = async (req, res) => {
     // Get star's revenue and activity stats (based on period)
     const periodStartDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
 
-    // Revenue insights
-    const revenueStats = await Transaction.aggregate([
-      {
-        $match: {
-          receiverId: star._id,
-          status: 'completed',
-          createdAt: { $gte: periodStartDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalRevenue: { $sum: '$amount' },
-          escrowAmount: {
-            $sum: {
-              $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0]
-            }
+    // Revenue insights - get period-based revenue from transactions and current escrow from wallet
+    const [revenueStats, starWallet] = await Promise.all([
+      // Period-based total revenue from completed transactions
+      Transaction.aggregate([
+        {
+          $match: {
+            receiverId: star._id,
+            status: 'completed',
+            createdAt: { $gte: periodStartDate }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$amount' }
           }
         }
-      }
+      ]),
+      // Get current escrow balance from StarWallet
+      getOrCreateStarWallet(star._id)
     ]);
 
-    const revenue = revenueStats[0] || { totalRevenue: 0, escrowAmount: 0 };
+    const periodRevenue = revenueStats[0]?.totalRevenue || 0;
+    const currentEscrow = starWallet?.escrow || 0;
+    
+    const revenue = {
+      totalRevenue: periodRevenue,
+      escrowAmount: currentEscrow
+    };
 
-    // Activity overview (based on period)
+    // Activity overview (based on period) - count COMPLETED items
     const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
       Appointment.countDocuments({
         starId: star._id,
+        status: 'completed',
         createdAt: { $gte: periodStartDate }
       }),
       DedicationRequest.countDocuments({
         starId: star._id,
+        status: 'completed',
         createdAt: { $gte: periodStartDate }
       }),
       LiveShow.countDocuments({
         starId: star._id,
+        status: 'completed',
         createdAt: { $gte: periodStartDate }
       }),
+      // Engaged users: unique fans who have completed transactions with this star
       Transaction.distinct('payerId', {
         receiverId: star._id,
+        status: 'completed',
         createdAt: { $gte: periodStartDate }
       }).then(users => users.length)
     ]);

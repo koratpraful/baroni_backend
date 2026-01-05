@@ -691,7 +691,8 @@ export const getMyJoinedLiveShows = async (req, res) => {
 // Fan entertainment feed: merged joined events + joined live shows, sorted by time, with ads interleaved
 export const getEntertainmentFeed = async (req, res) => {
   try {
-    const fanId = req.user._id;
+    const userId = req.user._id;
+    const userRole = req.user.role;
 
     // Configurable ad interval (default 3)
     const cfg = await Config.getSingleton();
@@ -699,12 +700,27 @@ export const getEntertainmentFeed = async (req, res) => {
 
     const now = new Date();
 
-    // Joined live shows (only pending and in future)
-    const liveShows = await LiveShow.find({
-      attendees: fanId,
+    // Live shows query based on user role:
+    // - For stars: Show their own created live shows
+    // - For fans: Show all pending live shows (to discover and join)
+    // - Also include shows where user has joined (for both roles)
+    let liveShowFilter = {
       status: 'pending',
       date: { $gte: now }
-    })
+    };
+
+    if (userRole === 'star') {
+      // Stars see their own created shows OR shows they've joined
+      liveShowFilter.$or = [
+        { starId: userId },
+        { attendees: userId }
+      ];
+    } else {
+      // Fans see all pending shows (to discover) OR shows they've joined
+      // No additional filter needed - show all pending shows
+    }
+
+    const liveShows = await LiveShow.find(liveShowFilter)
       .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
       .sort({ date: 1 })
       .lean();

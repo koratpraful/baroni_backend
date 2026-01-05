@@ -602,8 +602,8 @@ export const retryWithdrawalRequest = async (req, res) => {
         const walletDoc = await StarWallet.findOne({ starId: request.starId }).session(session);
         if (!walletDoc) {
           throw new Error('Star wallet not found');
-        }
-        
+    }
+
         // Amount was already deducted when request was created
         // Just update totalWithdrawn (if not already updated)
         walletDoc.totalWithdrawn = (walletDoc.totalWithdrawn || 0) + request.amount;
@@ -619,19 +619,19 @@ export const retryWithdrawalRequest = async (req, res) => {
           completedAt: new Date(),
           fanId: req.user._id // adminId stored as fanId in transaction
         }], { session });
-        
+      
         // Update request status to approved
-        request.status = 'approved';
-        request.approvedBy = req.user._id;
-        request.rejectedBy = null; // Clear rejectedBy since it's now approved
-        request.rejectionReason = null; // Clear rejection reason
-        request.processedAt = new Date();
-        request.metadata = { 
-          ...request.metadata, 
-          retriedAt: new Date(), 
-          retriedBy: req.user._id,
-          originalError: request.metadata?.error // Keep original error for reference
-        };
+      request.status = 'approved';
+      request.approvedBy = req.user._id;
+      request.rejectedBy = null; // Clear rejectedBy since it's now approved
+      request.rejectionReason = null; // Clear rejection reason
+      request.processedAt = new Date();
+      request.metadata = { 
+        ...request.metadata, 
+        retriedAt: new Date(), 
+        retriedBy: req.user._id,
+        originalError: request.metadata?.error // Keep original error for reference
+      };
         if (note) request.note = (request.note ? request.note + '\n' : '') + `Admin Note: ${note}`;
         await request.save({ session });
         
@@ -643,7 +643,7 @@ export const retryWithdrawalRequest = async (req, res) => {
       if (!updatedWallet) {
         throw new Error('Failed to verify wallet update after retry');
       }
-      
+
       // Populate for response
       await request.populate('starId', 'name pseudo baroniId');
       await request.populate('approvedBy', 'name baroniId');
@@ -669,14 +669,14 @@ export const retryWithdrawalRequest = async (req, res) => {
       // Only update to rejected if transaction failed and request is still rejected
       if (request.status === 'rejected') {
         try {
-          request.metadata = { 
-            ...request.metadata, 
-            retryError: err.message,
-            retriedAt: new Date(),
-            retriedBy: req.user._id
-          };
-          if (note) request.note = (request.note ? request.note + '\n' : '') + `Retry Failed: ${note}`;
-          await request.save();
+      request.metadata = { 
+        ...request.metadata, 
+        retryError: err.message,
+        retriedAt: new Date(),
+        retriedBy: req.user._id
+      };
+      if (note) request.note = (request.note ? request.note + '\n' : '') + `Retry Failed: ${note}`;
+      await request.save();
         } catch (saveErr) {
           console.error('[RetryWithdrawal] Error updating request status:', saveErr);
         }
