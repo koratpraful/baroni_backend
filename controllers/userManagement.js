@@ -305,21 +305,27 @@ export const getUserDetails = async (req, res) => {
     if (user.role === 'star') {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
+      // Overview should count COMPLETED items, not all items
       const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
         Appointment.countDocuments({
           starId: user._id,
+          status: 'completed',
           createdAt: { $gte: thirtyDaysAgo }
         }),
         DedicationRequest.countDocuments({
           starId: user._id,
+          status: 'completed',
           createdAt: { $gte: thirtyDaysAgo }
         }),
         LiveShow.countDocuments({
           starId: user._id,
+          status: 'completed',
           createdAt: { $gte: thirtyDaysAgo }
         }),
+        // Engaged users: unique fans who have completed transactions with this star
         Transaction.distinct('payerId', {
           receiverId: user._id,
+          status: 'completed',
           createdAt: { $gte: thirtyDaysAgo }
         }).then(users => users.length)
       ]);
@@ -503,6 +509,13 @@ export const getUserDetails = async (req, res) => {
       return diffInMinutes <= 15;
     };
 
+    // Calculate status based on availableForBookings and hidden
+    // active: availableForBookings === true && hidden !== true
+    // blocked: availableForBookings === false || hidden === true
+    const userStatus = (user.availableForBookings === true && user.hidden !== true) 
+      ? 'active' 
+      : 'blocked';
+
     return res.json({
       success: true,
       message: 'User details retrieved successfully',
@@ -531,6 +544,7 @@ export const getUserDetails = async (req, res) => {
           availableForBookings: user.availableForBookings,
           appNotification: user.appNotification,
           hidden: user.hidden,
+          status: userStatus,
           fcmToken: user.fcmToken,
           apnsToken: user.apnsToken,
           voipToken: user.voipToken,
@@ -848,6 +862,13 @@ export const getManagementUserProfile = async (req, res) => {
       };
     }
 
+    // Calculate status based on availableForBookings and hidden
+    // active: availableForBookings === true && hidden !== true
+    // blocked: availableForBookings === false || hidden === true
+    const userStatus = (user.availableForBookings === true && user.hidden !== true) 
+      ? 'active' 
+      : 'blocked';
+
     return res.json({
       success: true,
       message: 'User profile retrieved successfully',
@@ -874,6 +895,7 @@ export const getManagementUserProfile = async (req, res) => {
           availableForBookings: user.availableForBookings,
           appNotification: user.appNotification,
           hidden: user.hidden,
+          status: userStatus,
           deviceType: user.deviceType,
           isDev: user.isDev,
           favorites: user.favorites,
@@ -995,11 +1017,13 @@ export const getManagementUserOverview = async (req, res) => {
     let fanCancelled = null;
 
     if (user.role === 'star') {
+      // Overview should count COMPLETED items, not all items
       const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
-        Appointment.countDocuments({ starId: user._id, createdAt: { $gte: since } }),
-        DedicationRequest.countDocuments({ starId: user._id, createdAt: { $gte: since } }),
-        LiveShow.countDocuments({ starId: user._id, createdAt: { $gte: since } }),
-        Transaction.distinct('payerId', { receiverId: user._id, createdAt: { $gte: since } }).then(u => u.length)
+        Appointment.countDocuments({ starId: user._id, status: 'completed', createdAt: { $gte: since } }),
+        DedicationRequest.countDocuments({ starId: user._id, status: 'completed', createdAt: { $gte: since } }),
+        LiveShow.countDocuments({ starId: user._id, status: 'completed', createdAt: { $gte: since } }),
+        // Engaged users: unique fans who have completed transactions with this star
+        Transaction.distinct('payerId', { receiverId: user._id, status: 'completed', createdAt: { $gte: since } }).then(u => u.length)
       ]);
 
       const [

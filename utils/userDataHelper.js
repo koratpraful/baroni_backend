@@ -159,6 +159,13 @@ export const formatProfession = (profession) => {
 export const createSanitizedUserResponse = (user) => {
   const sanitized = sanitizeUserData(user);
   
+  // Calculate status based on availableForBookings and hidden
+  // active: availableForBookings === true && hidden !== true
+  // blocked: availableForBookings === false || hidden === true
+  const status = (sanitized.availableForBookings === true && sanitized.hidden !== true) 
+    ? 'active' 
+    : 'blocked';
+  
   return {
     id: sanitized._id || sanitized.id,
     baroniId: sanitized.baroniId,
@@ -177,6 +184,7 @@ export const createSanitizedUserResponse = (user) => {
     availableForBookings: sanitized.availableForBookings,
     appNotification: sanitized.appNotification,
     hidden: sanitized.hidden,
+    status: status,
     feature_star: sanitized.feature_star,
     coinBalance: sanitized.coinBalance,
     agoraKey: sanitized.agoraKey,
