@@ -144,9 +144,10 @@ export const listRefundables = async (req, res) => {
     // Filter by type (manual/auto) - this would need a field in Transaction model
     // For now, we'll skip this filter as it's not in the model
     
-    const createdAt = parseRange(from, to);
-    if (createdAt) match.createdAt = createdAt;
-
+    // Date filtering: Use service date (appointment date) instead of transaction createdAt
+    // This ensures cancelled appointments show based on their scheduled date, not cancellation date
+    const dateRange = parseRange(from, to);
+    
     // Search by payer/receiver name or pseudo or baroniId
     let userIds = [];
     if (q) {
@@ -156,14 +157,234 @@ export const listRefundables = async (req, res) => {
       match.$or = [{ payerId: { $in: userIds } }, { receiverId: { $in: userIds } }];
     }
 
-    const total = await Transaction.countDocuments(match);
-    const transactions = await Transaction.find(match)
-      .populate('payerId', 'name pseudo profilePic baroniId role isVerified profession country')
-      .populate('receiverId', 'name pseudo profilePic baroniId role isVerified profession country')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
+    // Use aggregation to filter by service date (appointment date) instead of transaction createdAt
+    const aggregationPipeline = [
+      { $match: match },
+      // Lookup appointments for appointment_payment transactions
+      {
+        $lookup: {
+          from: 'appointments',
+          localField: '_id',
+          foreignField: 'transactionId',
+          as: 'appointment'
+        }
+      },
+      // Lookup dedication requests
+      {
+        $lookup: {
+          from: 'dedicationrequests',
+          localField: '_id',
+          foreignField: 'transactionId',
+          as: 'dedication'
+        }
+      },
+      // Lookup live shows
+      {
+        $lookup: {
+          from: 'liveshows',
+          localField: '_id',
+          foreignField: 'transactionId',
+          as: 'liveshow'
+        }
+      },
+      // Add service date field based on transaction type
+      {
+        $addFields: {
+          serviceDate: {
+            $cond: {
+              if: { $eq: ['$type', 'appointment_payment'] },
+              then: { $arrayElemAt: ['$appointment.date', 0] },
+              else: {
+                $cond: {
+                  if: { $eq: ['$type', 'dedication_request_payment'] },
+                  then: {
+                    $dateToString: {
+                      format: '%Y-%m-%d',
+                      date: { $arrayElemAt: ['$dedication.eventDate', 0] }
+                    }
+                  },
+                  else: {
+                    $cond: {
+                      if: { $in: ['$type', ['live_show_attendance_payment', 'live_show_hosting_payment']] },
+                      then: {
+                        $dateToString: {
+                          format: '%Y-%m-%d',
+                          date: { $arrayElemAt: ['$liveshow.date', 0] }
+                        }
+                      },
+                      else: {
+                        // Fallback to transaction createdAt date if no service date
+                        $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ];
+
+    // Apply date filter on service date if date range is provided
+    // IMPORTANT: Filter by service date (appointment date) not transaction createdAt
+    // This ensures cancelled appointments show based on scheduled date, not cancellation date
+    if (dateRange || from || to) {
+      // Convert date range to YYYY-MM-DD format for string comparison (appointment.date is string)
+      const fromDateStr = from ? new Date(from).toISOString().split('T')[0] : null;
+      const toDateStr = to ? new Date(to).toISOString().split('T')[0] : null;
+      
+      const dateFilter = {};
+      if (fromDateStr && toDateStr && fromDateStr === toDateStr) {
+        // Single date filter - exact match
+        dateFilter.$eq = fromDateStr;
+      } else {
+        // Date range filter
+        if (fromDateStr) {
+          dateFilter.$gte = fromDateStr;
+        }
+        if (toDateStr) {
+          dateFilter.$lte = toDateStr;
+        }
+      }
+      
+      if (Object.keys(dateFilter).length > 0) {
+        aggregationPipeline.push({
+          $match: {
+            serviceDate: dateFilter
+          }
+        });
+      }
+    }
+
+    // Add sorting, pagination, and population
+    aggregationPipeline.push(
+      { $sort: { createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      // Lookup payer
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'payerId',
+          foreignField: '_id',
+          as: 'payerId'
+        }
+      },
+      { $unwind: { path: '$payerId', preserveNullAndEmptyArrays: true } },
+      // Lookup receiver
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'receiverId',
+          foreignField: '_id',
+          as: 'receiverId'
+        }
+      },
+      { $unwind: { path: '$receiverId', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Get total count with date filter
+    const countPipeline = [
+      { $match: match },
+      {
+        $lookup: {
+          from: 'appointments',
+          localField: '_id',
+          foreignField: 'transactionId',
+          as: 'appointment'
+        }
+      },
+      {
+        $lookup: {
+          from: 'dedicationrequests',
+          localField: '_id',
+          foreignField: 'transactionId',
+          as: 'dedication'
+        }
+      },
+      {
+        $lookup: {
+          from: 'liveshows',
+          localField: '_id',
+          foreignField: 'transactionId',
+          as: 'liveshow'
+        }
+      },
+      {
+        $addFields: {
+          serviceDate: {
+            $cond: {
+              if: { $eq: ['$type', 'appointment_payment'] },
+              then: { $arrayElemAt: ['$appointment.date', 0] },
+              else: {
+                $cond: {
+                  if: { $eq: ['$type', 'dedication_request_payment'] },
+                  then: {
+                    $dateToString: {
+                      format: '%Y-%m-%d',
+                      date: { $arrayElemAt: ['$dedication.eventDate', 0] }
+                    }
+                  },
+                  else: {
+                    $cond: {
+                      if: { $in: ['$type', ['live_show_attendance_payment', 'live_show_hosting_payment']] },
+                      then: {
+                        $dateToString: {
+                          format: '%Y-%m-%d',
+                          date: { $arrayElemAt: ['$liveshow.date', 0] }
+                        }
+                      },
+                      else: {
+                        $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ];
+
+    // Apply same date filter to count pipeline
+    if (dateRange || from || to) {
+      const fromDateStr = from ? new Date(from).toISOString().split('T')[0] : null;
+      const toDateStr = to ? new Date(to).toISOString().split('T')[0] : null;
+      
+      const dateFilter = {};
+      if (fromDateStr && toDateStr && fromDateStr === toDateStr) {
+        // Single date filter - exact match
+        dateFilter.$eq = fromDateStr;
+      } else {
+        // Date range filter
+        if (fromDateStr) {
+          dateFilter.$gte = fromDateStr;
+        }
+        if (toDateStr) {
+          dateFilter.$lte = toDateStr;
+        }
+      }
+      
+      if (Object.keys(dateFilter).length > 0) {
+        countPipeline.push({
+          $match: {
+            serviceDate: dateFilter
+          }
+        });
+      }
+    }
+
+    countPipeline.push({ $count: 'total' });
+
+    const [transactionsResult, totalResult] = await Promise.all([
+      Transaction.aggregate(aggregationPipeline),
+      Transaction.aggregate(countPipeline)
+    ]);
+
+    const transactions = transactionsResult;
+    const total = totalResult[0]?.total || 0;
 
     // Get video call slot duration from config once (outside the loop for efficiency)
     const config = await Config.getSingleton();
@@ -183,10 +404,22 @@ export const listRefundables = async (req, res) => {
       
       if (txn.type === 'appointment_payment') {
         serviceType = 'Video Call';
-        // Get appointment details
-        const appointment = await Appointment.findOne({ transactionId: txn._id })
-          .populate('availabilityId')
-          .lean();
+        // Get appointment details - use from aggregation if available, otherwise query
+        let appointment = null;
+        if (txn.appointment && txn.appointment.length > 0) {
+          appointment = txn.appointment[0];
+          // Populate availabilityId if needed
+          if (appointment.availabilityId && typeof appointment.availabilityId === 'object') {
+            // Already populated
+          } else if (appointment.availabilityId) {
+            const Availability = (await import('../models/Availability.js')).default;
+            appointment.availabilityId = await Availability.findById(appointment.availabilityId).lean();
+          }
+        } else {
+          appointment = await Appointment.findOne({ transactionId: txn._id })
+            .populate('availabilityId')
+            .lean();
+        }
         if (appointment) {
           serviceId = `SRV-${appointment._id.toString().slice(-8).toUpperCase()}`;
           serviceDetails = appointment;
@@ -206,14 +439,26 @@ export const listRefundables = async (req, res) => {
         }
       } else if (txn.type === 'dedication_request_payment') {
         serviceType = 'Dedication';
-        const dedication = await DedicationRequest.findOne({ transactionId: txn._id }).lean();
+        // Use from aggregation if available
+        let dedication = null;
+        if (txn.dedication && txn.dedication.length > 0) {
+          dedication = txn.dedication[0];
+        } else {
+          dedication = await DedicationRequest.findOne({ transactionId: txn._id }).lean();
+        }
         if (dedication) {
           serviceId = `SRV-${dedication._id.toString().slice(-8).toUpperCase()}`;
           serviceDetails = dedication;
         }
       } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
         serviceType = 'Live Show';
-        const liveShow = await LiveShow.findOne({ transactionId: txn._id }).lean();
+        // Use from aggregation if available
+        let liveShow = null;
+        if (txn.liveshow && txn.liveshow.length > 0) {
+          liveShow = txn.liveshow[0];
+        } else {
+          liveShow = await LiveShow.findOne({ transactionId: txn._id }).lean();
+        }
         if (liveShow) {
           serviceId = `SRV-${liveShow._id.toString().slice(-8).toUpperCase()}`;
           serviceDetails = liveShow;
