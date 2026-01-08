@@ -160,16 +160,28 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
     
     if (response.data) {
       console.log(`[AgoraRecording] Stopped recording - SID: ${sid}, Resource ID: ${resourceId}, Channel: ${channelName}`);
+      console.log(`[AgoraRecording] Stop response data:`, JSON.stringify(response.data, null, 2));
       
-      // Agora response structure: response.data.serverResponse.fileList
-      const fileList = response.data.serverResponse?.fileList || response.data.serverResponse?.file_list || [];
+      // Agora response structure: response.data.serverResponse.fileList or response.data.fileList
+      const fileList = response.data.serverResponse?.fileList || 
+                       response.data.serverResponse?.file_list || 
+                       response.data.fileList || 
+                       response.data.file_list || 
+                       [];
+      
+      console.log(`[AgoraRecording] Extracted file list:`, JSON.stringify(fileList, null, 2));
+      console.log(`[AgoraRecording] Number of files: ${Array.isArray(fileList) ? fileList.length : 0}`);
       
       return {
         success: true,
         serverResponse: response.data,
         // Extract file information from response
         files: Array.isArray(fileList) ? fileList : [],
-        uploadStatus: response.data.serverResponse?.uploadingStatus || response.data.serverResponse?.uploading_status || null
+        uploadStatus: response.data.serverResponse?.uploadingStatus || 
+                     response.data.serverResponse?.uploading_status || 
+                     response.data.uploadingStatus || 
+                     response.data.uploading_status || 
+                     null
       };
     }
 
