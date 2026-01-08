@@ -938,13 +938,34 @@ export const getStarById = async (req, res) => {
             });
         }
 
-        // fetch star basic info with details check
-        const star = await User.findOne({
-            _id: id,
-            role: "star"}).populate('profession', 'name image').select(
-            "-password -passwordResetToken -passwordResetExpires"
-        );
+        // Get star's country for timezone-aware date calculation (needed early for availability query)
+        // Import timezone helper dynamically
+        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
 
+        // Fetch star basic info and all related data in parallel for better performance
+        const starQuery = User.findOne({
+            _id: id,
+            role: "star"
+        })
+        .populate('profession', 'name image')
+        .select("-password -passwordResetToken -passwordResetExpires")
+        .lean();
+
+        // Prepare parallel queries
+        const parallelQueries = [starQuery];
+
+        // Helper function to get current date in star's country timezone (will be set after star is fetched)
+        let getCurrentDateString = () => {
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // Execute star query first to get country for availability query
+        const star = await starQuery;
+        
         if (!star) {
             return res.status(404).json({
                 success: false,
@@ -952,102 +973,64 @@ export const getStarById = async (req, res) => {
             });
         }
 
-        // Increment profile impressions count for this star
-        await User.findByIdAndUpdate(id, { $inc: { profileImpressions: 1 } });
+        const starCountry = star.country || null;
+        
+        // Update getCurrentDateString with star's timezone
+        getCurrentDateString = () => {
+            const offsetHours = getCountryTimezoneOffset(starCountry);
+            const offsetMs = offsetHours * 60 * 60 * 1000;
+            const now = new Date();
+            const localTime = new Date(now.getTime() + offsetMs);
+            const year = localTime.getUTCFullYear();
+            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(localTime.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // Increment profile impressions count (non-blocking - fire and forget)
+        User.findByIdAndUpdate(id, { $inc: { profileImpressions: 1 } }).catch(err => 
+            console.error('Error updating profile impressions:', err)
+        );
 
         // Check if user is authenticated to add favorite/liked status
         let starData = sanitizeUserData(star);
 
-        if (req.user) {
-            // Check if the star is in user's favorites
-            starData.isLiked = Array.isArray(req.user.favorites) && req.user.favorites.map(String).includes(String(id));
-
-            // Additional fan-specific checks
-            if (req.user.role === 'fan') {
-                const [hasApprovedAppointment, hasApprovedDedication] = await Promise.all([
+        // Prepare all parallel queries
+        const [
+            // User-specific queries (only if authenticated)
+            userSpecificData,
+            // Core data queries
+            dedications,
+            services,
+            dedicationSamples,
+            availability,
+            upcomingShows,
+            ratingAgg,
+            latestReviews,
+            hasAvailableTimeSlots
+        ] = await Promise.all([
+            // User-specific data (appointments, dedications, conversation)
+            req.user ? Promise.all([
+                // Check if the star is in user's favorites (synchronous check)
+                Promise.resolve(Array.isArray(req.user.favorites) && req.user.favorites.map(String).includes(String(id))),
+                // Fan-specific checks
+                req.user.role === 'fan' ? Promise.all([
                     Appointment.exists({ starId: id, fanId: req.user._id, status: 'approved' }),
                     DedicationRequest.exists({ starId: id, fanId: req.user._id, status: 'approved' })
-                ]);
-                
-                starData.isMessage = Boolean(hasApprovedAppointment || hasApprovedDedication);
-            } else {
-                starData.isMessage = false;
-            }
-        } else {
-            // For unauthenticated users, set isLiked to false
-            starData.isLiked = false;
-            starData.isMessage = false;
-        }
-
-        // Check if star has available time slots and update availableForBookings accordingly
-        const hasAvailableTimeSlots = await Availability.findOne({
-            userId: id,
-            'timeSlots.status': 'available'
-        });
-
-        // Update availableForBookings logic based on time slot availability
-        if (starData.availableForBookings === true) {
-            // If availableForBookings is true, check if there are available time slots
-            starData.availableForBookings = hasAvailableTimeSlots ? true : false;
-        } else {
-            // If availableForBookings is false, keep it false
-            starData.availableForBookings = false;
-        }
-
-        // ---- Conversation fetch ----
-        let conversation = null;
-        if (req.user) {
-            conversation = await Conversation.findOne({
-                participants: { $all: [id, req.user._id] }
-            }).populate("participants", "name profilePic role");
-        }
-
-        // Get star's country for timezone-aware date calculation
-        const starCountry = star.country || null;
-        
-        // Import timezone helper dynamically
-        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
-
-        // Helper function to get current date in star's country timezone (YYYY-MM-DD format)
-        function getCurrentDateString() {
-            // Get timezone offset for star's country (defaults to UTC if no country)
-            const offsetHours = getCountryTimezoneOffset(starCountry);
-            const offsetMs = offsetHours * 60 * 60 * 1000;
-            
-            // Get current UTC time
-            const now = new Date();
-            
-            // Convert to star's local time
-            const localTime = new Date(now.getTime() + offsetMs);
-            
-            // Format as YYYY-MM-DD
-            const year = localTime.getUTCFullYear();
-            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(localTime.getUTCDate()).padStart(2, '0');
-
-            return `${year}-${month}-${day}`;
-        }
-
-        // Helper function to get current time in star's country timezone as Date object
-        function getCurrentLocalTime() {
-            const offsetHours = getCountryTimezoneOffset(starCountry);
-            const offsetMs = offsetHours * 60 * 60 * 1000;
-            const now = new Date();
-            const localTime = new Date(now.getTime() + offsetMs);
-            
-            console.log(`Current local time for star country "${starCountry}" (offset: ${offsetHours}h): ${localTime.toISOString()}`);
-            return localTime;
-        }
-
-        // fetch related data including upcoming live shows
-        const [dedications, services, dedicationSamples, availability, upcomingShows] = await Promise.all([
-            Dedication.find({ userId: id }),
-            Service.find({ userId: id }),
-            DedicationSample.find({ userId: id }),
+                ]) : Promise.resolve([false, false]),
+                // Conversation fetch
+                Conversation.findOne({
+                    participants: { $all: [id, req.user._id] }
+                }).populate("participants", "name profilePic role").lean()
+            ]) : Promise.resolve([false, [false, false], null]),
+            // Core data - all in parallel
+            Dedication.find({ userId: id }).lean(),
+            Service.find({ userId: id }).lean(),
+            DedicationSample.find({ userId: id }).lean(),
             Availability.find({
                 userId: id,
-                date: { $gte: getCurrentDateString() } // Only current and future availabilities (YYYY-MM-DD format)
-            }).sort({ date: 1 }),
+                date: { $gte: getCurrentDateString() }
+            }).sort({ date: 1 }).lean(),
             LiveShow.find({
                 starId: id,
                 date: { $gt: new Date() },
@@ -1055,36 +1038,69 @@ export const getStarById = async (req, res) => {
             })
                 .sort({ date: 1 })
                 .limit(10)
+                .lean(),
+            // Rating aggregation
+            Review.aggregate([
+                { $match: { starId: new mongoose.Types.ObjectId(id) } },
+                { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
+            ]),
+            // Latest reviews
+            Review.find({ 
+                starId: id,
+                isVisible: true
+            })
+                .populate('reviewerId', 'name pseudo profilePic agoraKey')
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .lean(),
+            // Check available time slots
+            Availability.findOne({
+                userId: id,
+                'timeSlots.status': 'available'
+            }).lean()
         ]);
 
-        // compute average rating and total reviews for the star
-        const ratingAgg = await Review.aggregate([
-            { $match: { starId: new mongoose.Types.ObjectId(id) } },
-            { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
-        ]);
+        // Process user-specific data
+        if (req.user) {
+            const [isLiked, appointmentData, conversation] = userSpecificData;
+            starData.isLiked = isLiked;
+            
+            if (req.user.role === 'fan') {
+                const [hasApprovedAppointment, hasApprovedDedication] = appointmentData;
+                starData.isMessage = Boolean(hasApprovedAppointment || hasApprovedDedication);
+            } else {
+                starData.isMessage = false;
+            }
+        } else {
+            starData.isLiked = false;
+            starData.isMessage = false;
+        }
+
+        // Update availableForBookings logic based on time slot availability
+        if (starData.availableForBookings === true) {
+            starData.availableForBookings = hasAvailableTimeSlots ? true : false;
+        } else {
+            starData.availableForBookings = false;
+        }
+
+        // Process rating data
         const avg = ratingAgg && ratingAgg.length ? Math.round((ratingAgg[0].avg || 0) * 10) / 10 : 0;
         const count = ratingAgg && ratingAgg.length ? ratingAgg[0].count : 0;
         starData.averageRating = avg;
         starData.totalReviews = count;
 
-        // fetch latest 5 reviews for this star (only visible ones)
-        const latestReviews = await Review.find({ 
-            starId: id,
-            isVisible: true // Only show visible reviews to users
-        })
-            .populate('reviewerId', 'name pseudo profilePic agoraKey')
-            .sort({ createdAt: -1 })
-            .limit(5);
+        // Get conversation from user-specific data
+        const conversation = req.user ? userSpecificData[2] : null;
 
-        // Build unified allservices array (dedications + services)
+        // Build unified allservices array (dedications + services) - using lean() data
         const allservices = [
-            ...dedications.map(d => ({ ...d.toObject(), itemType: 'dedication' })),
-            ...services.map(s => ({ ...s.toObject(), itemType: 'service' }))
+            ...dedications.map(d => ({ ...d, itemType: 'dedication' })),
+            ...services.map(s => ({ ...s, itemType: 'service' }))
         ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        // Add isLiked field to each upcoming show
+        // Add isLiked field to each upcoming show (using lean() data)
         const upcomingShowsWithLikeStatus = upcomingShows.map(show => {
-            const showData = show.toObject();
+            const showData = { ...show };
             if (req.user) {
                 // Check if the current user has liked this show
                 showData.isLiked = Array.isArray(show.likes) && show.likes.some(likeId =>
@@ -1112,11 +1128,11 @@ export const getStarById = async (req, res) => {
             }
         }
 
-        // Merge availabilities by date (combine daily and weekly slots for same date)
+        // Merge availabilities by date (combine daily and weekly slots for same date) - using lean() data
         const mergedByDate = new Map();
         
         availability.forEach(item => {
-            const doc = typeof item.toObject === 'function' ? item.toObject() : item;
+            const doc = item; // Already plain object from lean()
             const dateKey = doc.date;
             
             if (!mergedByDate.has(dateKey)) {
