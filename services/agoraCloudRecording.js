@@ -4,7 +4,8 @@ import axios from 'axios';
 const AGORA_APP_ID = process.env.AGORA_APP_ID;
 const AGORA_CUSTOMER_ID = process.env.AGORA_CUSTOMER_ID;
 const AGORA_CUSTOMER_SECRET = process.env.AGORA_CUSTOMER_SECRET;
-const AGORA_RECORDING_UID = process.env.AGORA_RECORDING_UID || '999999'; // Default recording UID
+// Recording UID must be an integer (not string) as per Agora documentation
+const AGORA_RECORDING_UID = parseInt(process.env.AGORA_RECORDING_UID || '999999', 10); // Default recording UID (integer)
 const AGORA_STORAGE_VENDOR = process.env.AGORA_STORAGE_VENDOR || 0; // 0 = Qiniu, 1 = AWS, 2 = Alibaba Cloud, 3 = Tencent Cloud, 4 = Kingsoft Cloud, 5 = Microsoft Azure, 6 = Google Cloud, 7 = Huawei Cloud
 const AGORA_STORAGE_REGION = process.env.AGORA_STORAGE_REGION || 0;
 const AGORA_STORAGE_BUCKET = process.env.AGORA_STORAGE_BUCKET || '';
@@ -36,7 +37,7 @@ export const acquireResource = async (channelName) => {
     const url = `${AGORA_API_BASE_URL}/${AGORA_APP_ID}/cloud_recording/acquire`;
     const payload = {
       cname: channelName,
-      uid: AGORA_RECORDING_UID,
+      uid: String(AGORA_RECORDING_UID), // Agora API expects string but must be integer value
       clientRequest: {
         resourceExpiredHour: 24
       }
@@ -83,22 +84,22 @@ export const startRecording = async (resourceId, channelName, mode = 'mix') => {
     
     const payload = {
       cname: channelName,
-      uid: AGORA_RECORDING_UID,
+      uid: String(AGORA_RECORDING_UID), // Agora API expects string but must be integer value (32-bit unsigned integer)
       clientRequest: {
         token: "", // Empty token if channel doesn't require token
         recordingConfig: {
           channelType: 0, // 0 = Communication, 1 = Live Broadcast
           streamTypes: 2, // 0 = Audio only, 1 = Video only, 2 = Audio and Video
           videoStreamType: 0, // 0 = Low stream, 1 = High stream
-          // streamMode: "standard", // Remove to get M3U8 with TS (comment says standard creates MPD with WebM)
+          // streamMode: "standard", // Removed as per documentation - standard creates MPD with WebM, without it creates M3U8 with TS
           maxIdleTime: 120, // Max idle time in seconds
           subscribeVideoUids: ["#allstream#"], // Record all video streams
           subscribeAudioUids: ["#allstream#"], // Record all audio streams
           subscribeUidGroup: 0
         },
         storageConfig: {
-          vendor: parseInt(AGORA_STORAGE_VENDOR),
-          region: parseInt(AGORA_STORAGE_REGION),
+          vendor: parseInt(AGORA_STORAGE_VENDOR, 10),
+          region: parseInt(AGORA_STORAGE_REGION, 10),
           bucket: AGORA_STORAGE_BUCKET,
           accessKey: AGORA_STORAGE_ACCESS_KEY,
           secretKey: AGORA_STORAGE_SECRET_KEY
@@ -146,7 +147,7 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
     
     const payload = {
       cname: channelName,
-      uid: AGORA_RECORDING_UID,
+      uid: String(AGORA_RECORDING_UID), // Agora API expects string but must be integer value
       clientRequest: {}
     };
 
@@ -159,12 +160,16 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
     
     if (response.data) {
       console.log(`[AgoraRecording] Stopped recording - SID: ${sid}, Resource ID: ${resourceId}, Channel: ${channelName}`);
+      
+      // Agora response structure: response.data.serverResponse.fileList
+      const fileList = response.data.serverResponse?.fileList || response.data.serverResponse?.file_list || [];
+      
       return {
         success: true,
         serverResponse: response.data,
         // Extract file information from response
-        files: response.data.serverResponse?.fileList || [],
-        uploadStatus: response.data.serverResponse?.uploadingStatus || null
+        files: Array.isArray(fileList) ? fileList : [],
+        uploadStatus: response.data.serverResponse?.uploadingStatus || response.data.serverResponse?.uploading_status || null
       };
     }
 
@@ -234,7 +239,7 @@ export const updateLayout = async (resourceId, sid, channelName, layoutConfig = 
     
     const payload = {
       cname: channelName,
-      uid: AGORA_RECORDING_UID,
+      uid: String(AGORA_RECORDING_UID), // Agora API expects string but must be integer value
       clientRequest: layoutConfig
     };
 

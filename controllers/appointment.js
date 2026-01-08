@@ -1294,12 +1294,11 @@ export const cancelAppointment = async (req, res) => {
     }
 
     // Stop Agora cloud recording if it was started
-    if (appt.recordingResourceId && appt.recordingSid && appt.recordingStatus === 'recording') {
+    if (appt.recordingResourceId && appt.recordingSid && (appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired')) {
       try {
         const channelName = `appointment_${appt._id}`;
         console.log(`[CancelAppointment] Stopping Agora recording for appointment ${appt._id}`);
         
-        const { stopRecording } = await import('../services/agoraCloudRecording.js');
         const stopResult = await stopRecording(
           appt.recordingResourceId,
           appt.recordingSid,
@@ -1601,29 +1600,34 @@ export const completeAppointment = async (req, res) => {
       updateQuery.$set = { status: 'in_progress' };
       
       // Start Agora cloud recording when call starts (status changes to in_progress)
-      try {
-        // Generate channel name from appointment ID
-        const channelName = `appointment_${id}`;
-        console.log(`[CompleteAppointment] Starting Agora recording for channel: ${channelName}`);
-        
-        const recordingResult = await startRecordingForChannel(channelName, 'mix');
-        
-        if (recordingResult.success) {
-          updateQuery.$set.recordingResourceId = recordingResult.resourceId;
-          updateQuery.$set.recordingSid = recordingResult.sid;
-          updateQuery.$set.recordingStatus = 'recording';
-          updateQuery.$set.recordingStartedAt = new Date();
-          console.log(`[CompleteAppointment] Recording started - Resource ID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
-        } else {
-          console.error(`[CompleteAppointment] Failed to start recording:`, recordingResult.error);
+      // Only start if recording hasn't been started already
+      if (!appt.recordingResourceId || appt.recordingStatus !== 'recording') {
+        try {
+          // Generate channel name from appointment ID
+          const channelName = `appointment_${id}`;
+          console.log(`[CompleteAppointment] Starting Agora recording for channel: ${channelName}`);
+          
+          const recordingResult = await startRecordingForChannel(channelName, 'mix');
+          
+          if (recordingResult.success) {
+            updateQuery.$set.recordingResourceId = recordingResult.resourceId;
+            updateQuery.$set.recordingSid = recordingResult.sid;
+            updateQuery.$set.recordingStatus = 'recording';
+            updateQuery.$set.recordingStartedAt = new Date();
+            console.log(`[CompleteAppointment] Recording started - Resource ID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
+          } else {
+            console.error(`[CompleteAppointment] Failed to start recording:`, recordingResult.error);
+            // Don't fail the appointment update if recording fails
+            updateQuery.$set.recordingStatus = 'failed';
+          }
+        } catch (recordingError) {
+          console.error(`[CompleteAppointment] Error starting recording:`, recordingError);
           // Don't fail the appointment update if recording fails
+          if (!updateQuery.$set) updateQuery.$set = {};
           updateQuery.$set.recordingStatus = 'failed';
         }
-      } catch (recordingError) {
-        console.error(`[CompleteAppointment] Error starting recording:`, recordingError);
-        // Don't fail the appointment update if recording fails
-        if (!updateQuery.$set) updateQuery.$set = {};
-        updateQuery.$set.recordingStatus = 'failed';
+      } else {
+        console.log(`[CompleteAppointment] Recording already started for appointment ${id}, skipping`);
       }
     }
     

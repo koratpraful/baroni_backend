@@ -125,6 +125,44 @@ export const processCompletedAppointments = async () => {
             // This allows the appointment to be marked as completed, but escrow issue needs manual resolution
           }
 
+          // Stop Agora cloud recording if it was started
+          if (appointment.recordingResourceId && appointment.recordingSid && (appointment.recordingStatus === 'recording' || appointment.recordingStatus === 'acquired')) {
+            try {
+              const channelName = `appointment_${appointment._id}`;
+              console.log(`[AppointmentCompletionScheduler] Stopping Agora recording for appointment ${appointment._id}`);
+              
+              const stopResult = await stopRecording(
+                appointment.recordingResourceId,
+                appointment.recordingSid,
+                channelName,
+                'mix'
+              );
+              
+              if (stopResult.success) {
+                appointment.recordingStatus = 'stopped';
+                appointment.recordingStoppedAt = new Date();
+                // Store recording file information
+                if (stopResult.files && Array.isArray(stopResult.files)) {
+                  appointment.recordingFiles = stopResult.files.map(file => ({
+                    fileName: file.fileName || file.filename || '',
+                    trackType: file.trackType || 'audio_and_video',
+                    uid: file.uid || '',
+                    mixedAllUser: file.mixedAllUser || false,
+                    isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
+                    sliceStartTime: file.sliceStartTime || 0
+                  }));
+                }
+                console.log(`[AppointmentCompletionScheduler] Recording stopped successfully for appointment ${appointment._id}`);
+              } else {
+                console.error(`[AppointmentCompletionScheduler] Failed to stop recording:`, stopResult.error);
+                appointment.recordingStatus = 'failed';
+              }
+            } catch (recordingError) {
+              console.error(`[AppointmentCompletionScheduler] Error stopping recording:`, recordingError);
+              appointment.recordingStatus = 'failed';
+            }
+          }
+
           // Update appointment status
           appointment.status = 'completed';
           appointment.paymentStatus = 'completed';
