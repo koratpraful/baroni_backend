@@ -1294,10 +1294,17 @@ export const cancelAppointment = async (req, res) => {
     }
 
     // Stop Agora cloud recording if it was started
+    // IMPORTANT: Use the exact channel name and IDs that were saved when recording started
     if (appt.recordingResourceId && appt.recordingSid && (appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired')) {
       try {
+        // CRITICAL: Use the EXACT channel name format that was used when starting
         const channelName = `appointment_${appt._id}`;
-        console.log(`[CancelAppointment] Stopping Agora recording for appointment ${appt._id}`);
+        console.log(`[CancelAppointment] ===== STOPPING AGORA RECORDING =====`);
+        console.log(`[CancelAppointment] Appointment ID: ${appt._id}`);
+        console.log(`[CancelAppointment] Channel Name: ${channelName}`);
+        console.log(`[CancelAppointment] Resource ID: ${appt.recordingResourceId}`);
+        console.log(`[CancelAppointment] SID: ${appt.recordingSid}`);
+        console.log(`[CancelAppointment] Current Status: ${appt.recordingStatus}`);
         
         const stopResult = await stopRecording(
           appt.recordingResourceId,
@@ -1306,10 +1313,17 @@ export const cancelAppointment = async (req, res) => {
           'mix'
         );
         
+        console.log(`[CancelAppointment] Stop Result:`, JSON.stringify({
+          success: stopResult.success,
+          alreadyStopped: stopResult.alreadyStopped,
+          filesCount: stopResult.files?.length || 0,
+          error: stopResult.error || null
+        }, null, 2));
+        
         if (stopResult.success) {
           appt.recordingStatus = 'stopped';
           appt.recordingStoppedAt = new Date();
-          if (stopResult.files && Array.isArray(stopResult.files)) {
+          if (stopResult.files && Array.isArray(stopResult.files) && stopResult.files.length > 0) {
             appt.recordingFiles = stopResult.files.map(file => ({
               fileName: file.fileName || file.filename || '',
               trackType: file.trackType || 'audio_and_video',
@@ -1319,15 +1333,28 @@ export const cancelAppointment = async (req, res) => {
               sliceStartTime: file.sliceStartTime || 0
             }));
           }
-          console.log(`[CancelAppointment] Recording stopped successfully for appointment ${appt._id}`);
+          const message = stopResult.alreadyStopped 
+            ? `✅ Recording already stopped (session expired or auto-stopped) for appointment ${appt._id}`
+            : `✅ Recording stopped successfully for appointment ${appt._id}`;
+          console.log(`[CancelAppointment] ${message}`);
+          console.log(`[CancelAppointment] ==========================================`);
         } else {
-          console.error(`[CancelAppointment] Failed to stop recording:`, stopResult.error);
+          console.error(`[CancelAppointment] ❌ FAILED TO STOP RECORDING`);
+          console.error(`[CancelAppointment] Error:`, stopResult.error);
+          console.error(`[CancelAppointment] Error Code:`, stopResult.errorCode);
           appt.recordingStatus = 'failed';
         }
       } catch (recordingError) {
-        console.error(`[CancelAppointment] Error stopping recording:`, recordingError);
+        console.error(`[CancelAppointment] ❌ EXCEPTION WHILE STOPPING RECORDING`);
+        console.error(`[CancelAppointment] Error:`, recordingError);
+        console.error(`[CancelAppointment] Stack:`, recordingError.stack);
         appt.recordingStatus = 'failed';
       }
+    } else {
+      console.log(`[CancelAppointment] ⏭️  Skipping recording stop - no active recording found`);
+      console.log(`[CancelAppointment] Resource ID: ${appt.recordingResourceId || 'none'}`);
+      console.log(`[CancelAppointment] SID: ${appt.recordingSid || 'none'}`);
+      console.log(`[CancelAppointment] Status: ${appt.recordingStatus || 'none'}`);
     }
 
     // Free the reserved slot (for approved or pending hybrid-reserved)
@@ -1502,7 +1529,7 @@ export const completeAppointment = async (req, res) => {
       return res.status(400).json({ success: false, message: errorMessage || 'Validation failed' });
     }
     const { id } = req.params;
-    const { callDuration } = req.body; // callDuration is already in seconds
+    const { callDuration, endCall = false } = req.body; // callDuration is already in seconds, endCall indicates if call has ended
     
     console.log(`[CompleteAppointment] Completing appointment ${id} with call duration ${callDuration} seconds by user ${req.user._id}`);
     
@@ -1544,6 +1571,11 @@ export const completeAppointment = async (req, res) => {
     
     // Get current duration (ensure it's a number, default to 0 if not set)
     const currentDuration = typeof appt.callDuration === 'number' ? appt.callDuration : 0;
+    
+    // Check if call has ended: if endCall flag is true OR if duration increment is 0 (call ended)
+    // This handles cases where client sends endCall flag or sends 0 duration increment
+    const callEndedByDuration = durationInSeconds === 0 && currentDuration > 0;
+    const shouldEndCall = endCall || callEndedByDuration;
     const newTotalDuration = currentDuration + durationInSeconds;
     
     console.log(`[CompleteAppointment] Duration calculation (all in seconds):`, {
@@ -1603,31 +1635,47 @@ export const completeAppointment = async (req, res) => {
       // Only start if recording hasn't been started already
       if (!appt.recordingResourceId || appt.recordingStatus !== 'recording') {
         try {
-          // Generate channel name from appointment ID
+          // Generate channel name from appointment ID - MUST match exactly when stopping
           const channelName = `appointment_${id}`;
-          console.log(`[CompleteAppointment] Starting Agora recording for channel: ${channelName}`);
+          console.log(`[CompleteAppointment] ===== STARTING AGORA RECORDING =====`);
+          console.log(`[CompleteAppointment] Appointment ID: ${id}`);
+          console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
+          console.log(`[CompleteAppointment] Current Recording Status: ${appt.recordingStatus || 'not_started'}`);
+          console.log(`[CompleteAppointment] Current Resource ID: ${appt.recordingResourceId || 'none'}`);
+          console.log(`[CompleteAppointment] Current SID: ${appt.recordingSid || 'none'}`);
           
           const recordingResult = await startRecordingForChannel(channelName, 'mix');
           
-          if (recordingResult.success) {
+          if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
             updateQuery.$set.recordingResourceId = recordingResult.resourceId;
             updateQuery.$set.recordingSid = recordingResult.sid;
             updateQuery.$set.recordingStatus = 'recording';
             updateQuery.$set.recordingStartedAt = new Date();
-            console.log(`[CompleteAppointment] Recording started - Resource ID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
+            console.log(`[CompleteAppointment] ✅ RECORDING STARTED SUCCESSFULLY`);
+            console.log(`[CompleteAppointment] Resource ID: ${recordingResult.resourceId}`);
+            console.log(`[CompleteAppointment] SID: ${recordingResult.sid}`);
+            console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
+            console.log(`[CompleteAppointment] ==========================================`);
           } else {
-            console.error(`[CompleteAppointment] Failed to start recording:`, recordingResult.error);
+            console.error(`[CompleteAppointment] ❌ FAILED TO START RECORDING`);
+            console.error(`[CompleteAppointment] Error:`, recordingResult.error);
+            console.error(`[CompleteAppointment] Result:`, JSON.stringify(recordingResult, null, 2));
             // Don't fail the appointment update if recording fails
             updateQuery.$set.recordingStatus = 'failed';
           }
         } catch (recordingError) {
-          console.error(`[CompleteAppointment] Error starting recording:`, recordingError);
+          console.error(`[CompleteAppointment] ❌ EXCEPTION WHILE STARTING RECORDING`);
+          console.error(`[CompleteAppointment] Error:`, recordingError);
+          console.error(`[CompleteAppointment] Stack:`, recordingError.stack);
           // Don't fail the appointment update if recording fails
           if (!updateQuery.$set) updateQuery.$set = {};
           updateQuery.$set.recordingStatus = 'failed';
         }
       } else {
-        console.log(`[CompleteAppointment] Recording already started for appointment ${id}, skipping`);
+        console.log(`[CompleteAppointment] ⏭️  Recording already started for appointment ${id}, skipping`);
+        console.log(`[CompleteAppointment] Existing Resource ID: ${appt.recordingResourceId}`);
+        console.log(`[CompleteAppointment] Existing SID: ${appt.recordingSid}`);
+        console.log(`[CompleteAppointment] Existing Status: ${appt.recordingStatus}`);
       }
     }
     
@@ -1665,49 +1713,93 @@ export const completeAppointment = async (req, res) => {
     // Get final duration in seconds (after atomic update)
     const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
     
-    // Stop Agora cloud recording if call duration reaches completion threshold (300 seconds)
-    // This ensures recording is stopped even if cron hasn't processed it yet
-    if (finalDurationSeconds >= 300 && updated.recordingResourceId && updated.recordingSid && 
-        (updated.recordingStatus === 'recording' || updated.recordingStatus === 'acquired')) {
-      try {
-        const channelName = `appointment_${id}`;
-        console.log(`[CompleteAppointment] Call duration reached 300s, stopping Agora recording for appointment ${id}`);
-        
-        const stopResult = await stopRecording(
-          updated.recordingResourceId,
-          updated.recordingSid,
-          channelName,
-          'mix'
-        );
-        
-        if (stopResult.success) {
-          // Update appointment with recording stop info
-          await Appointment.findByIdAndUpdate(id, {
-            $set: {
-              recordingStatus: 'stopped',
-              recordingStoppedAt: new Date(),
-              recordingFiles: stopResult.files && Array.isArray(stopResult.files) ? stopResult.files.map(file => ({
-                fileName: file.fileName || file.filename || '',
-                trackType: file.trackType || 'audio_and_video',
-                uid: file.uid || '',
-                mixedAllUser: file.mixedAllUser || false,
-                isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
-                sliceStartTime: file.sliceStartTime || 0
-              })) : []
-            }
-          });
-          console.log(`[CompleteAppointment] Recording stopped successfully for appointment ${id}`);
-        } else {
-          console.error(`[CompleteAppointment] Failed to stop recording:`, stopResult.error);
+    // Stop Agora cloud recording if:
+    // 1. Call has ended (endCall = true OR duration didn't increase) OR
+    // 2. Call duration reaches completion threshold (300 seconds)
+    const shouldStopRecording = shouldEndCall || finalDurationSeconds >= 300;
+    
+    // Stop recording if call ended or duration reached
+    if (shouldStopRecording) {
+      // IMPORTANT: Fetch the latest appointment data to ensure we have the correct recording IDs
+      const latestAppt = await Appointment.findById(id).lean();
+      if (!latestAppt) {
+        console.error(`[CompleteAppointment] ❌ Appointment ${id} not found when trying to stop recording`);
+      } else if (latestAppt.recordingResourceId && latestAppt.recordingSid && 
+                 (latestAppt.recordingStatus === 'recording' || latestAppt.recordingStatus === 'acquired')) {
+        try {
+          // CRITICAL: Use the EXACT channel name format that was used when starting
+          const channelName = `appointment_${id}`;
+          let stopReason = 'duration reached 300s';
+          if (endCall) {
+            stopReason = 'call ended (endCall flag)';
+          } else if (callEndedByDuration) {
+            stopReason = 'call ended (duration did not increase)';
+          }
+          
+          console.log(`[CompleteAppointment] ===== STOPPING AGORA RECORDING =====`);
+          console.log(`[CompleteAppointment] Reason: ${stopReason}`);
+          console.log(`[CompleteAppointment] Appointment ID: ${id}`);
+          console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
+          console.log(`[CompleteAppointment] Resource ID: ${latestAppt.recordingResourceId}`);
+          console.log(`[CompleteAppointment] SID: ${latestAppt.recordingSid}`);
+          console.log(`[CompleteAppointment] Current Status: ${latestAppt.recordingStatus}`);
+          
+          const stopResult = await stopRecording(
+            latestAppt.recordingResourceId,
+            latestAppt.recordingSid,
+            channelName,
+            'mix'
+          );
+          
+          console.log(`[CompleteAppointment] Stop Result:`, JSON.stringify({
+            success: stopResult.success,
+            alreadyStopped: stopResult.alreadyStopped,
+            filesCount: stopResult.files?.length || 0,
+            error: stopResult.error || null
+          }, null, 2));
+          
+          if (stopResult.success) {
+            // Update appointment with recording stop info
+            await Appointment.findByIdAndUpdate(id, {
+              $set: {
+                recordingStatus: 'stopped',
+                recordingStoppedAt: new Date(),
+                recordingFiles: stopResult.files && Array.isArray(stopResult.files) && stopResult.files.length > 0 ? stopResult.files.map(file => ({
+                  fileName: file.fileName || file.filename || '',
+                  trackType: file.trackType || 'audio_and_video',
+                  uid: file.uid || '',
+                  mixedAllUser: file.mixedAllUser || false,
+                  isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
+                  sliceStartTime: file.sliceStartTime || 0
+                })) : []
+              }
+            });
+            const message = stopResult.alreadyStopped 
+              ? `✅ Recording already stopped (session expired or auto-stopped) for appointment ${id}`
+              : `✅ Recording stopped successfully for appointment ${id}`;
+            console.log(`[CompleteAppointment] ${message}`);
+            console.log(`[CompleteAppointment] ==========================================`);
+          } else {
+            console.error(`[CompleteAppointment] ❌ FAILED TO STOP RECORDING`);
+            console.error(`[CompleteAppointment] Error:`, stopResult.error);
+            console.error(`[CompleteAppointment] Error Code:`, stopResult.errorCode);
+            await Appointment.findByIdAndUpdate(id, {
+              $set: { recordingStatus: 'failed' }
+            });
+          }
+        } catch (recordingError) {
+          console.error(`[CompleteAppointment] ❌ EXCEPTION WHILE STOPPING RECORDING`);
+          console.error(`[CompleteAppointment] Error:`, recordingError);
+          console.error(`[CompleteAppointment] Stack:`, recordingError.stack);
           await Appointment.findByIdAndUpdate(id, {
             $set: { recordingStatus: 'failed' }
           });
         }
-      } catch (recordingError) {
-        console.error(`[CompleteAppointment] Error stopping recording:`, recordingError);
-        await Appointment.findByIdAndUpdate(id, {
-          $set: { recordingStatus: 'failed' }
-        });
+      } else {
+        console.log(`[CompleteAppointment] ⏭️  Skipping recording stop - no active recording found`);
+        console.log(`[CompleteAppointment] Resource ID: ${latestAppt?.recordingResourceId || 'none'}`);
+        console.log(`[CompleteAppointment] SID: ${latestAppt?.recordingSid || 'none'}`);
+        console.log(`[CompleteAppointment] Status: ${latestAppt?.recordingStatus || 'none'}`);
       }
     }
     
