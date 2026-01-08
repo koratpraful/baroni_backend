@@ -1502,7 +1502,7 @@ export const completeAppointment = async (req, res) => {
       return res.status(400).json({ success: false, message: errorMessage || 'Validation failed' });
     }
     const { id } = req.params;
-    const { callDuration } = req.body; // callDuration is already in seconds
+    const { callDuration, endCall = false } = req.body; // callDuration is already in seconds, endCall indicates if call has ended
     
     console.log(`[CompleteAppointment] Completing appointment ${id} with call duration ${callDuration} seconds by user ${req.user._id}`);
     
@@ -1544,6 +1544,11 @@ export const completeAppointment = async (req, res) => {
     
     // Get current duration (ensure it's a number, default to 0 if not set)
     const currentDuration = typeof appt.callDuration === 'number' ? appt.callDuration : 0;
+    
+    // Check if call has ended: if endCall flag is true OR if duration increment is 0 (call ended)
+    // This handles cases where client sends endCall flag or sends 0 duration increment
+    const callEndedByDuration = durationInSeconds === 0 && currentDuration > 0;
+    const shouldEndCall = endCall || callEndedByDuration;
     const newTotalDuration = currentDuration + durationInSeconds;
     
     console.log(`[CompleteAppointment] Duration calculation (all in seconds):`, {
@@ -1665,13 +1670,22 @@ export const completeAppointment = async (req, res) => {
     // Get final duration in seconds (after atomic update)
     const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
     
-    // Stop Agora cloud recording if call duration reaches completion threshold (300 seconds)
-    // This ensures recording is stopped even if cron hasn't processed it yet
-    if (finalDurationSeconds >= 300 && updated.recordingResourceId && updated.recordingSid && 
+    // Stop Agora cloud recording if:
+    // 1. Call has ended (endCall = true OR duration didn't increase) OR
+    // 2. Call duration reaches completion threshold (300 seconds)
+    const shouldStopRecording = shouldEndCall || finalDurationSeconds >= 300;
+    
+    if (shouldStopRecording && updated.recordingResourceId && updated.recordingSid && 
         (updated.recordingStatus === 'recording' || updated.recordingStatus === 'acquired')) {
       try {
         const channelName = `appointment_${id}`;
-        console.log(`[CompleteAppointment] Call duration reached 300s, stopping Agora recording for appointment ${id}`);
+        let stopReason = 'duration reached 300s';
+        if (endCall) {
+          stopReason = 'call ended (endCall flag)';
+        } else if (callEndedByDuration) {
+          stopReason = 'call ended (duration did not increase)';
+        }
+        console.log(`[CompleteAppointment] ${stopReason}, stopping Agora recording for appointment ${id}`);
         
         const stopResult = await stopRecording(
           updated.recordingResourceId,
