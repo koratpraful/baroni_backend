@@ -13,6 +13,7 @@ import mongoose from 'mongoose';
 import Conversation from '../models/Conversation.js';
 import { convertLocalToUTC } from '../utils/timezoneHelper.js';
 import Review from '../models/Review.js';
+import { startRecordingForChannel, stopRecording } from '../services/agoraCloudRecording.js';
 
 const toUser = (u) => u ? sanitizeUserData(u) : null;
 
@@ -1292,6 +1293,43 @@ export const cancelAppointment = async (req, res) => {
       }
     }
 
+    // Stop Agora cloud recording if it was started
+    if (appt.recordingResourceId && appt.recordingSid && (appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired')) {
+      try {
+        const channelName = `appointment_${appt._id}`;
+        console.log(`[CancelAppointment] Stopping Agora recording for appointment ${appt._id}`);
+        
+        const stopResult = await stopRecording(
+          appt.recordingResourceId,
+          appt.recordingSid,
+          channelName,
+          'mix'
+        );
+        
+        if (stopResult.success) {
+          appt.recordingStatus = 'stopped';
+          appt.recordingStoppedAt = new Date();
+          if (stopResult.files && Array.isArray(stopResult.files)) {
+            appt.recordingFiles = stopResult.files.map(file => ({
+              fileName: file.fileName || file.filename || '',
+              trackType: file.trackType || 'audio_and_video',
+              uid: file.uid || '',
+              mixedAllUser: file.mixedAllUser || false,
+              isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
+              sliceStartTime: file.sliceStartTime || 0
+            }));
+          }
+          console.log(`[CancelAppointment] Recording stopped successfully for appointment ${appt._id}`);
+        } else {
+          console.error(`[CancelAppointment] Failed to stop recording:`, stopResult.error);
+          appt.recordingStatus = 'failed';
+        }
+      } catch (recordingError) {
+        console.error(`[CancelAppointment] Error stopping recording:`, recordingError);
+        appt.recordingStatus = 'failed';
+      }
+    }
+
     // Free the reserved slot (for approved or pending hybrid-reserved)
     try {
       await Availability.updateOne(
@@ -1560,6 +1598,37 @@ export const completeAppointment = async (req, res) => {
     // Also update status if needed (only if currently approved)
     if (appt.status === 'approved') {
       updateQuery.$set = { status: 'in_progress' };
+      
+      // Start Agora cloud recording when call starts (status changes to in_progress)
+      // Only start if recording hasn't been started already
+      if (!appt.recordingResourceId || appt.recordingStatus !== 'recording') {
+        try {
+          // Generate channel name from appointment ID
+          const channelName = `appointment_${id}`;
+          console.log(`[CompleteAppointment] Starting Agora recording for channel: ${channelName}`);
+          
+          const recordingResult = await startRecordingForChannel(channelName, 'mix');
+          
+          if (recordingResult.success) {
+            updateQuery.$set.recordingResourceId = recordingResult.resourceId;
+            updateQuery.$set.recordingSid = recordingResult.sid;
+            updateQuery.$set.recordingStatus = 'recording';
+            updateQuery.$set.recordingStartedAt = new Date();
+            console.log(`[CompleteAppointment] Recording started - Resource ID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
+          } else {
+            console.error(`[CompleteAppointment] Failed to start recording:`, recordingResult.error);
+            // Don't fail the appointment update if recording fails
+            updateQuery.$set.recordingStatus = 'failed';
+          }
+        } catch (recordingError) {
+          console.error(`[CompleteAppointment] Error starting recording:`, recordingError);
+          // Don't fail the appointment update if recording fails
+          if (!updateQuery.$set) updateQuery.$set = {};
+          updateQuery.$set.recordingStatus = 'failed';
+        }
+      } else {
+        console.log(`[CompleteAppointment] Recording already started for appointment ${id}, skipping`);
+      }
     }
     
     // Perform atomic update and return the updated document
