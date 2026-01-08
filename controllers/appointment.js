@@ -1665,6 +1665,52 @@ export const completeAppointment = async (req, res) => {
     // Get final duration in seconds (after atomic update)
     const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
     
+    // Stop Agora cloud recording if call duration reaches completion threshold (300 seconds)
+    // This ensures recording is stopped even if cron hasn't processed it yet
+    if (finalDurationSeconds >= 300 && updated.recordingResourceId && updated.recordingSid && 
+        (updated.recordingStatus === 'recording' || updated.recordingStatus === 'acquired')) {
+      try {
+        const channelName = `appointment_${id}`;
+        console.log(`[CompleteAppointment] Call duration reached 300s, stopping Agora recording for appointment ${id}`);
+        
+        const stopResult = await stopRecording(
+          updated.recordingResourceId,
+          updated.recordingSid,
+          channelName,
+          'mix'
+        );
+        
+        if (stopResult.success) {
+          // Update appointment with recording stop info
+          await Appointment.findByIdAndUpdate(id, {
+            $set: {
+              recordingStatus: 'stopped',
+              recordingStoppedAt: new Date(),
+              recordingFiles: stopResult.files && Array.isArray(stopResult.files) ? stopResult.files.map(file => ({
+                fileName: file.fileName || file.filename || '',
+                trackType: file.trackType || 'audio_and_video',
+                uid: file.uid || '',
+                mixedAllUser: file.mixedAllUser || false,
+                isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
+                sliceStartTime: file.sliceStartTime || 0
+              })) : []
+            }
+          });
+          console.log(`[CompleteAppointment] Recording stopped successfully for appointment ${id}`);
+        } else {
+          console.error(`[CompleteAppointment] Failed to stop recording:`, stopResult.error);
+          await Appointment.findByIdAndUpdate(id, {
+            $set: { recordingStatus: 'failed' }
+          });
+        }
+      } catch (recordingError) {
+        console.error(`[CompleteAppointment] Error stopping recording:`, recordingError);
+        await Appointment.findByIdAndUpdate(id, {
+          $set: { recordingStatus: 'failed' }
+        });
+      }
+    }
+    
     // Check if review exists for this appointment (by fan)
     let hasReview = false;
     try {

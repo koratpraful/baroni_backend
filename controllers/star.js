@@ -965,7 +965,7 @@ export const getStarById = async (req, res) => {
 
         // Execute star query first to get country for availability query
         const star = await starQuery;
-        
+
         if (!star) {
             return res.status(404).json({
                 success: false,
@@ -1041,8 +1041,8 @@ export const getStarById = async (req, res) => {
                 .lean(),
             // Rating aggregation
             Review.aggregate([
-                { $match: { starId: new mongoose.Types.ObjectId(id) } },
-                { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
+            { $match: { starId: new mongoose.Types.ObjectId(id) } },
+            { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
             ]),
             // Latest reviews
             Review.find({ 

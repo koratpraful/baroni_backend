@@ -166,16 +166,16 @@ export const getStarProfile = async (req, res) => {
     const [revenueStats, starWallet] = await Promise.all([
       // Period-based total revenue from completed transactions
       Transaction.aggregate([
-        {
-          $match: {
-            receiverId: star._id,
-            status: 'completed',
-            createdAt: { $gte: periodStartDate }
-          }
-        },
-        {
-          $group: {
-            _id: null,
+      {
+        $match: {
+          receiverId: star._id,
+          status: 'completed',
+          createdAt: { $gte: periodStartDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
             totalRevenue: { $sum: '$amount' }
           }
         }
