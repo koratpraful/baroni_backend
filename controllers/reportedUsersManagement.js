@@ -754,6 +754,12 @@ export const getReportedUsersGrouped = async (req, res) => {
           as: 'user'
         }
       },
+      // Ensure user exists before unwinding (only reported users should be returned)
+      {
+        $match: {
+          'user': { $exists: true, $ne: [], $size: { $gt: 0 } }
+        }
+      },
       { $unwind: '$user' },
       {
         $lookup: {
@@ -787,20 +793,29 @@ export const getReportedUsersGrouped = async (req, res) => {
     ]);
 
     // Get total count with same filters
+    // IMPORTANT: Start from ReportUser collection to ensure only reported users are counted
     const totalCountAgg = await ReportUser.aggregate([
       { $match: reportFilter },
+      // Group by reportedUserId to get unique reported users
       {
         $group: {
           _id: '$reportedUserId',
           reportCount: { $sum: 1 }
         }
       },
+      // Lookup user details
       {
         $lookup: {
           from: 'users',
           localField: '_id',
           foreignField: '_id',
           as: 'user'
+        }
+      },
+      // Ensure user exists and is not empty array
+      {
+        $match: {
+          'user': { $exists: true, $ne: [], $size: { $gt: 0 } }
         }
       },
       { $unwind: '$user' },
@@ -846,33 +861,35 @@ export const getReportedUsersGrouped = async (req, res) => {
 
     const countryList = countries.map(c => c._id).sort();
 
-    // Format response
-    const users = reportedUsersAgg.map(item => {
-      const user = item.user;
-      const userStatus = (user.availableForBookings === true && user.hidden !== true) 
-        ? 'active' 
-        : 'blocked';
+    // Format response - Only include users that have reports (safeguard)
+    const users = reportedUsersAgg
+      .filter(item => item.user && item.reportCount > 0) // Additional safeguard: ensure user exists and has reports
+      .map(item => {
+        const user = item.user;
+        const userStatus = (user.availableForBookings === true && user.hidden !== true) 
+          ? 'active' 
+          : 'blocked';
 
-      return {
-        id: user._id,
-        baroniId: user.baroniId || null,
-        name: user.name || '',
-        pseudo: user.pseudo || '',
-        profilePic: user.profilePic || null,
-        role: user.role || 'fan',
-        country: user.country || null,
-        contact: user.contact || null,
-        profession: item.profession ? {
-          id: item.profession._id || null,
-          name: item.profession.name || ''
-        } : null,
-        reportCount: item.reportCount,
-        status: userStatus,
-        availableForBookings: user.availableForBookings !== undefined ? user.availableForBookings : true,
-        hidden: user.hidden !== undefined ? user.hidden : false,
-        lastReportDate: item.latestReportDate
-      };
-    });
+        return {
+          id: user._id,
+          baroniId: user.baroniId || null,
+          name: user.name || '',
+          pseudo: user.pseudo || '',
+          profilePic: user.profilePic || null,
+          role: user.role || 'fan',
+          country: user.country || null,
+          contact: user.contact || null,
+          profession: item.profession ? {
+            id: item.profession._id || null,
+            name: item.profession.name || ''
+          } : null,
+          reportCount: item.reportCount,
+          status: userStatus,
+          availableForBookings: user.availableForBookings !== undefined ? user.availableForBookings : true,
+          hidden: user.hidden !== undefined ? user.hidden : false,
+          lastReportDate: item.latestReportDate
+        };
+      });
 
     return res.json({
       success: true,
