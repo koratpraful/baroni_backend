@@ -101,14 +101,17 @@ export const getDashboardSummary = async (req, res) => {
       isDeleted: { $ne: true }
     });
 
-    // Reported users count
-    const reportedStars = await ReportUser.countDocuments({
-      reportedUserRole: 'star'
-    });
-
-    const reportedFans = await ReportUser.countDocuments({
-      reportedUserRole: 'fan'
-    });
+    // Reported users count - Count unique reported users (not total reports)
+    const [reportedStarsResult, reportedFansResult] = await Promise.all([
+      ReportUser.distinct('reportedUserId', {
+        reportedUserRole: 'star'
+      }),
+      ReportUser.distinct('reportedUserId', {
+        reportedUserRole: 'fan'
+      })
+    ]);
+    const reportedStars = reportedStarsResult.length;
+    const reportedFans = reportedFansResult.length;
 
     return res.json({
       success: true,
@@ -1953,11 +1956,19 @@ export const getDashboardOverview = async (req, res) => {
           }
         }
       ]),
-      // Reported Users
+      // Reported Users - Count unique reported users by role (not total reports)
       ReportUser.aggregate([
         {
           $group: {
-            _id: '$reportedUserRole',
+            _id: {
+              role: '$reportedUserRole',
+              userId: '$reportedUserId'
+            }
+          }
+        },
+        {
+          $group: {
+            _id: '$_id.role',
             count: { $sum: 1 }
           }
         }

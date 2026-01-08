@@ -40,7 +40,8 @@ router.get('/test', (req, res) => {
 });
 router.post('/:id/complete', [
   idParamValidator,
-  body('callDuration').isNumeric().withMessage('Call duration must be a number (in seconds)').isFloat({ min: 0 }).withMessage('Call duration must be greater than or equal to 0 seconds')
+  body('callDuration').isNumeric().withMessage('Call duration must be a number (in seconds)').isFloat({ min: 0 }).withMessage('Call duration must be greater than or equal to 0 seconds'),
+  body('endCall').optional().isBoolean().withMessage('endCall must be a boolean')
 ], completeAppointment);
 
 export default router;
