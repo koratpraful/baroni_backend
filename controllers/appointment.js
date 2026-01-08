@@ -1309,7 +1309,7 @@ export const cancelAppointment = async (req, res) => {
         if (stopResult.success) {
           appt.recordingStatus = 'stopped';
           appt.recordingStoppedAt = new Date();
-          if (stopResult.files && Array.isArray(stopResult.files)) {
+          if (stopResult.files && Array.isArray(stopResult.files) && stopResult.files.length > 0) {
             appt.recordingFiles = stopResult.files.map(file => ({
               fileName: file.fileName || file.filename || '',
               trackType: file.trackType || 'audio_and_video',
@@ -1319,7 +1319,10 @@ export const cancelAppointment = async (req, res) => {
               sliceStartTime: file.sliceStartTime || 0
             }));
           }
-          console.log(`[CancelAppointment] Recording stopped successfully for appointment ${appt._id}`);
+          const message = stopResult.alreadyStopped 
+            ? `Recording already stopped (session expired or auto-stopped) for appointment ${appt._id}`
+            : `Recording stopped successfully for appointment ${appt._id}`;
+          console.log(`[CancelAppointment] ${message}`);
         } else {
           console.error(`[CancelAppointment] Failed to stop recording:`, stopResult.error);
           appt.recordingStatus = 'failed';
@@ -1700,7 +1703,7 @@ export const completeAppointment = async (req, res) => {
             $set: {
               recordingStatus: 'stopped',
               recordingStoppedAt: new Date(),
-              recordingFiles: stopResult.files && Array.isArray(stopResult.files) ? stopResult.files.map(file => ({
+              recordingFiles: stopResult.files && Array.isArray(stopResult.files) && stopResult.files.length > 0 ? stopResult.files.map(file => ({
                 fileName: file.fileName || file.filename || '',
                 trackType: file.trackType || 'audio_and_video',
                 uid: file.uid || '',
@@ -1710,7 +1713,10 @@ export const completeAppointment = async (req, res) => {
               })) : []
             }
           });
-          console.log(`[CompleteAppointment] Recording stopped successfully for appointment ${id}`);
+          const message = stopResult.alreadyStopped 
+            ? `Recording already stopped (session expired or auto-stopped) for appointment ${id}`
+            : `Recording stopped successfully for appointment ${id}`;
+          console.log(`[CompleteAppointment] ${message}`);
         } else {
           console.error(`[CompleteAppointment] Failed to stop recording:`, stopResult.error);
           await Appointment.findByIdAndUpdate(id, {

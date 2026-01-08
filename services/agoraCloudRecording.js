@@ -187,10 +187,28 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
 
     throw new Error('Failed to stop recording');
   } catch (error) {
-    console.error('[AgoraRecording] Error stopping recording:', error.response?.data || error.message);
+    const errorData = error.response?.data || {};
+    const errorCode = errorData.code || error.response?.status;
+    const errorReason = errorData.reason || error.message;
+    
+    // Handle 404 error - recording already stopped or session expired
+    if (errorCode === 404 || errorReason?.includes('failed to find worker') || errorReason?.includes('not found')) {
+      console.log(`[AgoraRecording] Recording already stopped or session expired (404) - SID: ${sid}, Resource ID: ${resourceId}, Channel: ${channelName}`);
+      // Return success with empty files - recording was already stopped
+      return {
+        success: true,
+        alreadyStopped: true,
+        message: 'Recording already stopped or session expired',
+        files: [],
+        serverResponse: null
+      };
+    }
+    
+    console.error('[AgoraRecording] Error stopping recording:', errorData || error.message);
     return {
       success: false,
-      error: error.response?.data || error.message
+      error: errorData || error.message,
+      errorCode: errorCode
     };
   }
 };
