@@ -1577,31 +1577,24 @@ export const completeAppointment = async (req, res) => {
       $inc: { callDuration: durationInSeconds }
     };
     
-    // SIMPLE RECORDING LOGIC:
-    // 1. If endCall = true -> Call is ENDING -> Skip start completely, only stop
-    // 2. If currentDuration = 0 AND durationInSeconds > 0 -> Call is STARTING -> Start recording
-    // 3. If durationInSeconds > 0 -> Call is ACTIVE -> Start recording if not started
+    // SIMPLE RECORDING LOGIC - NO CONDITIONS, NO DURATION CHECKS:
+    // 1. Video call START = Recording START (when currentDuration = 0 and durationInSeconds > 0)
+    // 2. Video call END = Recording END (when endCall = true)
+    // No duration checks, no other conditions
     
-    // CRITICAL: If endCall is true, DO NOT start recording (call is ending, not starting)
-    if (endCall) {
-      // Call is ending - skip recording start completely
-      // Recording will be stopped below if it's active
-    } else {
-      // Call is starting or active - check if recording should start
+    // If endCall is true, skip recording start (call is ending)
+    if (!endCall) {
+      // Check if call is starting (currentDuration = 0 and new duration > 0)
       const isCallStarting = currentDuration === 0 && durationInSeconds > 0;
-      const isCallActive = durationInSeconds > 0;
       
       // Update status if call is starting
-      if (appt.status === 'approved') {
+      if (appt.status === 'approved' && isCallStarting) {
         if (!updateQuery.$set) updateQuery.$set = {};
         updateQuery.$set.status = 'in_progress';
       }
       
-      // START RECORDING: Only if call is starting/active AND not already recording
-      const shouldStartRecording = (isCallStarting || isCallActive) && 
-                                    (!appt.recordingResourceId || appt.recordingStatus !== 'recording');
-      
-      if (shouldStartRecording) {
+      // START RECORDING: Only when call is starting AND not already recording
+      if (isCallStarting && (!appt.recordingResourceId || appt.recordingStatus !== 'recording')) {
         try {
           const channelName = `appointment_${id}`;
           console.log(`[RECORDING] 🎬 STARTING - Appointment: ${id}, Channel: ${channelName}`);
@@ -1639,19 +1632,15 @@ export const completeAppointment = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Appointment not found' });
     }
     
-    const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
-    
-    // STOP RECORDING: When call ends or duration reaches 300s
-    const shouldStopRecording = shouldEndCall || finalDurationSeconds >= 300;
-    
-    if (shouldStopRecording) {
+    // STOP RECORDING: Only when endCall = true (video call ended)
+    // No duration checks, no other conditions
+    if (shouldEndCall) {
       const latestAppt = await Appointment.findById(id).lean();
       if (latestAppt?.recordingResourceId && latestAppt?.recordingSid && 
           (latestAppt.recordingStatus === 'recording' || latestAppt.recordingStatus === 'acquired')) {
         try {
           const channelName = `appointment_${id}`;
-          const stopReason = endCall ? 'call ended' : (finalDurationSeconds >= 300 ? 'duration 300s' : 'call ended');
-          console.log(`[RECORDING] 🛑 STOPPING - Appointment: ${id}, Reason: ${stopReason}`);
+          console.log(`[RECORDING] 🛑 STOPPING - Appointment: ${id}, Reason: call ended`);
           
           const stopResult = await stopRecording(
             latestAppt.recordingResourceId,
