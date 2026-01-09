@@ -172,8 +172,30 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
     });
     
     if (response.data) {
-      console.log(`[AgoraRecording] ✅ STOP RECORDING SUCCESS`);
-      console.log(`[AgoraRecording] Response Status: ${response.status}`);
+      const responseCode = response.data.code;
+      const responseReason = response.data.reason;
+      
+      // Check for "no recorded data" (code 435) - this is not an error, just means channel was empty
+      const isNoData = responseCode === 435 || responseReason === 'no recorded data';
+      
+      if (isNoData) {
+        console.log(`[AgoraRecording] ⚠️  STOP RECORDING - NO DATA RECORDED`);
+        console.log(`[AgoraRecording] Response Status: ${response.status} (206 = Partial Content)`);
+        console.log(`[AgoraRecording] Response Code: ${responseCode}`);
+        console.log(`[AgoraRecording] Response Reason: ${responseReason}`);
+        console.log(`[AgoraRecording] This means: Recording API worked, but channel was empty (no users in channel during recording)`);
+        console.log(`[AgoraRecording] Possible reasons:`);
+        console.log(`[AgoraRecording]   1. Users not in channel when recording was active`);
+        console.log(`[AgoraRecording]   2. Channel name mismatch (users using different channel)`);
+        console.log(`[AgoraRecording]   3. Recording started after users left`);
+        console.log(`[AgoraRecording] Channel Name Used: ${channelName}`);
+        console.log(`[AgoraRecording] ==========================================`);
+      } else {
+        console.log(`[AgoraRecording] ✅ STOP RECORDING SUCCESS`);
+        console.log(`[AgoraRecording] Response Status: ${response.status}`);
+        console.log(`[AgoraRecording] Response Code: ${responseCode || 'none'}`);
+      }
+      
       console.log(`[AgoraRecording] Response Data:`, JSON.stringify(response.data, null, 2));
       
       // Agora response structure: response.data.serverResponse.fileList or response.data.fileList
@@ -196,7 +218,10 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
                      response.data.serverResponse?.uploading_status || 
                      response.data.uploadingStatus || 
                      response.data.uploading_status || 
-                     null
+                     null,
+        // Add flag for "no data" case
+        noRecordedData: isNoData,
+        message: isNoData ? 'Recording stopped successfully but no data was recorded (channel was empty)' : 'Recording stopped successfully'
       };
     }
 

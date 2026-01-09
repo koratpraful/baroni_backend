@@ -147,7 +147,7 @@ export const listRefundables = async (req, res) => {
     // Date filtering: Use service date (appointment date) instead of transaction createdAt
     // This ensures cancelled appointments show based on their scheduled date, not cancellation date
     const dateRange = parseRange(from, to);
-    
+
     // Search by payer/receiver name or pseudo or baroniId
     let userIds = [];
     if (q) {
@@ -417,8 +417,8 @@ export const listRefundables = async (req, res) => {
           }
         } else {
           appointment = await Appointment.findOne({ transactionId: txn._id })
-            .populate('availabilityId')
-            .lean();
+          .populate('availabilityId')
+          .lean();
         }
         if (appointment) {
           serviceId = `SRV-${appointment._id.toString().slice(-8).toUpperCase()}`;
