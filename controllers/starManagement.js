@@ -1370,10 +1370,14 @@ export const getFeaturedStars = async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // IMPORTANT: Exclude blocked users from featured stars list
+    // Blocked users have: hidden === true OR availableForBookings === false
     const featuredStars = await User.find({
       role: 'star',
       feature_star: true,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
+      hidden: { $ne: true }, // Exclude hidden/blocked users
+      availableForBookings: true // Only show users available for bookings
     })
       .populate('profession', 'name')
       .select('name pseudo baroniId profilePic country profession feature_star createdAt')
@@ -1385,7 +1389,9 @@ export const getFeaturedStars = async (req, res) => {
     const totalFeaturedStars = await User.countDocuments({
       role: 'star',
       feature_star: true,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
+      hidden: { $ne: true }, // Exclude hidden/blocked users
+      availableForBookings: true // Only show users available for bookings
     });
 
     return res.json({

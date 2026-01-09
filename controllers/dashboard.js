@@ -111,9 +111,13 @@ export const getDashboard = async (req, res) => {
       // Removed popularStars query - no longer needed
 
       // Query for featured stars specifically - more flexible criteria
+      // IMPORTANT: Exclude blocked users from featured stars
+      // Blocked users have: hidden === true OR availableForBookings === false
       const featuredStarsCriteria = {
         role: 'star',
         feature_star: true,
+        hidden: { $ne: true }, // Exclude hidden/blocked users
+        availableForBookings: true, // Only show users available for bookings
         isDeleted: { $ne: true },
         // Basic requirements - only check for essential fields like getAllStars
         name: { $exists: true, $ne: null, $ne: '' },
@@ -574,9 +578,13 @@ export const getGuestDashboard = async (req, res) => {
       .sort({ startDate: 1 });
 
     // Query for featured stars specifically
+    // IMPORTANT: Exclude blocked users from featured stars
+    // Blocked users have: hidden === true OR availableForBookings === false
     const featuredStarsCriteria = {
       role: 'star',
       feature_star: true,
+      hidden: { $ne: true }, // Exclude hidden/blocked users
+      availableForBookings: true, // Only show users available for bookings
       isDeleted: { $ne: true },
       // Basic requirements - only check for essential fields
       name: { $exists: true, $ne: null, $ne: '' },
