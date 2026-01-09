@@ -439,14 +439,13 @@ export const getAllStars = async (req, res) => {
         const filter = {
             role: "star",
             hidden: { $ne: true }, // Always exclude hidden stars from name/pseudo search
-            isDeleted: { $ne: true }, // Exclude deleted users from search
-            // Basic requirements - only check for essential fields
-            name: { $exists: true, $ne: null, $ne: '' },
-            pseudo: { $exists: true, $ne: null, $ne: '' }
+            isDeleted: { $ne: true } // Exclude deleted users from search
+            // Note: Removed strict name/pseudo requirements to allow more stars to be returned
         };
 
         // Apply country filter with normalization for common variations
-        if (country && country.trim()) {
+        // Skip if country is "all" or empty
+        if (country && country.trim() && country.trim().toLowerCase() !== 'all') {
             const countryVariations = {
                 'india': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
                 'bharat': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
@@ -478,7 +477,8 @@ export const getAllStars = async (req, res) => {
         }
 
         // Apply category filter
-        if (category && category.trim()) {
+        // Skip if category is "all" or empty
+        if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
             console.log('Processing category filter for:', category.trim());
             // Find the category by name to get its ObjectId
             const Category = (await import('../models/Category.js')).default;
@@ -555,7 +555,8 @@ export const getAllStars = async (req, res) => {
                 };
 
                 // Apply country filter with normalization for common variations
-                if (country && country.trim()) {
+                // Skip if country is "all" or empty
+                if (country && country.trim() && country.trim().toLowerCase() !== 'all') {
                     const countryVariations = {
                         'india': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
                         'bharat': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
@@ -587,7 +588,8 @@ export const getAllStars = async (req, res) => {
                 }
 
                 // Apply category filter
-                if (category && category.trim()) {
+                // Skip if category is "all" or empty
+                if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
                     console.log('Processing category filter for baroniId search:', category.trim());
                     // Find the category by name to get its ObjectId
                     const Category = (await import('../models/Category.js')).default;
@@ -667,7 +669,8 @@ export const getAllStars = async (req, res) => {
                     };
 
                     // Apply country filter to flexible search with normalization
-                    if (country && country.trim()) {
+                    // Skip if country is "all" or empty
+                    if (country && country.trim() && country.trim().toLowerCase() !== 'all') {
                         const countryVariations = {
                             'india': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
                             'bharat': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
@@ -699,7 +702,8 @@ export const getAllStars = async (req, res) => {
                     }
 
                     // Apply category filter to flexible search
-                    if (category && category.trim()) {
+                    // Skip if category is "all" or empty
+                    if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
                         console.log('Applying category filter to flexible search:', category.trim());
                         const Category = (await import('../models/Category.js')).default;
                         
@@ -756,26 +760,50 @@ export const getAllStars = async (req, res) => {
                 }
 
                 // Check if user is authenticated to add favorite/liked status
-                let starsData = sanitizeUserDataArray(stars);
+                let starsData = sanitizeUserDataArray(stars || []);
 
-                if (req.user) {
-                    // Check if each star is in user's favorites
-                    starsData = starsData.map(star => ({
-                        ...star,
-                        isLiked: req.user.favorites.includes(star._id)
-                    }));
-                } else {
-                    // For unauthenticated users, set isLiked to false
-                    starsData = starsData.map(star => ({
-                        ...star,
-                        isLiked: false
-                    }));
+                // Ensure starsData is always an array
+                if (!Array.isArray(starsData)) {
+                    console.error('starsData is not an array in baroniId search:', typeof starsData);
+                    starsData = [];
                 }
 
-                return res.status(200).json({
+                if (req.user && req.user.favorites) {
+                    // Check if each star is in user's favorites
+                    starsData = starsData.map(star => {
+                        if (!star || typeof star !== 'object') {
+                            console.error('Invalid star object in baroniId search:', star);
+                            return null;
+                        }
+                        return {
+                            ...star,
+                            isLiked: Array.isArray(req.user.favorites) && req.user.favorites.includes(star._id || star.id)
+                        };
+                    }).filter(star => star !== null); // Remove any null entries
+                } else {
+                    // For unauthenticated users, set isLiked to false
+                    starsData = starsData.map(star => {
+                        if (!star || typeof star !== 'object') {
+                            console.error('Invalid star object in baroniId search:', star);
+                            return null;
+                        }
+                        return {
+                            ...star,
+                            isLiked: false
+                        };
+                    }).filter(star => star !== null); // Remove any null entries
+                }
+
+                // Ensure response always has proper structure
+                const response = {
                     success: true,
-                    data: starsData,
-                });
+                    count: starsData.length,
+                    data: Array.isArray(starsData) ? starsData : []
+                };
+
+                console.log('BaroniId search final response:', { success: response.success, count: response.count, dataLength: response.data.length });
+
+                return res.status(200).json(response);
             }
 
             filter.$or = searchQuery;
@@ -800,7 +828,8 @@ export const getAllStars = async (req, res) => {
             };
 
             // Apply only country filter if specified with normalization
-            if (country && country.trim()) {
+            // Skip if country is "all" or empty
+            if (country && country.trim() && country.trim().toLowerCase() !== 'all') {
                 const countryVariations = {
                     'india': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
                     'bharat': ['India', 'भारत', 'Bharat', 'IN', 'IND'],
@@ -832,7 +861,8 @@ export const getAllStars = async (req, res) => {
             }
 
             // Apply only category filter if specified
-            if (category && category.trim()) {
+            // Skip if category is "all" or empty
+            if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
                 console.log('Applying category filter to relaxed search:', category.trim());
                 const Category = (await import('../models/Category.js')).default;
                 
@@ -896,27 +926,50 @@ export const getAllStars = async (req, res) => {
         }
 
         // Check if user is authenticated to add favorite/liked status
-        let starsData = sanitizeUserDataArray(stars);
+        let starsData = sanitizeUserDataArray(stars || []);
 
-        if (req.user) {
-            // Check if each star is in user's favorites
-            starsData = starsData.map(star => ({
-                ...star,
-                isLiked: req.user.favorites.includes(star._id)
-            }));
-        } else {
-            // For unauthenticated users, set isLiked to false
-            starsData = starsData.map(star => ({
-                ...star,
-                isLiked: false
-            }));
+        // Ensure starsData is always an array
+        if (!Array.isArray(starsData)) {
+            console.error('starsData is not an array:', typeof starsData);
+            starsData = [];
         }
 
-        res.status(200).json({
+        if (req.user && req.user.favorites) {
+            // Check if each star is in user's favorites
+            starsData = starsData.map(star => {
+                if (!star || typeof star !== 'object') {
+                    console.error('Invalid star object:', star);
+                    return null;
+                }
+                return {
+                    ...star,
+                    isLiked: Array.isArray(req.user.favorites) && req.user.favorites.includes(star._id || star.id)
+                };
+            }).filter(star => star !== null); // Remove any null entries
+        } else {
+            // For unauthenticated users, set isLiked to false
+            starsData = starsData.map(star => {
+                if (!star || typeof star !== 'object') {
+                    console.error('Invalid star object:', star);
+                    return null;
+                }
+                return {
+                    ...star,
+                    isLiked: false
+                };
+            }).filter(star => star !== null); // Remove any null entries
+        }
+
+        // Ensure response always has proper structure
+        const response = {
             success: true,
             count: starsData.length,
-            data: starsData,
-        });
+            data: Array.isArray(starsData) ? starsData : []
+        };
+
+        console.log('Final response:', { success: response.success, count: response.count, dataLength: response.data.length });
+        
+        res.status(200).json(response);
     } catch (error) {
         res.status(500).json({
             success: false,
