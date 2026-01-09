@@ -538,6 +538,58 @@ export const listRefundables = async (req, res) => {
         }
       }
       
+      // IMPORTANT: Determine who cancelled and adjust payer/receiver display accordingly
+      // For refunds, we want to show the data of the person who cancelled
+      let displayPayer = payer;
+      let displayReceiver = receiver;
+      let cancelledBy = null; // 'star' or 'fan'
+      
+      if (serviceDetails) {
+        // Determine who cancelled based on service type and status
+        if (txn.type === 'appointment_payment') {
+          // For appointments:
+          // - If status is 'rejected' → Star cancelled (rejectAppointment endpoint)
+          // - If status is 'cancelled' → Fan cancelled (cancelAppointment endpoint, non-admin)
+          if (serviceDetails.status === 'rejected') {
+            cancelledBy = 'star';
+            // Star cancelled: Show star (receiver) as payer, fan (payer) as receiver
+            displayPayer = receiver; // Star who cancelled
+            displayReceiver = payer;  // Fan who was cancelled
+          } else if (serviceDetails.status === 'cancelled') {
+            cancelledBy = 'fan';
+            // Fan cancelled: Keep original (fan is payer, star is receiver)
+            displayPayer = payer;  // Fan who cancelled
+            displayReceiver = receiver; // Star who was cancelled
+          }
+        } else if (txn.type === 'dedication_request_payment') {
+          // For dedications: Only fan can cancel (cancelDedicationRequest endpoint)
+          if (serviceDetails.status === 'cancelled') {
+            cancelledBy = 'fan';
+            // Fan cancelled: Keep original (fan is payer, star is receiver)
+            displayPayer = payer;  // Fan who cancelled
+            displayReceiver = receiver; // Star who was cancelled
+          }
+        } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
+          // For live shows: Star can cancel their own shows
+          // Check if star cancelled by comparing starId with receiverId (star receives payment)
+          if (serviceDetails.status === 'cancelled' && serviceDetails.starId) {
+            const starIdStr = serviceDetails.starId.toString ? serviceDetails.starId.toString() : String(serviceDetails.starId);
+            const receiverIdStr = receiver?._id?.toString ? receiver._id.toString() : String(receiver?._id || '');
+            if (starIdStr === receiverIdStr) {
+              cancelledBy = 'star';
+              // Star cancelled: Show star (receiver) as payer, fan (payer) as receiver
+              displayPayer = receiver; // Star who cancelled
+              displayReceiver = payer;  // Fan who was cancelled
+            } else {
+              cancelledBy = 'fan';
+              // Fan cancelled: Keep original
+              displayPayer = payer;  // Fan who cancelled
+              displayReceiver = receiver; // Star who was cancelled
+            }
+          }
+        }
+      }
+      
       return {
         id: txn._id,
         transactionId: txn._id,
@@ -561,30 +613,31 @@ export const listRefundables = async (req, res) => {
         createdAt: txn.createdAt,
         updatedAt: txn.updatedAt,
         formattedDate: formatDate(txn.createdAt),
-        payer: payer ? {
-          id: payer._id,
-          name: payer.name,
-          pseudo: payer.pseudo,
-          baroniId: payer.baroniId,
-          profilePic: payer.profilePic,
-          role: payer.role,
-          isVerified: payer.isVerified,
-          profession: payer.profession ? {
-            id: payer.profession._id || payer.profession.id || null,
-            name: payer.profession.name || ''
+        cancelledBy: cancelledBy, // 'star' or 'fan' - who cancelled
+        payer: displayPayer ? {
+          id: displayPayer._id,
+          name: displayPayer.name,
+          pseudo: displayPayer.pseudo,
+          baroniId: displayPayer.baroniId,
+          profilePic: displayPayer.profilePic,
+          role: displayPayer.role,
+          isVerified: displayPayer.isVerified,
+          profession: displayPayer.profession ? {
+            id: displayPayer.profession._id || displayPayer.profession.id || null,
+            name: displayPayer.profession.name || ''
           } : null
         } : null,
-        receiver: receiver ? {
-          id: receiver._id,
-          name: receiver.name,
-          pseudo: receiver.pseudo,
-          baroniId: receiver.baroniId,
-          profilePic: receiver.profilePic,
-          role: receiver.role,
-          isVerified: receiver.isVerified,
-          profession: receiver.profession ? {
-            id: receiver.profession._id || receiver.profession.id || null,
-            name: receiver.profession.name || ''
+        receiver: displayReceiver ? {
+          id: displayReceiver._id,
+          name: displayReceiver.name,
+          pseudo: displayReceiver.pseudo,
+          baroniId: displayReceiver.baroniId,
+          profilePic: displayReceiver.profilePic,
+          role: displayReceiver.role,
+          isVerified: displayReceiver.isVerified,
+          profession: displayReceiver.profession ? {
+            id: displayReceiver.profession._id || displayReceiver.profession.id || null,
+            name: displayReceiver.profession.name || ''
           } : null
         } : null,
         metadata: txn.metadata,

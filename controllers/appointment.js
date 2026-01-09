@@ -1549,7 +1549,10 @@ export const completeAppointment = async (req, res) => {
       time: appt.time,
       price: appt.price,
       paymentStatus: appt.paymentStatus,
-      transactionId: appt.transactionId
+      transactionId: appt.transactionId,
+      recordingStatus: appt.recordingStatus || 'not_started',
+      recordingResourceId: appt.recordingResourceId || 'none',
+      recordingSid: appt.recordingSid || 'none'
     });
     
     // Allow duration updates for approved, in_progress, and completed appointments
@@ -1627,56 +1630,88 @@ export const completeAppointment = async (req, res) => {
       $inc: { callDuration: durationInSeconds }
     };
     
-    // Also update status if needed (only if currently approved)
+    // CRITICAL: Video call recording logic - based on actual call activity, not just status
+    // Recording should start when video call starts (duration > 0) and stop when call ends
+    // This works regardless of appointment status (approved, in_progress, or completed)
+    
+    // Detect if video call is starting (first duration update or duration increasing)
+    const isCallStarting = (currentDuration === 0 && durationInSeconds > 0) || 
+                          (currentDuration > 0 && durationInSeconds > 0);
+    
+    // Detect if video call is happening (any duration update means call is active)
+    const isCallActive = durationInSeconds > 0;
+    
+    console.log(`[CompleteAppointment] Video call detection:`, {
+      currentStatus: appt.status,
+      currentDuration: currentDuration,
+      durationInSeconds: durationInSeconds,
+      isCallStarting: isCallStarting,
+      isCallActive: isCallActive,
+      recordingStatus: appt.recordingStatus || 'not_started',
+      hasResourceId: !!appt.recordingResourceId,
+      hasSid: !!appt.recordingSid
+    });
+    
+    // Update status if needed (only if currently approved)
     if (appt.status === 'approved') {
-      updateQuery.$set = { status: 'in_progress' };
-      
-      // Start Agora cloud recording when call starts (status changes to in_progress)
-      // Only start if recording hasn't been started already
-      if (!appt.recordingResourceId || appt.recordingStatus !== 'recording') {
-        try {
-          // Generate channel name from appointment ID - MUST match exactly when stopping
-          const channelName = `appointment_${id}`;
-          console.log(`[CompleteAppointment] ===== STARTING AGORA RECORDING =====`);
-          console.log(`[CompleteAppointment] Appointment ID: ${id}`);
+      console.log(`[CompleteAppointment] 📞 CALL STARTING - Status changing from 'approved' to 'in_progress'`);
+      if (!updateQuery.$set) updateQuery.$set = {};
+      updateQuery.$set.status = 'in_progress';
+    }
+    
+    // START RECORDING: If video call is active and recording hasn't started
+    // This works for approved, in_progress, and completed appointments
+    // Key principle: If video call happened (duration > 0), recording should happen
+    if (isCallActive && (!appt.recordingResourceId || appt.recordingStatus !== 'recording')) {
+      try {
+        // Generate channel name from appointment ID - MUST match exactly when stopping
+        const channelName = `appointment_${id}`;
+        console.log(`[CompleteAppointment] ===== STARTING AGORA RECORDING =====`);
+        console.log(`[CompleteAppointment] Reason: Video call is active (duration: ${durationInSeconds}s, total: ${newTotalDuration}s)`);
+        console.log(`[CompleteAppointment] Appointment ID: ${id}`);
+        console.log(`[CompleteAppointment] Appointment Status: ${appt.status}`);
+        console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
+        console.log(`[CompleteAppointment] Current Recording Status: ${appt.recordingStatus || 'not_started'}`);
+        console.log(`[CompleteAppointment] Current Resource ID: ${appt.recordingResourceId || 'none'}`);
+        console.log(`[CompleteAppointment] Current SID: ${appt.recordingSid || 'none'}`);
+        
+        const recordingResult = await startRecordingForChannel(channelName, 'mix');
+        
+        if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
+          if (!updateQuery.$set) updateQuery.$set = {};
+          updateQuery.$set.recordingResourceId = recordingResult.resourceId;
+          updateQuery.$set.recordingSid = recordingResult.sid;
+          updateQuery.$set.recordingStatus = 'recording';
+          updateQuery.$set.recordingStartedAt = new Date();
+          console.log(`[CompleteAppointment] ✅ RECORDING STARTED SUCCESSFULLY`);
+          console.log(`[CompleteAppointment] Resource ID: ${recordingResult.resourceId}`);
+          console.log(`[CompleteAppointment] SID: ${recordingResult.sid}`);
           console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
-          console.log(`[CompleteAppointment] Current Recording Status: ${appt.recordingStatus || 'not_started'}`);
-          console.log(`[CompleteAppointment] Current Resource ID: ${appt.recordingResourceId || 'none'}`);
-          console.log(`[CompleteAppointment] Current SID: ${appt.recordingSid || 'none'}`);
-          
-          const recordingResult = await startRecordingForChannel(channelName, 'mix');
-          
-          if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
-            updateQuery.$set.recordingResourceId = recordingResult.resourceId;
-            updateQuery.$set.recordingSid = recordingResult.sid;
-            updateQuery.$set.recordingStatus = 'recording';
-            updateQuery.$set.recordingStartedAt = new Date();
-            console.log(`[CompleteAppointment] ✅ RECORDING STARTED SUCCESSFULLY`);
-            console.log(`[CompleteAppointment] Resource ID: ${recordingResult.resourceId}`);
-            console.log(`[CompleteAppointment] SID: ${recordingResult.sid}`);
-            console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
-            console.log(`[CompleteAppointment] ==========================================`);
-          } else {
-            console.error(`[CompleteAppointment] ❌ FAILED TO START RECORDING`);
-            console.error(`[CompleteAppointment] Error:`, recordingResult.error);
-            console.error(`[CompleteAppointment] Result:`, JSON.stringify(recordingResult, null, 2));
-            // Don't fail the appointment update if recording fails
-            updateQuery.$set.recordingStatus = 'failed';
-          }
-        } catch (recordingError) {
-          console.error(`[CompleteAppointment] ❌ EXCEPTION WHILE STARTING RECORDING`);
-          console.error(`[CompleteAppointment] Error:`, recordingError);
-          console.error(`[CompleteAppointment] Stack:`, recordingError.stack);
+          console.log(`[CompleteAppointment] Appointment Status: ${appt.status} (recording works regardless of status)`);
+          console.log(`[CompleteAppointment] ==========================================`);
+        } else {
+          console.error(`[CompleteAppointment] ❌ FAILED TO START RECORDING`);
+          console.error(`[CompleteAppointment] Error:`, recordingResult.error);
+          console.error(`[CompleteAppointment] Result:`, JSON.stringify(recordingResult, null, 2));
           // Don't fail the appointment update if recording fails
           if (!updateQuery.$set) updateQuery.$set = {};
           updateQuery.$set.recordingStatus = 'failed';
         }
-      } else {
-        console.log(`[CompleteAppointment] ⏭️  Recording already started for appointment ${id}, skipping`);
-        console.log(`[CompleteAppointment] Existing Resource ID: ${appt.recordingResourceId}`);
-        console.log(`[CompleteAppointment] Existing SID: ${appt.recordingSid}`);
-        console.log(`[CompleteAppointment] Existing Status: ${appt.recordingStatus}`);
+      } catch (recordingError) {
+        console.error(`[CompleteAppointment] ❌ EXCEPTION WHILE STARTING RECORDING`);
+        console.error(`[CompleteAppointment] Error:`, recordingError);
+        console.error(`[CompleteAppointment] Stack:`, recordingError.stack);
+        // Don't fail the appointment update if recording fails
+        if (!updateQuery.$set) updateQuery.$set = {};
+        updateQuery.$set.recordingStatus = 'failed';
       }
+    } else if (appt.recordingResourceId && appt.recordingStatus === 'recording') {
+      console.log(`[CompleteAppointment] ✅ Video call is active and recording is already running`);
+      console.log(`[CompleteAppointment] Recording Resource ID: ${appt.recordingResourceId}`);
+      console.log(`[CompleteAppointment] Recording SID: ${appt.recordingSid}`);
+      console.log(`[CompleteAppointment] Current Duration: ${currentDuration}s, Adding: ${durationInSeconds}s`);
+    } else if (!isCallActive) {
+      console.log(`[CompleteAppointment] ⏭️  No video call activity (duration: ${durationInSeconds}s), skipping recording start`);
     }
     
     // Perform atomic update and return the updated document
@@ -1713,12 +1748,24 @@ export const completeAppointment = async (req, res) => {
     // Get final duration in seconds (after atomic update)
     const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
     
-    // Stop Agora cloud recording if:
+    // STOP RECORDING: When video call ends
+    // Key principle: When video call ends, recording should stop (regardless of appointment status)
+    // Stop recording if:
     // 1. Call has ended (endCall = true OR duration didn't increase) OR
     // 2. Call duration reaches completion threshold (300 seconds)
+    // This works for approved, in_progress, and completed appointments
     const shouldStopRecording = shouldEndCall || finalDurationSeconds >= 300;
     
-    // Stop recording if call ended or duration reached
+    console.log(`[CompleteAppointment] Recording stop check:`, {
+      shouldEndCall: shouldEndCall,
+      callEndedByDuration: callEndedByDuration,
+      finalDurationSeconds: finalDurationSeconds,
+      shouldStopRecording: shouldStopRecording,
+      appointmentStatus: updated.status,
+      recordingStatus: updated.recordingStatus || 'not_started'
+    });
+    
+    // Stop recording if call ended or duration reached (works regardless of appointment status)
     if (shouldStopRecording) {
       // IMPORTANT: Fetch the latest appointment data to ensure we have the correct recording IDs
       const latestAppt = await Appointment.findById(id).lean();
