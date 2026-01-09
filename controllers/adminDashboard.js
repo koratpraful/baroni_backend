@@ -107,7 +107,7 @@ export const getDashboardSummary = async (req, res) => {
         reportedUserRole: 'star'
       }),
       ReportUser.distinct('reportedUserId', {
-        reportedUserRole: 'fan'
+      reportedUserRole: 'fan'
       })
     ]);
     const reportedStars = reportedStarsResult.length;
@@ -853,7 +853,7 @@ const getActiveUsersByCountryData = async (period) => {
   // Build match condition for active users
   const matchCondition = {
     country: { $exists: true, $ne: null, $ne: '' },
-    isDeleted: { $ne: true }
+        isDeleted: { $ne: true }
   };
 
   // Add active user conditions
@@ -1804,7 +1804,7 @@ export const getDashboardOverview = async (req, res) => {
 
     // Calculate online users (users logged in within last 15 minutes)
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-    
+
     // Execute all queries in parallel for better performance
     const [
       newUsers,

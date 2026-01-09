@@ -1634,9 +1634,8 @@ export const completeAppointment = async (req, res) => {
     // Recording should start when video call starts (duration > 0) and stop when call ends
     // This works regardless of appointment status (approved, in_progress, or completed)
     
-    // Detect if video call is starting (first duration update or duration increasing)
-    const isCallStarting = (currentDuration === 0 && durationInSeconds > 0) || 
-                          (currentDuration > 0 && durationInSeconds > 0);
+    // Detect if video call is starting (first duration update - this is when call actually starts)
+    const isCallStarting = currentDuration === 0 && durationInSeconds > 0;
     
     // Detect if video call is happening (any duration update means call is active)
     const isCallActive = durationInSeconds > 0;
@@ -1653,24 +1652,36 @@ export const completeAppointment = async (req, res) => {
     });
     
     // Update status if needed (only if currently approved)
+    // IMPORTANT: This is when the call actually starts (first duration update)
     if (appt.status === 'approved') {
       console.log(`[CompleteAppointment] 📞 CALL STARTING - Status changing from 'approved' to 'in_progress'`);
+      console.log(`[CompleteAppointment] This is the FIRST duration update - call is starting NOW`);
       if (!updateQuery.$set) updateQuery.$set = {};
       updateQuery.$set.status = 'in_progress';
     }
     
     // START RECORDING: If video call is active and recording hasn't started
+    // PRIORITY: Start recording as early as possible (when call starts, not after)
     // This works for approved, in_progress, and completed appointments
     // Key principle: If video call happened (duration > 0), recording should happen
-    if (isCallActive && (!appt.recordingResourceId || appt.recordingStatus !== 'recording')) {
+    // IMPORTANT: Start recording when call starts (isCallStarting) to capture entire call
+    if ((isCallStarting || isCallActive) && (!appt.recordingResourceId || appt.recordingStatus !== 'recording')) {
       try {
         // Generate channel name from appointment ID - MUST match exactly when stopping
+        // CRITICAL: This channel name MUST match what frontend uses for Agora RTC channel
+        // Frontend should use: `appointment_${appointmentId}` format
         const channelName = `appointment_${id}`;
         console.log(`[CompleteAppointment] ===== STARTING AGORA RECORDING =====`);
-        console.log(`[CompleteAppointment] Reason: Video call is active (duration: ${durationInSeconds}s, total: ${newTotalDuration}s)`);
+        if (isCallStarting) {
+          console.log(`[CompleteAppointment] Reason: Video call is STARTING (first duration update)`);
+          console.log(`[CompleteAppointment] ⚠️  IMPORTANT: Ensure frontend uses channel name: ${channelName}`);
+        } else {
+          console.log(`[CompleteAppointment] Reason: Video call is active (duration: ${durationInSeconds}s, total: ${newTotalDuration}s)`);
+        }
         console.log(`[CompleteAppointment] Appointment ID: ${id}`);
         console.log(`[CompleteAppointment] Appointment Status: ${appt.status}`);
         console.log(`[CompleteAppointment] Channel Name: ${channelName}`);
+        console.log(`[CompleteAppointment] ⚠️  VERIFY: Frontend must use EXACT same channel name: ${channelName}`);
         console.log(`[CompleteAppointment] Current Recording Status: ${appt.recordingStatus || 'not_started'}`);
         console.log(`[CompleteAppointment] Current Resource ID: ${appt.recordingResourceId || 'none'}`);
         console.log(`[CompleteAppointment] Current SID: ${appt.recordingSid || 'none'}`);
@@ -1801,8 +1812,10 @@ export const completeAppointment = async (req, res) => {
           console.log(`[CompleteAppointment] Stop Result:`, JSON.stringify({
             success: stopResult.success,
             alreadyStopped: stopResult.alreadyStopped,
+            noRecordedData: stopResult.noRecordedData || false,
             filesCount: stopResult.files?.length || 0,
-            error: stopResult.error || null
+            error: stopResult.error || null,
+            message: stopResult.message || null
           }, null, 2));
           
           if (stopResult.success) {
@@ -1821,9 +1834,20 @@ export const completeAppointment = async (req, res) => {
                 })) : []
               }
             });
-            const message = stopResult.alreadyStopped 
-              ? `✅ Recording already stopped (session expired or auto-stopped) for appointment ${id}`
-              : `✅ Recording stopped successfully for appointment ${id}`;
+            
+            let message = '';
+            if (stopResult.alreadyStopped) {
+              message = `✅ Recording already stopped (session expired or auto-stopped) for appointment ${id}`;
+            } else if (stopResult.noRecordedData) {
+              message = `⚠️  Recording stopped but no data was recorded (channel was empty) for appointment ${id}`;
+              console.log(`[CompleteAppointment] ⚠️  WARNING: No recorded data - channel was empty during recording`);
+              console.log(`[CompleteAppointment] This could mean:`);
+              console.log(`[CompleteAppointment]   1. Users were not in the Agora channel when recording was active`);
+              console.log(`[CompleteAppointment]   2. Channel name mismatch (verify frontend uses: appointment_${id})`);
+              console.log(`[CompleteAppointment]   3. Recording started after users left the channel`);
+            } else {
+              message = `✅ Recording stopped successfully for appointment ${id}`;
+            }
             console.log(`[CompleteAppointment] ${message}`);
             console.log(`[CompleteAppointment] ==========================================`);
           } else {
