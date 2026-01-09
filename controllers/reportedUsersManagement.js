@@ -737,13 +737,21 @@ export const getReportedUsersGrouped = async (req, res) => {
     }
 
     // Get unique reported users with their report counts
+    // CRITICAL: Start from ReportUser collection to ensure ONLY reported users are returned
     const reportedUsersAgg = await ReportUser.aggregate([
       { $match: reportFilter },
+      // Group by reportedUserId to get unique reported users with report counts
       {
         $group: {
           _id: '$reportedUserId',
           reportCount: { $sum: 1 },
           latestReportDate: { $max: '$createdAt' }
+        }
+      },
+      // IMPORTANT: Only proceed if reportCount > 0 (safeguard)
+      {
+        $match: {
+          reportCount: { $gt: 0 }
         }
       },
       {
@@ -754,10 +762,11 @@ export const getReportedUsersGrouped = async (req, res) => {
           as: 'user'
         }
       },
-      // Ensure user exists before unwinding (only reported users should be returned)
+      // Ensure user exists and is not deleted before unwinding (only reported users should be returned)
       {
         $match: {
-          'user': { $exists: true, $ne: [], $size: { $gt: 0 } }
+          'user': { $exists: true, $ne: [], $size: { $gt: 0 } },
+          'user.isDeleted': { $ne: true }
         }
       },
       { $unwind: '$user' },
@@ -775,9 +784,10 @@ export const getReportedUsersGrouped = async (req, res) => {
           preserveNullAndEmptyArrays: true
         }
       },
+      // Apply additional filters (country, role, status)
       {
         $match: {
-          'user.isDeleted': { $ne: true },
+          // Build match conditions properly
           ...(country && country !== 'all' ? { 'user.country': country } : {}),
           ...(reportedUserRole && reportedUserRole !== 'all' ? { 'user.role': reportedUserRole } : {}),
           ...(status && status !== 'all' ? (
@@ -787,13 +797,19 @@ export const getReportedUsersGrouped = async (req, res) => {
           ) : {})
         }
       },
+      // Ensure reportCount is still > 0 after all filters (final safeguard)
+      {
+        $match: {
+          reportCount: { $gt: 0 }
+        }
+      },
       { $sort: { reportCount: -1, latestReportDate: -1 } },
       { $skip: skip },
       { $limit: parseInt(limit) }
     ]);
 
     // Get total count with same filters
-    // IMPORTANT: Start from ReportUser collection to ensure only reported users are counted
+    // IMPORTANT: Start from ReportUser collection to ensure ONLY reported users are counted
     const totalCountAgg = await ReportUser.aggregate([
       { $match: reportFilter },
       // Group by reportedUserId to get unique reported users
@@ -801,6 +817,12 @@ export const getReportedUsersGrouped = async (req, res) => {
         $group: {
           _id: '$reportedUserId',
           reportCount: { $sum: 1 }
+        }
+      },
+      // IMPORTANT: Only count users with reportCount > 0
+      {
+        $match: {
+          reportCount: { $gt: 0 }
         }
       },
       // Lookup user details
@@ -812,16 +834,17 @@ export const getReportedUsersGrouped = async (req, res) => {
           as: 'user'
         }
       },
-      // Ensure user exists and is not empty array
+      // Ensure user exists and is not deleted
       {
         $match: {
-          'user': { $exists: true, $ne: [], $size: { $gt: 0 } }
+          'user': { $exists: true, $ne: [], $size: { $gt: 0 } },
+          'user.isDeleted': { $ne: true }
         }
       },
       { $unwind: '$user' },
+      // Apply additional filters (country, role, status)
       {
         $match: {
-          'user.isDeleted': { $ne: true },
           ...(country && country !== 'all' ? { 'user.country': country } : {}),
           ...(reportedUserRole && reportedUserRole !== 'all' ? { 'user.role': reportedUserRole } : {}),
           ...(status && status !== 'all' ? (
@@ -829,6 +852,12 @@ export const getReportedUsersGrouped = async (req, res) => {
               ? { 'user.availableForBookings': true, 'user.hidden': { $ne: true } }
               : { $or: [{ 'user.availableForBookings': false }, { 'user.hidden': true }] }
           ) : {})
+        }
+      },
+      // Final safeguard: ensure reportCount > 0
+      {
+        $match: {
+          reportCount: { $gt: 0 }
         }
       }
     ]);
@@ -861,9 +890,17 @@ export const getReportedUsersGrouped = async (req, res) => {
 
     const countryList = countries.map(c => c._id).sort();
 
-    // Format response - Only include users that have reports (safeguard)
+    // Format response - Only include users that have reports (CRITICAL: Multiple safeguards)
     const users = reportedUsersAgg
-      .filter(item => item.user && item.reportCount > 0) // Additional safeguard: ensure user exists and has reports
+      .filter(item => {
+        // Multiple safeguards to ensure only reported users are returned
+        return item && 
+               item.user && 
+               item.reportCount && 
+               item.reportCount > 0 &&
+               item._id && // Ensure reportedUserId exists
+               item.user._id; // Ensure user exists
+      })
       .map(item => {
         const user = item.user;
         const userStatus = (user.availableForBookings === true && user.hidden !== true) 

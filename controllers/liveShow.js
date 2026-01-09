@@ -14,6 +14,8 @@ import Transaction from '../models/Transaction.js';
 import NotificationHelper from '../utils/notificationHelper.js';
 import { deleteConversationBetweenUsers } from '../services/messagingCleanup.js';
 import { sanitizeUserData } from '../utils/userDataHelper.js';
+import { GenerateRtcAgoraToken } from '../config/agora.js';
+import { ensureUserAgoraKey } from '../utils/agoraKeyGenerator.js';
 
 // Get single live show details for fan
 export const getLiveShowDetails = async (req, res) => {
@@ -1166,5 +1168,66 @@ export const getMyShows = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get Agora token for live show (star only)
+export const getLiveShowAgoraToken = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Live show ID is required'
+      });
+    }
+
+    // Find the live show
+    const liveShow = await LiveShow.findById(id);
+    
+    if (!liveShow) {
+      return res.status(404).json({
+        success: false,
+        message: 'Live show not found'
+      });
+    }
+
+    // Verify user is the star who created the show or admin
+    if (req.user.role !== 'admin' && liveShow.starId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the star who created this show or admin can get the Agora token'
+      });
+    }
+
+    // Generate channel name from live show ID
+    const channelName = `live_show_${id}`;
+    
+    // Get user's Agora key
+    const agoraKey = await ensureUserAgoraKey(req.user);
+    const uid = Number(agoraKey);
+
+    // Generate RTC token
+    const token = GenerateRtcAgoraToken(uid, channelName);
+
+    console.log(`[GetLiveShowAgoraToken] Generated token for live show ${id}, channel: ${channelName}, user: ${req.user._id}`);
+
+    return res.json({
+      success: true,
+      message: 'Agora token generated successfully',
+      data: {
+        token: token,
+        channelName: channelName,
+        uid: uid,
+        liveShowId: id
+      }
+    });
+  } catch (err) {
+    console.error('[GetLiveShowAgoraToken] Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to generate Agora token'
+    });
   }
 };
