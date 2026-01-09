@@ -35,13 +35,37 @@ export const AgoraRtcToken = async (req,res) => {
         console.log(`[AgoraRtcToken] Channel: ${channel}`);
         console.log(`[AgoraRtcToken] UID: ${uid}`);
 
-        // Check if this is an appointment channel (format: appointment_{appointmentId})
-        const isAppointmentChannel = channel.startsWith('appointment_');
+        // Check if this is an appointment channel
+        // Channel can be in format: "appointment_{appointmentId}" OR just "{appointmentId}"
+        let appointmentId = null;
+        let isAppointmentChannel = false;
         
-        if (isAppointmentChannel) {
-            const appointmentId = channel.replace('appointment_', '');
-            console.log(`[AgoraRtcToken] 📞 Appointment channel detected - Appointment ID: ${appointmentId}`);
-            
+        if (channel.startsWith('appointment_')) {
+            // Format: appointment_{appointmentId}
+            appointmentId = channel.replace('appointment_', '');
+            isAppointmentChannel = true;
+            console.log(`[AgoraRtcToken] 📞 Appointment channel detected (with prefix) - Appointment ID: ${appointmentId}`);
+        } else {
+            // Check if channel name is a valid MongoDB ObjectId (24 hex characters)
+            const mongoose = await import('mongoose');
+            if (mongoose.default.Types.ObjectId.isValid(channel) && channel.length === 24) {
+                // Try to find appointment with this ID
+                try {
+                    const appointment = await Appointment.findById(channel).lean();
+                    if (appointment) {
+                        appointmentId = channel;
+                        isAppointmentChannel = true;
+                        console.log(`[AgoraRtcToken] 📞 Appointment channel detected (direct ID) - Appointment ID: ${appointmentId}`);
+                    } else {
+                        console.log(`[AgoraRtcToken] ℹ️  Channel looks like ObjectId but no appointment found - Channel: ${channel}`);
+                    }
+                } catch (err) {
+                    console.log(`[AgoraRtcToken] ℹ️  Error checking appointment for channel ${channel}:`, err.message);
+                }
+            }
+        }
+        
+        if (isAppointmentChannel && appointmentId) {
             try {
                 // Find the appointment
                 const appointment = await Appointment.findById(appointmentId).lean();
@@ -67,10 +91,12 @@ export const AgoraRtcToken = async (req,res) => {
                     console.log(`[AgoraRtcToken]   - Recording check: ${!appointment.recordingResourceId || appointment.recordingStatus !== 'recording'}`);
                     
                     if (shouldStartRecording) {
-                        console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Channel: ${channel}`);
+                        // Normalize channel name for recording (use appointment_ prefix)
+                        const recordingChannelName = `appointment_${appointmentId}`;
+                        console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Original Channel: ${channel}, Recording Channel: ${recordingChannelName}`);
                         
                         // Start recording asynchronously (don't block token generation)
-                        startRecordingForChannel(channel, 'mix')
+                        startRecordingForChannel(recordingChannelName, 'mix')
                             .then(async (recordingResult) => {
                                 if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
                                     await Appointment.findByIdAndUpdate(appointmentId, {
