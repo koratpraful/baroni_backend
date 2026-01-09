@@ -1672,6 +1672,9 @@ export const completeAppointment = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Appointment not found' });
     }
     
+    // Get final duration after update
+    const finalDurationSeconds = typeof updated.callDuration === 'number' ? updated.callDuration : 0;
+    
     // STOP RECORDING: Only when endCall = true (video call ended)
     // No duration checks, no other conditions
     if (shouldEndCall) {
