@@ -1577,92 +1577,89 @@ export const completeAppointment = async (req, res) => {
       $inc: { callDuration: durationInSeconds }
     };
     
-    // SIMPLE RECORDING LOGIC - NO CONDITIONS, NO DURATION CHECKS:
-    // 1. Video call START = Recording START (when currentDuration = 0 and durationInSeconds > 0)
+    // SIMPLE RECORDING LOGIC:
+    // 1. Video call START = Recording START (when currentDuration = 0 and durationInSeconds > 0 AND endCall = false)
     // 2. Video call END = Recording END (when endCall = true)
-    // No duration checks, no other conditions
+    // CRITICAL: If endCall = true, DO NOT start recording, only stop if active
     
-    console.log(`[RECORDING] ===== RECORDING START CHECK =====`);
+    console.log(`[RECORDING] ===== RECORDING LOGIC CHECK =====`);
     console.log(`[RECORDING] Appointment ID: ${id}`);
     console.log(`[RECORDING] Current Duration: ${currentDuration}`);
     console.log(`[RECORDING] Duration In Seconds: ${durationInSeconds}`);
     console.log(`[RECORDING] End Call: ${endCall}`);
+    console.log(`[RECORDING] Call Ended By Duration: ${callEndedByDuration}`);
+    console.log(`[RECORDING] Should End Call: ${shouldEndCall}`);
     console.log(`[RECORDING] Appointment Status: ${appt.status}`);
     console.log(`[RECORDING] Existing Recording Resource ID: ${appt.recordingResourceId || 'none'}`);
     console.log(`[RECORDING] Existing Recording SID: ${appt.recordingSid || 'none'}`);
     console.log(`[RECORDING] Existing Recording Status: ${appt.recordingStatus || 'none'}`);
     
-    // Check if call is starting (currentDuration = 0 and new duration > 0)
-    const isCallStarting = currentDuration === 0 && durationInSeconds > 0;
-    console.log(`[RECORDING] Is Call Starting: ${isCallStarting} (currentDuration=${currentDuration} === 0 && durationInSeconds=${durationInSeconds} > 0)`);
-    
-    // Check if recording already exists
-    const hasExistingRecording = !!(appt.recordingResourceId && appt.recordingSid);
-    const isRecordingActive = appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired';
-    console.log(`[RECORDING] Has Existing Recording: ${hasExistingRecording}`);
-    console.log(`[RECORDING] Is Recording Active: ${isRecordingActive} (status: ${appt.recordingStatus})`);
-    
-    // Update status if call is starting
-    if (appt.status === 'approved' && isCallStarting) {
-      if (!updateQuery.$set) updateQuery.$set = {};
-      updateQuery.$set.status = 'in_progress';
-      console.log(`[RECORDING] ✅ Status updated: approved -> in_progress`);
-    }
-    
-    // START RECORDING: When call is starting AND not already recording AND not ending
-    // CRITICAL: Start recording ONLY if call is starting (not ending)
-    const condition1 = isCallStarting;
-    const condition2 = !endCall;
-    const condition3 = !hasExistingRecording || !isRecordingActive;
-    
-    console.log(`[RECORDING] Condition 1 (isCallStarting): ${condition1}`);
-    console.log(`[RECORDING] Condition 2 (!endCall): ${condition2}`);
-    console.log(`[RECORDING] Condition 3 (!hasExistingRecording || !isRecordingActive): ${condition3} (hasExistingRecording=${hasExistingRecording}, isRecordingActive=${isRecordingActive})`);
-    
-    const shouldStartRecording = condition1 && condition2 && condition3;
-    console.log(`[RECORDING] Should Start Recording: ${shouldStartRecording} (all conditions: ${condition1} && ${condition2} && ${condition3})`);
-    
-    if (shouldStartRecording) {
-      try {
-        const channelName = `appointment_${id}`;
-        console.log(`[RECORDING] 🎬 STARTING - Appointment: ${id}, Channel: ${channelName}`);
-        console.log(`[RECORDING] All conditions passed, starting recording...`);
-        
-        const recordingResult = await startRecordingForChannel(channelName, 'mix');
-        
-        if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
-          if (!updateQuery.$set) updateQuery.$set = {};
-          updateQuery.$set.recordingResourceId = recordingResult.resourceId;
-          updateQuery.$set.recordingSid = recordingResult.sid;
-          updateQuery.$set.recordingStatus = 'recording';
-          updateQuery.$set.recordingStartedAt = new Date();
-          console.log(`[RECORDING] ✅ STARTED - ResourceID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
-        } else {
+    // CRITICAL: If endCall is true, skip recording start completely
+    if (endCall || shouldEndCall) {
+      console.log(`[RECORDING] ⏭️  SKIPPING RECORDING START - Call is ending (endCall=${endCall}, shouldEndCall=${shouldEndCall})`);
+      console.log(`[RECORDING] Recording start logic will be skipped, only stop logic will run if needed`);
+    } else {
+      // Check if call is starting (currentDuration = 0 and new duration > 0)
+      const isCallStarting = currentDuration === 0 && durationInSeconds > 0;
+      console.log(`[RECORDING] Is Call Starting: ${isCallStarting} (currentDuration=${currentDuration} === 0 && durationInSeconds=${durationInSeconds} > 0)`);
+      
+      // Check if recording already exists
+      const hasExistingRecording = !!(appt.recordingResourceId && appt.recordingSid);
+      const isRecordingActive = appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired';
+      console.log(`[RECORDING] Has Existing Recording: ${hasExistingRecording}`);
+      console.log(`[RECORDING] Is Recording Active: ${isRecordingActive} (status: ${appt.recordingStatus})`);
+      
+      // Update status if call is starting
+      if (appt.status === 'approved' && isCallStarting) {
+        if (!updateQuery.$set) updateQuery.$set = {};
+        updateQuery.$set.status = 'in_progress';
+        console.log(`[RECORDING] ✅ Status updated: approved -> in_progress`);
+      }
+      
+      // START RECORDING: When call is starting AND not already recording
+      // Note: endCall check already done above, so we don't need to check again
+      const condition1 = isCallStarting;
+      const condition2 = !hasExistingRecording || !isRecordingActive;
+      
+      console.log(`[RECORDING] Condition 1 (isCallStarting): ${condition1}`);
+      console.log(`[RECORDING] Condition 2 (!hasExistingRecording || !isRecordingActive): ${condition2} (hasExistingRecording=${hasExistingRecording}, isRecordingActive=${isRecordingActive})`);
+      
+      const shouldStartRecording = condition1 && condition2;
+      console.log(`[RECORDING] Should Start Recording: ${shouldStartRecording} (all conditions: ${condition1} && ${condition2})`);
+      
+      if (shouldStartRecording) {
+        try {
+          const channelName = `appointment_${id}`;
+          console.log(`[RECORDING] 🎬 STARTING - Appointment: ${id}, Channel: ${channelName}`);
+          console.log(`[RECORDING] All conditions passed, starting recording...`);
+          
+          const recordingResult = await startRecordingForChannel(channelName, 'mix');
+          
+          if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
+            if (!updateQuery.$set) updateQuery.$set = {};
+            updateQuery.$set.recordingResourceId = recordingResult.resourceId;
+            updateQuery.$set.recordingSid = recordingResult.sid;
+            updateQuery.$set.recordingStatus = 'recording';
+            updateQuery.$set.recordingStartedAt = new Date();
+            console.log(`[RECORDING] ✅ STARTED - ResourceID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
+          } else {
+            if (!updateQuery.$set) updateQuery.$set = {};
+            updateQuery.$set.recordingStatus = 'failed';
+            console.error(`[RECORDING] ❌ FAILED - Error:`, recordingResult.error);
+            console.error(`[RECORDING] ❌ Recording start failed - success: ${recordingResult.success}, resourceId: ${recordingResult.resourceId || 'none'}, sid: ${recordingResult.sid || 'none'}`);
+          }
+        } catch (recordingError) {
           if (!updateQuery.$set) updateQuery.$set = {};
           updateQuery.$set.recordingStatus = 'failed';
-          console.error(`[RECORDING] ❌ FAILED - Error:`, recordingResult.error);
-          console.error(`[RECORDING] ❌ Recording start failed - success: ${recordingResult.success}, resourceId: ${recordingResult.resourceId || 'none'}, sid: ${recordingResult.sid || 'none'}`);
+          console.error(`[RECORDING] ❌ EXCEPTION -`, recordingError.message);
+          console.error(`[RECORDING] ❌ Exception stack:`, recordingError.stack);
         }
-      } catch (recordingError) {
-        if (!updateQuery.$set) updateQuery.$set = {};
-        updateQuery.$set.recordingStatus = 'failed';
-        console.error(`[RECORDING] ❌ EXCEPTION -`, recordingError.message);
-        console.error(`[RECORDING] ❌ Exception stack:`, recordingError.stack);
-      }
-    } else {
-      // Log which condition failed
-      if (!condition1) {
-        console.log(`[RECORDING] ⏭️  SKIPPING START - Condition 1 FAILED: Call is not starting (currentDuration=${currentDuration}, durationInSeconds=${durationInSeconds})`);
-      }
-      if (!condition2) {
-        console.log(`[RECORDING] ⏭️  SKIPPING START - Condition 2 FAILED: endCall is true (endCall=${endCall})`);
-      }
-      if (!condition3) {
-        console.log(`[RECORDING] ⏭️  SKIPPING START - Condition 3 FAILED: Recording already exists (hasExistingRecording=${hasExistingRecording}, isRecordingActive=${isRecordingActive}, status=${appt.recordingStatus})`);
+      } else {
+        console.log(`[RECORDING] ⏭️  SKIPPING START - Conditions not met (isCallStarting: ${condition1}, hasExistingRecording: ${hasExistingRecording}, isRecordingActive: ${isRecordingActive})`);
       }
     }
     
-    console.log(`[RECORDING] ====================================`);
+    console.log(`[RECORDING] ===== RECORDING START CHECK COMPLETE =====`);
     
     // Perform atomic update and return the updated document
     const updated = await Appointment.findByIdAndUpdate(
