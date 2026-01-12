@@ -166,7 +166,7 @@ export const listRefundables = async (req, res) => {
       } else {
         // Only allow if it's a refundable type
         if (refundableTypes.includes(service)) {
-          match.type = service;
+        match.type = service;
         } else {
           // Invalid service type, return empty results
           match.type = { $in: [] };
@@ -727,17 +727,17 @@ export const listRefundables = async (req, res) => {
               }
             } else {
               // Attendance payment: payer is fan, receiver is star
-              const receiverIdStr = receiver?._id?.toString ? receiver._id.toString() : String(receiver?._id || '');
-              if (starIdStr === receiverIdStr) {
-                cancelledBy = 'star';
-                // Star cancelled: Show star (receiver) as payer, fan (payer) as receiver
-                displayPayer = receiver; // Star who cancelled
-                displayReceiver = payer;  // Fan who was cancelled
-              } else {
-                cancelledBy = 'fan';
-                // Fan cancelled: Keep original
-                displayPayer = payer;  // Fan who cancelled
-                displayReceiver = receiver; // Star who was cancelled
+            const receiverIdStr = receiver?._id?.toString ? receiver._id.toString() : String(receiver?._id || '');
+            if (starIdStr === receiverIdStr) {
+              cancelledBy = 'star';
+              // Star cancelled: Show star (receiver) as payer, fan (payer) as receiver
+              displayPayer = receiver; // Star who cancelled
+              displayReceiver = payer;  // Fan who was cancelled
+            } else {
+              cancelledBy = 'fan';
+              // Fan cancelled: Keep original
+              displayPayer = payer;  // Fan who cancelled
+              displayReceiver = receiver; // Star who was cancelled
               }
             }
           }

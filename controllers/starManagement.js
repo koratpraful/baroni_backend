@@ -395,13 +395,19 @@ export const updateStarProfile = async (req, res) => {
 
     // Validate about field minimum length if provided
     // Allow empty string/null to clear, but if provided, must be at least 100 characters
-    if (about !== undefined && about !== null && about !== '') {
-      const trimmedAbout = typeof about === 'string' ? about.trim() : '';
-      if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
-        return res.status(400).json({
-          success: false,
-          message: 'About field must be at least 100 characters if provided'
-        });
+    if (about !== undefined) {
+      // Allow null or empty string to clear the field
+      if (about === null || about === '') {
+        // This is valid - clearing the field
+      } else if (typeof about === 'string') {
+        const trimmedAbout = about.trim();
+        // If after trimming it's still not empty, it must be at least 100 characters
+        if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
+          return res.status(400).json({
+            success: false,
+            message: 'About field must be at least 100 characters if provided for stars'
+          });
+        }
       }
     }
 
@@ -439,11 +445,16 @@ export const updateStarProfile = async (req, res) => {
     if (about !== undefined) {
       // Only update if it meets minimum length requirement or is being cleared
       if (about === '' || about === null) {
-        star.about = about;
-      } else if (about.trim().length >= 100) {
-        star.about = about;
+        star.about = null; // Clear the field
+      } else if (typeof about === 'string') {
+        const trimmed = about.trim();
+        if (trimmed.length === 0) {
+          star.about = null; // Clear if empty after trim
+        } else if (trimmed.length >= 100) {
+          star.about = trimmed; // Update if meets minimum requirement
+        }
+        // If it doesn't meet requirement, validation should have caught it
       }
-      // If it doesn't meet requirement, validation should have caught it
     }
     if (location !== undefined) star.location = location;
     if (preferredLanguage !== undefined) star.preferredLanguage = preferredLanguage;
@@ -467,7 +478,10 @@ export const updateStarProfile = async (req, res) => {
     if (feature_star !== undefined) star.feature_star = feature_star;
     
     // Update status (maps to availableForBookings and hidden)
-    if (status !== undefined) {
+    // IMPORTANT: Only apply status logic if status is explicitly provided AND 
+    // availableForBookings/hidden are NOT individually provided
+    // This prevents status from overriding individual toggle updates
+    if (status !== undefined && availableForBookings === undefined && hidden === undefined) {
       if (status === 'active') {
         star.availableForBookings = true;
         star.hidden = false;

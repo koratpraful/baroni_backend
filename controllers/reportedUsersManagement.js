@@ -68,9 +68,10 @@ export const getAllReportedUsers = async (req, res) => {
     }
 
     // Get reported users with pagination
+    // Populate fields including contact and status fields
     const reports = await ReportUser.find(filter)
-      .populate('reporterId', 'name pseudo profilePic role country')
-      .populate('reportedUserId', 'name pseudo profilePic role country')
+      .populate('reporterId', 'name pseudo profilePic role country contact')
+      .populate('reportedUserId', 'name pseudo profilePic role country contact availableForBookings hidden')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit))
@@ -153,31 +154,49 @@ export const getAllReportedUsers = async (req, res) => {
       success: true,
       message: 'Reported users retrieved successfully',
       data: {
-        reports: reports.map(report => ({
-          id: report._id,
-          reporter: {
-            id: report.reporterId._id,
-            name: report.reporterId.name,
-            pseudo: report.reporterId.pseudo,
-            profilePic: report.reporterId.profilePic,
-            role: report.reporterId.role,
-            country: report.reporterId.country
-          },
-          reportedUser: {
-            id: report.reportedUserId._id,
-            name: report.reportedUserId.name,
-            pseudo: report.reportedUserId.pseudo,
-            profilePic: report.reportedUserId.profilePic,
-            role: report.reportedUserId.role,
-            country: report.reportedUserId.country
-          },
-          reason: report.reason,
-          description: report.description,
-          status: report.status,
-          reportedUserRole: report.reportedUserRole,
-          createdAt: report.createdAt,
-          updatedAt: report.updatedAt
-        })),
+        reports: reports
+          .filter(report => report.reportedUserId && report.reporterId) // Filter out reports with deleted users
+          .map(report => {
+            // Ensure reportedUserId is populated (not null)
+            const reportedUser = report.reportedUserId || {};
+            const reporter = report.reporterId || {};
+            
+            // Calculate reported user status
+            const reportedUserStatus = (reportedUser.availableForBookings === true && reportedUser.hidden !== true) 
+              ? 'active' 
+              : 'blocked';
+
+            return {
+              id: report._id,
+              reporter: {
+                id: reporter._id || null,
+                name: reporter.name || '',
+                pseudo: reporter.pseudo || '',
+                profilePic: reporter.profilePic || null,
+                role: reporter.role || 'fan',
+                country: reporter.country || null,
+                contact: reporter.contact || null
+              },
+              reportedUser: {
+                id: reportedUser._id || null,
+                name: reportedUser.name || '',
+                pseudo: reportedUser.pseudo || '',
+                profilePic: reportedUser.profilePic || null,
+                role: reportedUser.role || 'fan',
+                country: reportedUser.country || null,
+                contact: reportedUser.contact || null,
+                status: reportedUserStatus,
+                availableForBookings: reportedUser.availableForBookings !== undefined ? reportedUser.availableForBookings : true,
+                hidden: reportedUser.hidden !== undefined ? reportedUser.hidden : false
+              },
+              reason: report.reason || '',
+              description: report.description || '',
+              status: report.status || 'pending',
+              reportedUserRole: report.reportedUserRole || 'fan',
+              createdAt: report.createdAt,
+              updatedAt: report.updatedAt
+            };
+          }),
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
