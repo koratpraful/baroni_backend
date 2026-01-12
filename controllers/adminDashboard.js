@@ -2090,7 +2090,6 @@ export const getDashboardOverview = async (req, res) => {
     ]);
 
     // Process revenue data
-    const totalRevenue = revenueData[0]?.totalRevenue || 0;
     const escrowAmount = escrowData[0]?.escrowAmount || 0;
 
     // Process service revenue
@@ -2104,6 +2103,9 @@ export const getDashboardOverview = async (req, res) => {
         serviceRevenueMap.dedication = (serviceRevenueMap.dedication || 0) + service.amount;
       }
     });
+
+    // Calculate total revenue as sum of the three services only
+    const totalRevenue = (serviceRevenueMap.videoCall || 0) + (serviceRevenueMap.liveShow || 0) + (serviceRevenueMap.dedication || 0);
 
     // Process device data
     const deviceMap = {};
