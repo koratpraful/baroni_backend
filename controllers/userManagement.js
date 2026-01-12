@@ -75,6 +75,51 @@ export const getAllUsers = async (req, res) => {
           { availableForBookings: false },
           { hidden: true }
         ];
+      } else if (status === 'reported') {
+        // Get all reported user IDs
+        const reportedUserIds = await ReportUser.distinct('reportedUserId');
+        if (reportedUserIds.length === 0) {
+          // No reported users, return empty result
+          return res.json({
+            success: true,
+            message: 'Users retrieved successfully',
+            data: {
+              users: [],
+              pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: 0,
+                pages: 0
+              },
+              filters: {
+                countries: [],
+                roles: ['star', 'fan'],
+                statuses: ['active', 'blocked', 'reported']
+              },
+              stats: {
+                roles: {},
+                status: {
+                  active: 0,
+                  blocked: 0,
+                  reported: 0
+                }
+              }
+            }
+          });
+        }
+        // Filter to only reported users
+        // If there's already a $or filter from search, we need to combine them
+        if (filter.$or) {
+          // Keep the $or for search, but also ensure user is in reported list
+          const originalOr = filter.$or;
+          delete filter.$or;
+          filter.$and = [
+            { $or: originalOr },
+            { _id: { $in: reportedUserIds } }
+          ];
+        } else {
+          filter._id = { $in: reportedUserIds };
+        }
       }
     }
 
@@ -121,6 +166,15 @@ export const getAllUsers = async (req, res) => {
       isDeleted: { $ne: true }
     });
 
+    // Get reported users count
+    const reportedUserIds = await ReportUser.distinct('reportedUserId');
+    const reportedCount = reportedUserIds.length > 0 
+      ? await User.countDocuments({ 
+          _id: { $in: reportedUserIds },
+          isDeleted: { $ne: true }
+        })
+      : 0;
+
     return res.json({
       success: true,
       message: 'Users retrieved successfully',
@@ -155,13 +209,14 @@ export const getAllUsers = async (req, res) => {
         filters: {
           countries: countries.sort(),
           roles: ['star', 'fan'],
-          statuses: ['active', 'blocked']
+          statuses: ['active', 'blocked', 'reported']
         },
         stats: {
           roles: roleStats,
           status: {
             active: activeCount,
-            blocked: blockedCount
+            blocked: blockedCount,
+            reported: reportedCount
           }
         }
       }
@@ -1209,18 +1264,26 @@ export const updateManagementUserProfile = async (req, res) => {
     if (category !== undefined) user.profession = category;
     if (about !== undefined) {
       // Validate about field minimum length if provided (only for stars)
-      if (user.role === 'star' && about !== null && about !== '' && typeof about === 'string') {
+      // Allow null or empty string to clear the field
+      if (about === null || about === '') {
+        user.about = null; // Clear the field for both stars and fans
+      } else if (typeof about === 'string') {
         const trimmedAbout = about.trim();
-        if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
-          return res.status(400).json({
-            success: false,
-            message: 'About field must be at least 100 characters if provided for stars'
-          });
+        if (trimmedAbout.length === 0) {
+          user.about = null; // Clear if empty after trim
+        } else if (user.role === 'star') {
+          // For stars, must be at least 100 characters if provided
+          if (trimmedAbout.length < 100) {
+            return res.status(400).json({
+              success: false,
+              message: 'About field must be at least 100 characters if provided for stars'
+            });
+          }
+          user.about = trimmedAbout;
+        } else {
+          // For fans, no minimum length requirement
+          user.about = trimmedAbout;
         }
-        user.about = trimmedAbout;
-      } else {
-        // For fans, no minimum length requirement
-        user.about = typeof about === 'string' ? about.trim() : about;
       }
     }
     if (location !== undefined) user.location = location;
@@ -1287,79 +1350,108 @@ export const updateManagementUserProfile = async (req, res) => {
 
     // Handle services management (only for stars)
     // If services are provided for a fan, ignore them silently
-    if (services !== undefined && Array.isArray(services) && services.length > 0) {
+    if (services !== undefined && Array.isArray(services)) {
       if (user.role !== 'star') {
         // Silently ignore services for non-stars
       } else {
-      for (const serviceOp of services) {
-        if (!serviceOp || typeof serviceOp !== 'object') continue;
+        // Handle empty array: clear all services
+        if (services.length === 0) {
+          await Service.deleteMany({ userId: user._id });
+        } else {
+          // Check if services array uses operation-based format or simple replace format
+          const firstService = services[0];
+          const hasOperation = firstService && 'operation' in firstService;
 
-        const { operation, id: serviceId, type, price } = serviceOp;
+          if (hasOperation) {
+            // Operation-based format: add/update/delete operations
+            for (const serviceOp of services) {
+              if (!serviceOp || typeof serviceOp !== 'object') continue;
 
-        if (operation === 'add') {
-          // Add new service
-          if (!type || price === undefined) {
-            return res.status(400).json({
-              success: false,
-              message: 'Service type and price are required for add operation'
-            });
+              const { operation, id: serviceId, type, price } = serviceOp;
+
+              if (operation === 'add') {
+                // Add new service
+                if (!type || price === undefined) {
+                  return res.status(400).json({
+                    success: false,
+                    message: 'Service type and price are required for add operation'
+                  });
+                }
+
+                // Check if service already exists
+                const existingService = await Service.findOne({ userId: user._id, type });
+                if (existingService) {
+                  return res.status(409).json({
+                    success: false,
+                    message: `Service type "${type}" already exists for this star`
+                  });
+                }
+
+                const newService = new Service({
+                  type,
+                  price: parseFloat(price),
+                  userId: user._id
+                });
+                await newService.save();
+              } else if (operation === 'update') {
+                // Update existing service
+                if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
+                  return res.status(400).json({
+                    success: false,
+                    message: 'Valid service ID is required for update operation'
+                  });
+                }
+
+                const service = await Service.findOne({ _id: serviceId, userId: user._id });
+                if (!service) {
+                  return res.status(404).json({
+                    success: false,
+                    message: 'Service not found'
+                  });
+                }
+
+                if (type !== undefined) service.type = type;
+                if (price !== undefined) service.price = parseFloat(price);
+                await service.save();
+              } else if (operation === 'delete') {
+                // Delete service
+                if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
+                  return res.status(400).json({
+                    success: false,
+                    message: 'Valid service ID is required for delete operation'
+                  });
+                }
+
+                const service = await Service.findOne({ _id: serviceId, userId: user._id });
+                if (!service) {
+                  return res.status(404).json({
+                    success: false,
+                    message: 'Service not found'
+                  });
+                }
+
+                await Service.deleteOne({ _id: serviceId });
+              }
+            }
+          } else {
+            // Simple replace format: delete all existing services and insert new ones
+            // Filter valid services (must have type and price)
+            const validServices = services
+              .filter((s) => s && typeof s === 'object' && s.type && s.price !== undefined)
+              .map((s) => ({
+                type: typeof s.type === 'string' ? s.type.trim() : String(s.type),
+                price: parseFloat(s.price) || 0,
+                userId: user._id
+              }));
+
+            // Delete all existing services for this user
+            await Service.deleteMany({ userId: user._id });
+            // Insert new services (even if empty array, this will just clear all services)
+            if (validServices.length > 0) {
+              await Service.insertMany(validServices);
+            }
           }
-
-          // Check if service already exists
-          const existingService = await Service.findOne({ userId: user._id, type });
-          if (existingService) {
-            return res.status(409).json({
-              success: false,
-              message: `Service type "${type}" already exists for this star`
-            });
-          }
-
-          const newService = new Service({
-            type,
-            price: parseFloat(price),
-            userId: user._id
-          });
-          await newService.save();
-        } else if (operation === 'update') {
-          // Update existing service
-          if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
-            return res.status(400).json({
-              success: false,
-              message: 'Valid service ID is required for update operation'
-            });
-          }
-
-          const service = await Service.findOne({ _id: serviceId, userId: user._id });
-          if (!service) {
-            return res.status(404).json({
-              success: false,
-              message: 'Service not found'
-            });
-          }
-
-          if (type !== undefined) service.type = type;
-          if (price !== undefined) service.price = parseFloat(price);
-          await service.save();
-        } else if (operation === 'delete') {
-          // Delete service
-          if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
-            return res.status(400).json({
-              success: false,
-              message: 'Valid service ID is required for delete operation'
-            });
-          }
-
-          const service = await Service.findOne({ _id: serviceId, userId: user._id });
-          if (!service) {
-            return res.status(404).json({
-              success: false,
-              message: 'Service not found'
-            });
-          }
-
-          await Service.deleteOne({ _id: serviceId });
         }
-      }
       }
     }
 

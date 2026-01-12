@@ -776,7 +776,7 @@ export const getAllStars = async (req, res) => {
                             return null;
                         }
                         return {
-                            ...star,
+                        ...star,
                             isLiked: Array.isArray(req.user.favorites) && req.user.favorites.includes(star._id || star.id)
                         };
                     }).filter(star => star !== null); // Remove any null entries
@@ -788,8 +788,8 @@ export const getAllStars = async (req, res) => {
                             return null;
                         }
                         return {
-                            ...star,
-                            isLiked: false
+                        ...star,
+                        isLiked: false
                         };
                     }).filter(star => star !== null); // Remove any null entries
                 }
@@ -942,7 +942,7 @@ export const getAllStars = async (req, res) => {
                     return null;
                 }
                 return {
-                    ...star,
+                ...star,
                     isLiked: Array.isArray(req.user.favorites) && req.user.favorites.includes(star._id || star.id)
                 };
             }).filter(star => star !== null); // Remove any null entries
@@ -954,8 +954,8 @@ export const getAllStars = async (req, res) => {
                     return null;
                 }
                 return {
-                    ...star,
-                    isLiked: false
+                ...star,
+                isLiked: false
                 };
             }).filter(star => star !== null); // Remove any null entries
         }

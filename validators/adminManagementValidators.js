@@ -120,9 +120,19 @@ export const updateManagementUserProfileValidator = [
     .withMessage('Invalid category ID'),
   body('about')
     .optional()
-    .isString()
-    .trim()
-    .isLength({ max: 1000 })
+    .custom((value) => {
+      // Allow null, undefined, or empty string to clear the field
+      if (value === undefined || value === null || value === '') return true;
+      // If provided, must be a string
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) return true; // Allow empty after trim
+        if (trimmed.length > 1000) return false; // Max 1000 characters
+        // Note: Minimum 100 characters check is done in controller for stars
+        return true;
+      }
+      return false; // Not a string
+    })
     .withMessage('About must be less than 1000 characters'),
   body('location')
     .optional()
@@ -374,14 +384,19 @@ export const updateStarProfileValidator = [
     .withMessage('Invalid category ID'),
   body('about')
     .optional()
-    .isString()
-    .trim()
     .custom((value) => {
+      // Allow null, undefined, or empty string to clear the field
       if (value === undefined || value === null || value === '') return true;
-      if (typeof value === 'string' && value.trim().length >= 100) return true;
-      return false;
+      // If provided, must be a string with at least 100 characters
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) return true; // Allow empty after trim
+        if (trimmed.length >= 100) return true;
+        return false; // Less than 100 characters
+      }
+      return false; // Not a string
     })
-    .withMessage('About must be at least 100 characters if provided'),
+    .withMessage('About must be at least 100 characters if provided for stars'),
   body('location')
     .optional()
     .isString()
