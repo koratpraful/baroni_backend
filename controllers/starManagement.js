@@ -163,20 +163,30 @@ export const getStarProfile = async (req, res) => {
     const periodStartDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
 
     // Revenue insights - get period-based revenue from transactions and current escrow from wallet
-    const [revenueStats, starWallet] = await Promise.all([
-      // Period-based total revenue from completed transactions
+    // Only include revenue-generating transaction types: appointment_payment, dedication_request_payment, dedication_payment, live_show_attendance_payment, live_show_hosting_payment
+    const [serviceRevenueBreakdown, starWallet] = await Promise.all([
+      // Get service-wise revenue breakdown
       Transaction.aggregate([
-      {
-        $match: {
-          receiverId: star._id,
-          status: 'completed',
-          createdAt: { $gte: periodStartDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-            totalRevenue: { $sum: '$amount' }
+        {
+          $match: {
+            receiverId: star._id,
+            status: 'completed',
+            type: {
+              $in: [
+                'appointment_payment',
+                'dedication_request_payment',
+                'dedication_payment',
+                'live_show_attendance_payment',
+                'live_show_hosting_payment'
+              ]
+            },
+            createdAt: { $gte: periodStartDate }
+          }
+        },
+        {
+          $group: {
+            _id: '$type',
+            amount: { $sum: '$amount' }
           }
         }
       ]),
@@ -184,12 +194,31 @@ export const getStarProfile = async (req, res) => {
       getOrCreateStarWallet(star._id)
     ]);
 
-    const periodRevenue = revenueStats[0]?.totalRevenue || 0;
     const currentEscrow = starWallet?.escrow || 0;
+
+    // Map transaction types to service names and calculate totals
+    const serviceRevenueMap = {};
+    serviceRevenueBreakdown.forEach(service => {
+      if (service._id === 'appointment_payment') {
+        serviceRevenueMap.videoCall = service.amount;
+      } else if (service._id === 'dedication_request_payment' || service._id === 'dedication_payment') {
+        serviceRevenueMap.dedication = (serviceRevenueMap.dedication || 0) + service.amount;
+      } else if (service._id === 'live_show_attendance_payment' || service._id === 'live_show_hosting_payment') {
+        serviceRevenueMap.liveShow = (serviceRevenueMap.liveShow || 0) + service.amount;
+      }
+    });
+
+    // Calculate total revenue as sum of all services (ensures accuracy)
+    const totalRevenue = (serviceRevenueMap.videoCall || 0) + (serviceRevenueMap.liveShow || 0) + (serviceRevenueMap.dedication || 0);
     
     const revenue = {
-      totalRevenue: periodRevenue,
-      escrowAmount: currentEscrow
+      totalRevenue: totalRevenue,
+      escrowAmount: currentEscrow,
+      serviceBreakdown: {
+        videoCall: serviceRevenueMap.videoCall || 0,
+        liveShow: serviceRevenueMap.liveShow || 0,
+        dedication: serviceRevenueMap.dedication || 0
+      }
     };
 
     // Activity overview (based on period) - count COMPLETED items
@@ -330,7 +359,8 @@ export const getStarProfile = async (req, res) => {
         },
         revenue: {
           total: revenue.totalRevenue,
-          escrow: revenue.escrowAmount
+          escrow: revenue.escrowAmount,
+          serviceBreakdown: revenue.serviceBreakdown
         }
       }
     });

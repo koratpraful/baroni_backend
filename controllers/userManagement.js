@@ -621,6 +621,7 @@ export const getUserDetails = async (req, res) => {
           feature_star: user.feature_star,
           isAddedInFeatureStar: Boolean(user.feature_star),
           isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
+          verified: user.isVerified !== undefined ? user.isVerified : false,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
           lastLoginAt: user.lastLoginAt
@@ -966,6 +967,7 @@ export const getManagementUserProfile = async (req, res) => {
           feature_star: user.feature_star,
           isAddedInFeatureStar: Boolean(user.feature_star),
           isOnlineStar: user.role === 'star' ? isUserOnline(user.lastLoginAt) : false,
+          verified: user.isVerified !== undefined ? user.isVerified : false,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
           lastLoginAt: user.lastLoginAt
