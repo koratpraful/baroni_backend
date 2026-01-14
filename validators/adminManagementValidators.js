@@ -241,6 +241,12 @@ export const updateManagementUserProfileValidator = [
     .withMessage('Sample description must be less than 500 characters')
 ];
 
+export const uploadUserProfilePictureValidator = [
+  param('id')
+    .isMongoId()
+    .withMessage('Invalid user ID')
+];
+
 export const updateUserStatusValidator = [
   param('userId')
     .isMongoId()

@@ -5,12 +5,13 @@ import {
   getManagementUserProfile,
   getManagementUserOverview,
   updateManagementUserProfile,
+  uploadUserProfilePicture,
   updateUserStatus,
   updateUserRole,
   deleteUser,
   getUserStats
 } from '../../controllers/userManagement.js';
-import { uploadVideoOnly } from '../../middlewares/upload.js';
+import { uploadVideoOnly, upload } from '../../middlewares/upload.js';
 import {
   getAllStars,
   getStarProfile,
@@ -58,6 +59,7 @@ import {
   getManagementUserProfileValidator,
   getManagementUserOverviewValidator,
   updateManagementUserProfileValidator,
+  uploadUserProfilePictureValidator,
   updateUserStatusValidator,
   updateUserRoleValidator,
   deleteUserValidator,
@@ -119,6 +121,9 @@ router.get('/user/:id/overview', getManagementUserOverviewValidator, getManageme
 // Update profile (fan or star) by ID (supports both PATCH and PUT)
 router.patch('/user/:id', updateManagementUserProfileValidator, updateManagementUserProfile);
 router.put('/user/:id', updateManagementUserProfileValidator, updateManagementUserProfile);
+
+// Upload profile picture for fan or star (admin only)
+router.post('/user/:id/profile-picture', upload.single('profilePic'), uploadUserProfilePictureValidator, uploadUserProfilePicture);
 
 // Update user status (block/unblock)
 router.patch('/users/:userId/status', updateUserStatusValidator, updateUserStatus);

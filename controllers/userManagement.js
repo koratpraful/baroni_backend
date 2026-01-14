@@ -1609,6 +1609,68 @@ export const updateManagementUserProfile = async (req, res) => {
   }
 };
 
+// Upload profile picture for fan or star (admin only)
+export const uploadUserProfilePicture = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if file is uploaded
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile picture file is required'
+      });
+    }
+
+    // Upload file to Cloudinary
+    const { uploadFile } = await import('../utils/uploadFile.js');
+    const profilePicUrl = await uploadFile(req.file.buffer);
+
+    // Update user's profile picture
+    user.profilePic = profilePicUrl;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'Profile picture uploaded successfully',
+      data: {
+        profilePic: user.profilePic,
+        userId: user._id
+      }
+    });
+
+  } catch (err) {
+    console.error('Upload profile picture error:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || 'Failed to upload profile picture'
+    });
+  }
+};
+
 // Update user status (block/unblock)
 export const updateUserStatus = async (req, res) => {
   try {

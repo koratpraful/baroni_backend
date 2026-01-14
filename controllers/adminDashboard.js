@@ -604,6 +604,54 @@ const getDedicationInsights = async (startDate, endDate) => {
   };
 };
 
+// Helper function for become star insights
+const getBecomeStarInsights = async (startDate, endDate) => {
+  // Get all become_star_payment transactions in the period
+  const becomeStarTransactions = await Transaction.find({
+    type: 'become_star_payment',
+    createdAt: { $gte: startDate, $lte: endDate }
+  });
+
+  // Count by status
+  const completed = becomeStarTransactions.filter(txn => txn.status === 'completed').length;
+  const approved = becomeStarTransactions.filter(txn => txn.status === 'approved').length;
+  const cancelled = becomeStarTransactions.filter(txn => txn.status === 'cancelled').length;
+  const pending = becomeStarTransactions.filter(txn => txn.status === 'pending').length;
+
+  // Get unique users (payers who paid to become stars)
+  const uniqueUsers = new Set(
+    becomeStarTransactions
+      .map(txn => txn.payerId?.toString())
+      .filter(id => id)
+  ).size;
+
+  // Calculate net revenue from completed become_star_payment transactions
+  const netRevenue = await Transaction.aggregate([
+    {
+      $match: {
+        status: 'completed',
+        type: 'become_star_payment',
+        createdAt: { $gte: startDate, $lte: endDate }
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalRevenue: { $sum: '$amount' }
+      }
+    }
+  ]);
+
+  return {
+    completed,
+    approved,
+    cancelled,
+    pending,
+    uniqueFansAndStars: uniqueUsers,
+    netRevenue: netRevenue[0]?.totalRevenue || 0
+  };
+};
+
 // Top Stars API
 export const getTopStars = async (req, res) => {
   try {
@@ -964,6 +1012,11 @@ const getLiveShowInsightsData = async (period) => {
 const getDedicationInsightsData = async (period) => {
   const { startDate, endDate } = getDateRange(period);
   return await getDedicationInsights(startDate, endDate);
+};
+
+const getBecomeStarInsightsData = async (period) => {
+  const { startDate, endDate } = getDateRange(period);
+  return await getBecomeStarInsights(startDate, endDate);
 };
 
 const getTopStarsData = async (period) => {
@@ -1824,7 +1877,8 @@ export const getDashboardOverview = async (req, res) => {
       previousCostData,
       videoCallInsights,
       liveShowInsights,
-      dedicationInsights
+      dedicationInsights,
+      becomeStarInsights
     ] = await Promise.all([
       // New Users
       User.countDocuments({
@@ -2086,7 +2140,8 @@ export const getDashboardOverview = async (req, res) => {
       // Service Insights
       getVideoCallInsights(startDate, endDate),
       getLiveShowInsights(startDate, endDate),
-      getDedicationInsights(startDate, endDate)
+      getDedicationInsights(startDate, endDate),
+      getBecomeStarInsights(startDate, endDate)
     ]);
 
     // Process revenue data
@@ -2101,11 +2156,13 @@ export const getDashboardOverview = async (req, res) => {
         serviceRevenueMap.liveShow = (serviceRevenueMap.liveShow || 0) + service.amount;
       } else if (service._id === 'dedication_request_payment' || service._id === 'dedication_payment') {
         serviceRevenueMap.dedication = (serviceRevenueMap.dedication || 0) + service.amount;
+      } else if (service._id === 'become_star_payment') {
+        serviceRevenueMap.becomeStar = service.amount;
       }
     });
 
-    // Calculate total revenue as sum of the three services only
-    const totalRevenue = (serviceRevenueMap.videoCall || 0) + (serviceRevenueMap.liveShow || 0) + (serviceRevenueMap.dedication || 0);
+    // Calculate total revenue as sum of all services (videoCall + liveShow + dedication + becomeStar)
+    const totalRevenue = (serviceRevenueMap.videoCall || 0) + (serviceRevenueMap.liveShow || 0) + (serviceRevenueMap.dedication || 0) + (serviceRevenueMap.becomeStar || 0);
 
     // Process device data
     const deviceMap = {};
@@ -2168,7 +2225,8 @@ export const getDashboardOverview = async (req, res) => {
           serviceBreakdown: {
             videoCall: serviceRevenueMap.videoCall || 0,
             liveShow: serviceRevenueMap.liveShow || 0,
-            dedication: serviceRevenueMap.dedication || 0
+            dedication: serviceRevenueMap.dedication || 0,
+            becomeStar: serviceRevenueMap.becomeStar || 0
           }
         },
         // Active Users per Country
@@ -2237,6 +2295,14 @@ export const getDashboardOverview = async (req, res) => {
             pending: dedicationInsights.pending,
             uniqueFansAndStars: dedicationInsights.uniqueFansAndStars,
             netRevenue: dedicationInsights.netRevenue
+          },
+          becomeStar: {
+            completed: becomeStarInsights.completed,
+            approved: becomeStarInsights.approved,
+            cancelled: becomeStarInsights.cancelled,
+            pending: becomeStarInsights.pending,
+            uniqueFansAndStars: becomeStarInsights.uniqueFansAndStars,
+            netRevenue: becomeStarInsights.netRevenue
           }
         }
       }
