@@ -15,23 +15,73 @@ import { getFirstValidationError } from '../utils/validationHelper.js';
 const getDateRange = (period) => {
   try {
     const now = new Date();
+    // Normalize period string (remove spaces, convert to lowercase, handle variations)
+    const normalizedPeriod = period ? period.toString().toLowerCase().replace(/\s+/g, '_').trim() : 'current_month';
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
     
-    switch (period) {
+    switch (normalizedPeriod) {
+      // Current Month variations
       case 'current_month':
+      case 'currentmonth':
+      case 'this_month':
+      case 'thismonth':
         return { startDate: startOfMonth, endDate: endOfMonth };
+      
+      // Last Month variations
       case 'last_month':
+      case 'lastmonth':
+      case 'previous_month':
+      case 'previousmonth':
         const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
         return { startDate: startOfLastMonth, endDate: endOfLastMonth };
+      
+      // This Year / Current Year
+      case 'this_year':
+      case 'thisyear':
+      case 'current_year':
+      case 'currentyear':
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+        return { startDate: startOfYear, endDate: endOfYear };
+      
+      // Last 3 Months
+      case 'last_3_months':
+      case 'last3months':
+      case 'last_3months':
+      case 'last3_months':
+        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        return { startDate: threeMonthsAgo, endDate: endOfMonth };
+      
+      // Last 6 Months
+      case 'last_6_months':
+      case 'last6months':
+      case 'last_6months':
+      case 'last6_months':
+        const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+        return { startDate: sixMonthsAgo, endDate: endOfMonth };
+      
+      // Last 7 Days
       case 'last_7_days':
+      case 'last7days':
+      case 'last_7days':
+      case 'last7_days':
+      case 'last_week':
+      case 'lastweek':
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         return { startDate: sevenDaysAgo, endDate: now };
+      
+      // Last 30 Days
       case 'last_30_days':
+      case 'last30days':
+      case 'last_30days':
+      case 'last30_days':
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         return { startDate: thirtyDaysAgo, endDate: now };
+      
       default:
+        // Default to current month
         return { startDate: startOfMonth, endDate: endOfMonth };
     }
   } catch (error) {

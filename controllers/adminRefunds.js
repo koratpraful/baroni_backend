@@ -744,10 +744,21 @@ export const listRefundables = async (req, res) => {
         }
       }
       
+      // Map transaction type to refund type (appointment, dedication, live_show)
+      let refundType = null;
+      if (txn.type === 'appointment_payment') {
+        refundType = 'appointment';
+      } else if (txn.type === 'dedication_request_payment') {
+        refundType = 'dedication';
+      } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
+        refundType = 'live_show';
+      }
+
       return {
         id: txn._id,
         transactionId: txn._id,
-        type: txn.type,
+        type: txn.type, // Original transaction type (appointment_payment, etc.)
+        refundType: refundType, // Simple refund type: 'appointment', 'dedication', 'live_show'
         status: txn.status,
         refundStatus: refundStatus,
         amount: txn.amount,
@@ -760,7 +771,7 @@ export const listRefundables = async (req, res) => {
         externalAmount: txn.externalAmount,
         paymentId: paymentId,
         serviceId: serviceId,
-        serviceType: serviceType,
+        serviceType: serviceType, // Display name: 'Video Call', 'Dedication', 'Live Show'
         serviceDuration: serviceDuration,
         scheduledDateTime: scheduledDateTime,
         description: txn.description,
