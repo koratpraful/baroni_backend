@@ -12,13 +12,18 @@ import { validationResult } from 'express-validator';
 import { getFirstValidationError } from '../utils/validationHelper.js';
 
 // Helper function to get date range based on period
+// Handles frontend period values: "This Year", "Current Month", "Last 3 Months", etc.
 const getDateRange = (period) => {
   try {
     const now = new Date();
-    // Normalize period string (remove spaces, convert to lowercase, handle variations)
-    const normalizedPeriod = period ? period.toString().toLowerCase().replace(/\s+/g, '_').trim() : 'current_month';
+    // Normalize period string (handle frontend values like "This Year", "Last 3 Months")
+    let normalizedPeriod = period ? period.toString().trim() : 'current_month';
+    
+    // Handle frontend period values (case-insensitive, space handling)
+    normalizedPeriod = normalizedPeriod.toLowerCase().replace(/\s+/g, '_');
+    
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     
     switch (normalizedPeriod) {
       // Current Month variations
@@ -34,7 +39,7 @@ const getDateRange = (period) => {
       case 'previous_month':
       case 'previousmonth':
         const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
         return { startDate: startOfLastMonth, endDate: endOfLastMonth };
       
       // This Year / Current Year
@@ -43,7 +48,7 @@ const getDateRange = (period) => {
       case 'current_year':
       case 'currentyear':
         const startOfYear = new Date(now.getFullYear(), 0, 1);
-        const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+        const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
         return { startDate: startOfYear, endDate: endOfYear };
       
       // Last 3 Months
@@ -88,7 +93,7 @@ const getDateRange = (period) => {
     console.error('Error in getDateRange:', error);
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     return { startDate: startOfMonth, endDate: endOfMonth };
   }
 };
@@ -377,57 +382,123 @@ export const getCostEvaluation = async (req, res) => {
     const { period = 'current_month' } = req.query;
     const { startDate, endDate } = getDateRange(period);
 
-    // Video calls minutes (from appointments)
-    const videoCallsResult = await Appointment.aggregate([
-      {
-        $match: {
-          status: 'completed',
-          createdAt: { $gte: startDate, $lte: endDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalMinutes: { $sum: '$callDuration' } // Using callDuration field from Appointment model
-        }
-      }
-    ]);
+    // IMPORTANT: Cost evaluation based on Transaction dates (not entity createdAt) to match revenue
+    // Get transactions in period first, then get related completed entities
+    
+    // Video calls minutes - from appointments linked to transactions in period
+    const videoCallTxns = await Transaction.distinct('_id', {
+      type: 'appointment_payment',
+      status: 'completed',
+      createdAt: { $gte: startDate, $lte: endDate }
+    });
+    
+    const videoCallsResult = videoCallTxns.length > 0
+      ? await Appointment.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              transactionId: { $in: videoCallTxns },
+              callDuration: { $exists: true, $gt: 0 }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: '$callDuration' }
+            }
+          }
+        ])
+      : [{ totalMinutes: 0 }];
 
     const videoCallsMinutes = videoCallsResult[0]?.totalMinutes || 0;
 
-    // Live show minutes (from live shows) - estimate based on attendance
-    const liveShowResult = await LiveShow.aggregate([
-      {
-        $match: {
-          status: 'completed',
-          createdAt: { $gte: startDate, $lte: endDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } } // Estimate 30 minutes per attendee
-        }
-      }
-    ]);
+    // Live show minutes - from live shows linked to transactions in period
+    const liveShowTxns = await Transaction.distinct('_id', {
+      type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
+      status: 'completed',
+      createdAt: { $gte: startDate, $lte: endDate }
+    });
+    
+    const liveShowResult = liveShowTxns.length > 0
+      ? await Promise.all([
+          // Get hosting shows
+          LiveShow.aggregate([
+            {
+              $match: {
+                status: 'completed',
+                transactionId: { $in: liveShowTxns }
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
+              }
+            }
+          ]),
+          // Get attendance-based shows
+          LiveShowAttendance.aggregate([
+            {
+              $match: {
+                status: 'completed',
+                transactionId: { $in: liveShowTxns }
+              }
+            },
+            {
+              $lookup: {
+                from: 'liveshows',
+                localField: 'liveShowId',
+                foreignField: '_id',
+                as: 'show'
+              }
+            },
+            {
+              $unwind: '$show'
+            },
+            {
+              $match: {
+                'show.status': 'completed'
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                totalMinutes: { $sum: 30 }
+              }
+            }
+          ])
+        ]).then(([hosting, attendance]) => {
+          const hostingMins = hosting[0]?.totalMinutes || 0;
+          const attendanceMins = attendance[0]?.totalMinutes || 0;
+          return [{ totalMinutes: hostingMins + attendanceMins }];
+        })
+      : [{ totalMinutes: 0 }];
 
     const liveShowMinutes = liveShowResult[0]?.totalMinutes || 0;
 
-    // Dedication minutes (estimated based on requests)
-    const dedicationResult = await DedicationRequest.aggregate([
-      {
-        $match: {
-          status: 'completed',
-          createdAt: { $gte: startDate, $lte: endDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalMinutes: { $sum: 5 } // Assuming 5 minutes per dedication
-        }
-      }
-    ]);
+    // Dedication minutes - from dedication requests linked to transactions in period
+    const dedicationTxns = await Transaction.distinct('_id', {
+      type: { $in: ['dedication_request_payment', 'dedication_payment'] },
+      status: 'completed',
+      createdAt: { $gte: startDate, $lte: endDate }
+    });
+    
+    const dedicationResult = dedicationTxns.length > 0
+      ? await DedicationRequest.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              transactionId: { $in: dedicationTxns }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: 5 }
+            }
+          }
+        ])
+      : [{ totalMinutes: 0 }];
 
     const dedicationMinutes = dedicationResult[0]?.totalMinutes || 0;
 
@@ -500,10 +571,29 @@ export const getServiceInsights = async (req, res) => {
 };
 
 // Helper function for video call insights
+// IMPORTANT: Counts based on Transaction dates (not appointment createdAt) to match revenue
 const getVideoCallInsights = async (startDate, endDate) => {
-  const appointments = await Appointment.find({
+  // Get transactions in period first
+  const transactions = await Transaction.distinct('_id', {
+    type: 'appointment_payment',
     createdAt: { $gte: startDate, $lte: endDate }
   });
+
+  if (transactions.length === 0) {
+    return {
+      completed: 0,
+      approved: 0,
+      cancelled: 0,
+      pending: 0,
+      uniqueFansAndStars: 0,
+      netRevenue: 0
+    };
+  }
+
+  // Get appointments linked to these transactions
+  const appointments = await Appointment.find({
+    transactionId: { $in: transactions }
+  }).lean();
 
   const completed = appointments.filter(apt => apt.status === 'completed').length;
   const approved = appointments.filter(apt => apt.status === 'approved').length;
@@ -515,25 +605,13 @@ const getVideoCallInsights = async (startDate, endDate) => {
     ...appointments.map(apt => apt.starId?.toString())
   ]).size;
 
+  // Revenue from completed transactions in period
   const netRevenue = await Transaction.aggregate([
     {
       $match: {
         status: 'completed',
         type: 'appointment_payment',
         createdAt: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $lookup: {
-        from: 'appointments',
-        localField: '_id',
-        foreignField: 'transactionId',
-        as: 'appointment'
-      }
-    },
-    {
-      $match: {
-        'appointment.0': { $exists: true }
       }
     },
     {
@@ -555,10 +633,54 @@ const getVideoCallInsights = async (startDate, endDate) => {
 };
 
 // Helper function for live show insights
+// IMPORTANT: Counts based on Transaction dates (not live show createdAt) to match revenue
 const getLiveShowInsights = async (startDate, endDate) => {
-  const liveShows = await LiveShow.find({
+  // Get transactions in period first
+  const transactions = await Transaction.distinct('_id', {
+    type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
     createdAt: { $gte: startDate, $lte: endDate }
   });
+
+  if (transactions.length === 0) {
+    return {
+      completed: 0,
+      approved: 0,
+      cancelled: 0,
+      pending: 0,
+      uniqueFansAndStars: 0,
+      netRevenue: 0
+    };
+  }
+
+  // Get live shows from hosting transactions
+  const hostingTxns = await Transaction.find({
+    _id: { $in: transactions },
+    type: 'live_show_hosting_payment'
+  }).distinct('_id');
+
+  const hostingShows = hostingTxns.length > 0
+    ? await LiveShow.find({ transactionId: { $in: hostingTxns } }).lean()
+    : [];
+
+  // Get attendance records from attendance transactions
+  const attendanceTxns = await Transaction.find({
+    _id: { $in: transactions },
+    type: 'live_show_attendance_payment'
+  }).distinct('_id');
+
+  const attendanceRecords = attendanceTxns.length > 0
+    ? await LiveShowAttendance.find({ transactionId: { $in: attendanceTxns } }).lean()
+    : [];
+
+  // Get unique live show IDs
+  const showIds = new Set([
+    ...hostingShows.map(show => show._id.toString()),
+    ...attendanceRecords.map(att => att.liveShowId?.toString())
+  ]);
+
+  const liveShows = showIds.size > 0
+    ? await LiveShow.find({ _id: { $in: Array.from(showIds).map(id => new mongoose.Types.ObjectId(id)) } }).lean()
+    : [];
 
   const completed = liveShows.filter(show => show.status === 'completed').length;
   const approved = liveShows.filter(show => show.status === 'approved').length;
@@ -567,12 +689,10 @@ const getLiveShowInsights = async (startDate, endDate) => {
 
   const uniqueUsers = new Set([
     ...liveShows.map(show => show.starId?.toString()),
-    ...(await LiveShowAttendance.distinct('fanId', {
-      liveShowId: { $in: liveShows.map(show => show._id) }
-    })).map(id => id.toString())
+    ...attendanceRecords.map(att => att.fanId?.toString())
   ]).size;
 
-  // Calculate net revenue from live show transactions
+  // Revenue from completed transactions in period
   const netRevenue = await Transaction.aggregate([
     {
       $match: {
@@ -600,10 +720,29 @@ const getLiveShowInsights = async (startDate, endDate) => {
 };
 
 // Helper function for dedication insights
+// IMPORTANT: Counts based on Transaction dates (not dedication request createdAt) to match revenue
 const getDedicationInsights = async (startDate, endDate) => {
-  const dedicationRequests = await DedicationRequest.find({
+  // Get transactions in period first
+  const transactions = await Transaction.distinct('_id', {
+    type: { $in: ['dedication_request_payment', 'dedication_payment'] },
     createdAt: { $gte: startDate, $lte: endDate }
   });
+
+  if (transactions.length === 0) {
+    return {
+      completed: 0,
+      approved: 0,
+      cancelled: 0,
+      pending: 0,
+      uniqueFansAndStars: 0,
+      netRevenue: 0
+    };
+  }
+
+  // Get dedication requests linked to these transactions
+  const dedicationRequests = await DedicationRequest.find({
+    transactionId: { $in: transactions }
+  }).lean();
 
   const completed = dedicationRequests.filter(req => req.status === 'completed').length;
   const approved = dedicationRequests.filter(req => req.status === 'approved').length;
@@ -615,25 +754,13 @@ const getDedicationInsights = async (startDate, endDate) => {
     ...dedicationRequests.map(req => req.starId?.toString())
   ]).size;
 
+  // Revenue from completed transactions in period
   const netRevenue = await Transaction.aggregate([
     {
       $match: {
         status: 'completed',
         type: { $in: ['dedication_request_payment', 'dedication_payment'] },
         createdAt: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $lookup: {
-        from: 'dedicationrequests',
-        localField: '_id',
-        foreignField: 'transactionId',
-        as: 'dedicationRequest'
-      }
-    },
-    {
-      $match: {
-        'dedicationRequest.0': { $exists: true }
       }
     },
     {
@@ -997,50 +1124,101 @@ const getActiveUsersByCountryData = async (period) => {
 const getCostEvaluationData = async (period) => {
   const { startDate, endDate } = getDateRange(period);
   
-  const videoCallsResult = await Appointment.aggregate([
-    {
-      $match: {
-        status: 'completed',
-        createdAt: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalMinutes: { $sum: '$callDuration' }
-      }
-    }
-  ]);
+  // IMPORTANT: Cost evaluation based on Transaction dates (not entity createdAt) to match revenue
+  // Get transactions in period first, then get related completed entities
+  
+  // Video calls minutes
+  const videoCallTxns = await Transaction.distinct('_id', {
+    type: 'appointment_payment',
+    status: 'completed',
+    createdAt: { $gte: startDate, $lte: endDate }
+  });
+  
+  const videoCallsResult = videoCallTxns.length > 0
+    ? await Appointment.aggregate([
+        {
+          $match: {
+            status: 'completed',
+            transactionId: { $in: videoCallTxns },
+            callDuration: { $exists: true, $gt: 0 }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalMinutes: { $sum: '$callDuration' }
+          }
+        }
+      ])
+    : [{ totalMinutes: 0 }];
 
-  const liveShowResult = await LiveShow.aggregate([
-    {
-      $match: {
-        status: 'completed',
-        createdAt: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
-      }
-    }
-  ]);
+  // Live show minutes
+  const liveShowTxns = await Transaction.distinct('_id', {
+    type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
+    status: 'completed',
+    createdAt: { $gte: startDate, $lte: endDate }
+  });
+  
+  const liveShowResult = liveShowTxns.length > 0
+    ? await Promise.all([
+        LiveShow.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              transactionId: { $in: liveShowTxns }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
+            }
+          }
+        ]),
+        LiveShowAttendance.aggregate([
+          {
+            $match: {
+              status: 'completed',
+              transactionId: { $in: liveShowTxns }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalMinutes: { $sum: 30 }
+            }
+          }
+        ])
+      ]).then(([hosting, attendance]) => {
+        const hostingMins = hosting[0]?.totalMinutes || 0;
+        const attendanceMins = attendance[0]?.totalMinutes || 0;
+        return [{ totalMinutes: hostingMins + attendanceMins }];
+      })
+    : [{ totalMinutes: 0 }];
 
-  const dedicationResult = await DedicationRequest.aggregate([
-    {
-      $match: {
-        status: 'completed',
-        createdAt: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalMinutes: { $sum: 5 }
-      }
-    }
-  ]);
+  // Dedication minutes
+  const dedicationTxns = await Transaction.distinct('_id', {
+    type: { $in: ['dedication_request_payment', 'dedication_payment'] },
+    status: 'completed',
+    createdAt: { $gte: startDate, $lte: endDate }
+  });
+  
+  const dedicationResult = dedicationTxns.length > 0
+    ? await DedicationRequest.aggregate([
+        {
+          $match: {
+            status: 'completed',
+            transactionId: { $in: dedicationTxns }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalMinutes: { $sum: 5 }
+          }
+        }
+      ])
+    : [{ totalMinutes: 0 }];
 
   return {
     videoCalls: { minutes: videoCallsResult[0]?.totalMinutes || 0, change: 0 },
@@ -2077,116 +2255,202 @@ export const getDashboardOverview = async (req, res) => {
           }
         }
       ]),
-      // Cost Evaluation - Current
-      Promise.all([
-        Appointment.aggregate([
-          {
-            $match: {
-              status: 'completed',
-              $or: [
-                { completedAt: { $gte: startDate, $lte: endDate } },
-                { completedAt: { $exists: false }, createdAt: { $gte: startDate, $lte: endDate } }
-              ],
-              callDuration: { $exists: true, $gt: 0 }
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              totalMinutes: { $sum: { $divide: ['$callDuration', 60] } }
-            }
-          }
-        ]),
-        LiveShow.aggregate([
-          {
-            $match: {
-              status: 'completed',
-              $or: [
-                { updatedAt: { $gte: startDate, $lte: endDate } },
-                { createdAt: { $gte: startDate, $lte: endDate } }
-              ]
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
-            }
-          }
-        ]),
-        DedicationRequest.aggregate([
-          {
-            $match: {
-              status: 'completed',
-              $or: [
-                { completedAt: { $gte: startDate, $lte: endDate } },
-                { completedAt: { $exists: false }, createdAt: { $gte: startDate, $lte: endDate } }
-              ]
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              totalMinutes: { $sum: 5 }
-            }
-          }
-        ])
-      ]),
-      // Cost Evaluation - Previous
-      Promise.all([
-        Appointment.aggregate([
-          {
-            $match: {
-              status: 'completed',
-              $or: [
-                { completedAt: { $gte: previousStartDate, $lte: previousEndDate } },
-                { completedAt: { $exists: false }, createdAt: { $gte: previousStartDate, $lte: previousEndDate } }
-              ],
-              callDuration: { $exists: true, $gt: 0 }
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              totalMinutes: { $sum: { $divide: ['$callDuration', 60] } }
-            }
-          }
-        ]),
-        LiveShow.aggregate([
-          {
-            $match: {
-              status: 'completed',
-              $or: [
-                { updatedAt: { $gte: previousStartDate, $lte: previousEndDate } },
-                { createdAt: { $gte: previousStartDate, $lte: previousEndDate } }
-              ]
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
-            }
-          }
-        ]),
-        DedicationRequest.aggregate([
-          {
-            $match: {
-              status: 'completed',
-              $or: [
-                { completedAt: { $gte: previousStartDate, $lte: previousEndDate } },
-                { completedAt: { $exists: false }, createdAt: { $gte: previousStartDate, $lte: previousEndDate } }
-              ]
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              totalMinutes: { $sum: 5 }
-            }
-          }
-        ])
-      ]),
+      // Cost Evaluation - Current (based on Transaction dates)
+      (async () => {
+        // Video calls
+        const videoCallTxns = await Transaction.distinct('_id', {
+          type: 'appointment_payment',
+          status: 'completed',
+          createdAt: { $gte: startDate, $lte: endDate }
+        });
+        const videoCallsResult = videoCallTxns.length > 0
+          ? await Appointment.aggregate([
+              {
+                $match: {
+                  status: 'completed',
+                  transactionId: { $in: videoCallTxns },
+                  callDuration: { $exists: true, $gt: 0 }
+                }
+              },
+              {
+                $group: {
+                  _id: null,
+                  totalMinutes: { $sum: '$callDuration' }
+                }
+              }
+            ])
+          : [{ totalMinutes: 0 }];
+
+        // Live shows
+        const liveShowTxns = await Transaction.distinct('_id', {
+          type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
+          status: 'completed',
+          createdAt: { $gte: startDate, $lte: endDate }
+        });
+        const liveShowResult = liveShowTxns.length > 0
+          ? await Promise.all([
+              LiveShow.aggregate([
+                {
+                  $match: {
+                    status: 'completed',
+                    transactionId: { $in: liveShowTxns }
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
+                  }
+                }
+              ]),
+              LiveShowAttendance.aggregate([
+                {
+                  $match: {
+                    status: 'completed',
+                    transactionId: { $in: liveShowTxns }
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    totalMinutes: { $sum: 30 }
+                  }
+                }
+              ])
+            ]).then(([hosting, attendance]) => {
+              const hostingMins = hosting[0]?.totalMinutes || 0;
+              const attendanceMins = attendance[0]?.totalMinutes || 0;
+              return [{ totalMinutes: hostingMins + attendanceMins }];
+            })
+          : [{ totalMinutes: 0 }];
+
+        // Dedications
+        const dedicationTxns = await Transaction.distinct('_id', {
+          type: { $in: ['dedication_request_payment', 'dedication_payment'] },
+          status: 'completed',
+          createdAt: { $gte: startDate, $lte: endDate }
+        });
+        const dedicationResult = dedicationTxns.length > 0
+          ? await DedicationRequest.aggregate([
+              {
+                $match: {
+                  status: 'completed',
+                  transactionId: { $in: dedicationTxns }
+                }
+              },
+              {
+                $group: {
+                  _id: null,
+                  totalMinutes: { $sum: 5 }
+                }
+              }
+            ])
+          : [{ totalMinutes: 0 }];
+
+        return [
+          videoCallsResult,
+          liveShowResult,
+          dedicationResult
+        ];
+      })(),
+      // Cost Evaluation - Previous (based on Transaction dates)
+      (async () => {
+        // Video calls
+        const videoCallTxns = await Transaction.distinct('_id', {
+          type: 'appointment_payment',
+          status: 'completed',
+          createdAt: { $gte: previousStartDate, $lte: previousEndDate }
+        });
+        const videoCallsResult = videoCallTxns.length > 0
+          ? await Appointment.aggregate([
+              {
+                $match: {
+                  status: 'completed',
+                  transactionId: { $in: videoCallTxns },
+                  callDuration: { $exists: true, $gt: 0 }
+                }
+              },
+              {
+                $group: {
+                  _id: null,
+                  totalMinutes: { $sum: '$callDuration' }
+                }
+              }
+            ])
+          : [{ totalMinutes: 0 }];
+
+        // Live shows
+        const liveShowTxns = await Transaction.distinct('_id', {
+          type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
+          status: 'completed',
+          createdAt: { $gte: previousStartDate, $lte: previousEndDate }
+        });
+        const liveShowResult = liveShowTxns.length > 0
+          ? await Promise.all([
+              LiveShow.aggregate([
+                {
+                  $match: {
+                    status: 'completed',
+                    transactionId: { $in: liveShowTxns }
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    totalMinutes: { $sum: { $multiply: ['$currentAttendees', 30] } }
+                  }
+                }
+              ]),
+              LiveShowAttendance.aggregate([
+                {
+                  $match: {
+                    status: 'completed',
+                    transactionId: { $in: liveShowTxns }
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    totalMinutes: { $sum: 30 }
+                  }
+                }
+              ])
+            ]).then(([hosting, attendance]) => {
+              const hostingMins = hosting[0]?.totalMinutes || 0;
+              const attendanceMins = attendance[0]?.totalMinutes || 0;
+              return [{ totalMinutes: hostingMins + attendanceMins }];
+            })
+          : [{ totalMinutes: 0 }];
+
+        // Dedications
+        const dedicationTxns = await Transaction.distinct('_id', {
+          type: { $in: ['dedication_request_payment', 'dedication_payment'] },
+          status: 'completed',
+          createdAt: { $gte: previousStartDate, $lte: previousEndDate }
+        });
+        const dedicationResult = dedicationTxns.length > 0
+          ? await DedicationRequest.aggregate([
+              {
+                $match: {
+                  status: 'completed',
+                  transactionId: { $in: dedicationTxns }
+                }
+              },
+              {
+                $group: {
+                  _id: null,
+                  totalMinutes: { $sum: 5 }
+                }
+              }
+            ])
+          : [{ totalMinutes: 0 }];
+
+        return [
+          videoCallsResult,
+          liveShowResult,
+          dedicationResult
+        ];
+      })(),
       // Service Insights
       getVideoCallInsights(startDate, endDate),
       getLiveShowInsights(startDate, endDate),
