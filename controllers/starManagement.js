@@ -7,6 +7,7 @@ import Transaction from '../models/Transaction.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
+import LiveShowAttendance from '../models/LiveShowAttendance.js';
 import Availability from '../models/Availability.js';
 import { getOrCreateStarWallet } from '../services/starWalletService.js';
 import mongoose from 'mongoose';
@@ -222,21 +223,86 @@ export const getStarProfile = async (req, res) => {
     };
 
     // Activity overview (based on period) - count COMPLETED items
+    // IMPORTANT: Count based on transaction dates (not appointment/dedication/live show creation dates)
+    // This ensures revenue and overview counts match the same period
     const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
-      Appointment.countDocuments({
-        starId: star._id,
+      // Video Calls: Count completed appointments that have transactions within the period
+      Transaction.distinct('_id', {
+        receiverId: star._id,
         status: 'completed',
+        type: 'appointment_payment',
         createdAt: { $gte: periodStartDate }
+      }).then(async (transactionIds) => {
+        if (transactionIds.length === 0) return 0;
+        // Count appointments that have these transactions
+        return Appointment.countDocuments({
+          starId: star._id,
+          status: 'completed',
+          transactionId: { $in: transactionIds }
+        });
       }),
-      DedicationRequest.countDocuments({
-        starId: star._id,
+      // Dedications: Count completed dedication requests that have transactions within the period
+      Transaction.distinct('_id', {
+        receiverId: star._id,
         status: 'completed',
+        type: { $in: ['dedication_request_payment', 'dedication_payment'] },
         createdAt: { $gte: periodStartDate }
+      }).then(async (transactionIds) => {
+        if (transactionIds.length === 0) return 0;
+        // Count dedication requests that have these transactions
+        return DedicationRequest.countDocuments({
+          starId: star._id,
+          status: 'completed',
+          transactionId: { $in: transactionIds }
+        });
       }),
-      LiveShow.countDocuments({
-        starId: star._id,
+      // Live Shows: Count completed live shows that have attendance/hosting transactions within the period
+      Transaction.distinct('_id', {
+        receiverId: star._id,
         status: 'completed',
+        type: { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] },
         createdAt: { $gte: periodStartDate }
+      }).then(async (transactionIds) => {
+        if (transactionIds.length === 0) return 0;
+        // Separate attendance and hosting transactions
+        const attendanceTxns = await Transaction.find({
+          _id: { $in: transactionIds },
+          type: 'live_show_attendance_payment'
+        }).distinct('_id');
+        const hostingTxns = await Transaction.find({
+          _id: { $in: transactionIds },
+          type: 'live_show_hosting_payment'
+        }).distinct('_id');
+        
+        // Get live show IDs from attendance records
+        const attendanceShowIds = attendanceTxns.length > 0
+          ? await LiveShowAttendance.find({
+              starId: star._id,
+              status: 'completed',
+              transactionId: { $in: attendanceTxns }
+            }).distinct('liveShowId')
+          : [];
+        
+        // Get live show IDs from hosting transactions (LiveShow has transactionId)
+        const hostingShowIds = hostingTxns.length > 0
+          ? await LiveShow.find({
+              starId: star._id,
+              status: 'completed',
+              transactionId: { $in: hostingTxns }
+            }).distinct('_id')
+          : [];
+        
+        // Combine and get unique live show IDs
+        const allShowIds = [...new Set([...attendanceShowIds.map(id => id.toString()), ...hostingShowIds.map(id => id.toString())])];
+        
+        if (allShowIds.length === 0) return 0;
+        
+        // Count unique completed live shows
+        return LiveShow.countDocuments({
+          starId: star._id,
+          status: 'completed',
+          _id: { $in: allShowIds }
+        });
       }),
       // Engaged users: unique fans who have completed transactions with this star
       Transaction.distinct('payerId', {
