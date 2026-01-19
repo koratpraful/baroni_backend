@@ -405,7 +405,8 @@ export const updateStarProfile = async (req, res) => {
       isVerified,
       introVideo,
       status,
-      feature_star
+      feature_star,
+      services  // Support bulk service updates
     } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
@@ -441,22 +442,27 @@ export const updateStarProfile = async (req, res) => {
       }
     }
 
-    // Email uniqueness check if changing email
-    if (email !== undefined && email !== null && email !== '') {
-      const normalizedEmail = email.toLowerCase();
-      // Check if email is different (case-insensitive comparison)
-      if (star.email?.toLowerCase() !== normalizedEmail) {
-        const existing = await User.findOne({ 
-          email: normalizedEmail, 
-          _id: { $ne: starId } 
-        });
-        if (existing) {
-          return res.status(409).json({
-            success: false,
-            message: 'Email already in use'
+    // Email update logic
+    if (email !== undefined) {
+      if (email === null || email === '') {
+        // Allow clearing email
+        star.email = null;
+      } else {
+        const normalizedEmail = email.trim().toLowerCase();
+        // Check if email is different (case-insensitive comparison)
+        if (star.email?.toLowerCase() !== normalizedEmail) {
+          const existing = await User.findOne({ 
+            email: normalizedEmail, 
+            _id: { $ne: starId } 
           });
+          if (existing) {
+            return res.status(409).json({
+              success: false,
+              message: 'Email already in use'
+            });
+          }
+          star.email = normalizedEmail;
         }
-        star.email = normalizedEmail;
       }
     }
 
@@ -522,6 +528,29 @@ export const updateStarProfile = async (req, res) => {
     }
 
     await star.save();
+
+    // Handle services update if provided
+    if (services !== undefined && Array.isArray(services)) {
+      try {
+        // Delete all existing services for this star
+        await Service.deleteMany({ userId: star._id });
+        
+        // Create new services
+        if (services.length > 0) {
+          const servicesToCreate = services.map(service => ({
+            type: service.type,
+            price: parseFloat(service.price) || 0,
+            userId: star._id
+          }));
+          
+          await Service.insertMany(servicesToCreate);
+        }
+      } catch (serviceError) {
+        console.error('Error updating services:', serviceError);
+        // Don't fail the entire request if service update fails
+        // The profile is already saved, so we continue
+      }
+    }
 
     // Populate profession for response
     await star.populate('profession', 'name');
