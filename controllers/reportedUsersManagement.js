@@ -934,7 +934,9 @@ export const getReportedUsersGrouped = async (req, res) => {
           profilePic: user.profilePic || null,
           role: user.role || 'fan',
           country: user.country || null,
+          // Expose mobile number for admin app (two keys for compatibility)
           contact: user.contact || null,
+          phone: user.contact || null,
           profession: item.profession ? {
             id: item.profession._id || null,
             name: item.profession.name || ''

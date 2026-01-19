@@ -2382,7 +2382,11 @@ export const getTopStarsList = async (req, res) => {
     const { filter = 'income' } = req.query;
 
     // Validate filter
-    const validFilters = ['income', 'videoCalls', 'dedications'];
+    // income      -> total revenue from all services
+    // videoCall   -> revenue from appointment (video call) payments only
+    // dedication  -> revenue from dedication payments only
+    // liveShow    -> revenue from live show payments only
+    const validFilters = ['income', 'videoCall', 'dedication', 'liveShow'];
     if (!validFilters.includes(filter)) {
       return res.status(400).json({
         success: false,
@@ -2410,19 +2414,53 @@ export const getTopStarsList = async (req, res) => {
     // Get star IDs
     const starIds = stars.map(star => star._id);
 
-    // Calculate income for each star (from completed transactions)
-    const incomeData = await Transaction.aggregate([
+    // Calculate revenue per service type for each star (from completed transactions)
+    // We consider the following transaction types:
+    // - appointment_payment                         -> Video Call revenue
+    // - dedication_request_payment, dedication_payment -> Dedication revenue
+    // - live_show_attendance_payment, live_show_hosting_payment -> Live Show revenue
+    const revenueData = await Transaction.aggregate([
       {
         $match: {
           receiverId: { $in: starIds },
           status: 'completed',
-          type: { $in: ['appointment_payment', 'dedication_request_payment'] }
+          type: {
+            $in: [
+              'appointment_payment',
+              'dedication_request_payment',
+              'dedication_payment',
+              'live_show_attendance_payment',
+              'live_show_hosting_payment'
+            ]
+          }
         }
       },
       {
         $group: {
           _id: '$receiverId',
-          totalIncome: { $sum: '$amount' }
+          videoCallRevenue: {
+            $sum: {
+              $cond: [{ $eq: ['$type', 'appointment_payment'] }, '$amount', 0]
+            }
+          },
+          dedicationRevenue: {
+            $sum: {
+              $cond: [
+                { $in: ['$type', ['dedication_request_payment', 'dedication_payment']] },
+                '$amount',
+                0
+              ]
+            }
+          },
+          liveShowRevenue: {
+            $sum: {
+              $cond: [
+                { $in: ['$type', ['live_show_attendance_payment', 'live_show_hosting_payment']] },
+                '$amount',
+                0
+              ]
+            }
+          }
         }
       }
     ]);
@@ -2460,9 +2498,14 @@ export const getTopStarsList = async (req, res) => {
     ]);
 
     // Create maps for quick lookup
-    const incomeMap = new Map();
-    incomeData.forEach(item => {
-      incomeMap.set(item._id.toString(), item.totalIncome);
+    const videoCallRevenueMap = new Map();
+    const dedicationRevenueMap = new Map();
+    const liveShowRevenueMap = new Map();
+    revenueData.forEach(item => {
+      const id = item._id.toString();
+      videoCallRevenueMap.set(id, item.videoCallRevenue || 0);
+      dedicationRevenueMap.set(id, item.dedicationRevenue || 0);
+      liveShowRevenueMap.set(id, item.liveShowRevenue || 0);
     });
 
     const videoCallsMap = new Map();
@@ -2543,30 +2586,52 @@ export const getTopStarsList = async (req, res) => {
         lastLoginAt: star.lastLoginAt || null,
         
         // Stats (Performance Metrics)
-        totalIncome: incomeMap.get(starIdStr) || 0,
+        // Revenue-based metrics
+        videoCallRevenue: videoCallRevenueMap.get(starIdStr) || 0,
+        dedicationRevenue: dedicationRevenueMap.get(starIdStr) || 0,
+        liveShowRevenue: liveShowRevenueMap.get(starIdStr) || 0,
+        // Total income = sum of all service revenues
+        totalIncome:
+          (videoCallRevenueMap.get(starIdStr) || 0) +
+          (dedicationRevenueMap.get(starIdStr) || 0) +
+          (liveShowRevenueMap.get(starIdStr) || 0),
+        // Legacy count-based metrics (kept for reference / potential UI use)
         videoCallsCount: videoCallsMap.get(starIdStr) || 0,
         dedicationsCount: dedicationsMap.get(starIdStr) || 0
       };
     });
 
-    // Sort based on filter
-    let sortedStars;
+    // Sort and filter based on filter
+    let filteredStars = starsWithStats;
+
     switch (filter) {
+      case 'videoCall':
+        // Only stars who have video call revenue, sorted high -> low
+        filteredStars = starsWithStats
+          .filter(star => star.videoCallRevenue > 0)
+          .sort((a, b) => b.videoCallRevenue - a.videoCallRevenue);
+        break;
+      case 'dedication':
+        // Only stars who have dedication revenue, sorted high -> low
+        filteredStars = starsWithStats
+          .filter(star => star.dedicationRevenue > 0)
+          .sort((a, b) => b.dedicationRevenue - a.dedicationRevenue);
+        break;
+      case 'liveShow':
+        // Only stars who have live show revenue, sorted high -> low
+        filteredStars = starsWithStats
+          .filter(star => star.liveShowRevenue > 0)
+          .sort((a, b) => b.liveShowRevenue - a.liveShowRevenue);
+        break;
       case 'income':
-        sortedStars = starsWithStats.sort((a, b) => b.totalIncome - a.totalIncome);
-        break;
-      case 'videoCalls':
-        sortedStars = starsWithStats.sort((a, b) => b.videoCallsCount - a.videoCallsCount);
-        break;
-      case 'dedications':
-        sortedStars = starsWithStats.sort((a, b) => b.dedicationsCount - a.dedicationsCount);
-        break;
       default:
-        sortedStars = starsWithStats.sort((a, b) => b.totalIncome - a.totalIncome);
+        // All stars, sorted by total revenue (all services)
+        filteredStars = starsWithStats.sort((a, b) => b.totalIncome - a.totalIncome);
+        break;
     }
 
     // Get top 50
-    const top50Stars = sortedStars.slice(0, 50);
+    const top50Stars = filteredStars.slice(0, 50);
 
     return res.json({
       success: true,
