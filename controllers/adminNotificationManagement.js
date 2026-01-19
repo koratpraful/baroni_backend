@@ -47,37 +47,71 @@ export const createAndSendNotification = async (req, res) => {
     }
 
     // Build user query based on target audience
+    // For Email and SMS, we need different fields than Push notifications
     let userQuery = { isDeleted: { $ne: true } };
     let users = [];
+    
+    // Determine which fields to select based on notification type
+    let selectFields = '_id';
+    if (notificationType === 'Push') {
+      selectFields = '_id fcmToken apnsToken appNotification';
+    } else if (notificationType === 'Email') {
+      selectFields = '_id email';
+    } else if (notificationType === 'SMS') {
+      selectFields = '_id contact';
+    }
     
     if (targetAudience === 'All Fans') {
       userQuery.role = 'fan';
       if (country) {
         userQuery.country = country;
       }
-      // Only get users who have app notifications enabled
-      userQuery.appNotification = { $ne: false };
-      users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
+      if (notificationType === 'Push') {
+        // Only get users who have app notifications enabled for Push
+        userQuery.appNotification = { $ne: false };
+      } else if (notificationType === 'Email') {
+        // Only get users who have email addresses
+        userQuery.email = { $exists: true, $ne: null, $ne: '' };
+      } else if (notificationType === 'SMS') {
+        // Only get users who have contact numbers
+        userQuery.contact = { $exists: true, $ne: null, $ne: '' };
+      }
+      users = await User.find(userQuery).select(selectFields);
     } else if (targetAudience === 'All Stars') {
       userQuery.role = 'star';
       if (country) {
         userQuery.country = country;
       }
-      // Only get users who have app notifications enabled
-      userQuery.appNotification = { $ne: false };
-      users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
+      if (notificationType === 'Push') {
+        userQuery.appNotification = { $ne: false };
+      } else if (notificationType === 'Email') {
+        userQuery.email = { $exists: true, $ne: null, $ne: '' };
+      } else if (notificationType === 'SMS') {
+        userQuery.contact = { $exists: true, $ne: null, $ne: '' };
+      }
+      users = await User.find(userQuery).select(selectFields);
     } else if (targetAudience === 'All Users') {
       if (country) {
         userQuery.country = country;
       }
-      // Only get users who have app notifications enabled
-      userQuery.appNotification = { $ne: false };
-      users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
+      if (notificationType === 'Push') {
+        userQuery.appNotification = { $ne: false };
+      } else if (notificationType === 'Email') {
+        userQuery.email = { $exists: true, $ne: null, $ne: '' };
+      } else if (notificationType === 'SMS') {
+        userQuery.contact = { $exists: true, $ne: null, $ne: '' };
+      }
+      users = await User.find(userQuery).select(selectFields);
     } else if (targetAudience === 'By Country' && country) {
       userQuery.country = country;
-      // Only get users who have app notifications enabled
-      userQuery.appNotification = { $ne: false };
-      users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
+      if (notificationType === 'Push') {
+        userQuery.appNotification = { $ne: false };
+      } else if (notificationType === 'Email') {
+        userQuery.email = { $exists: true, $ne: null, $ne: '' };
+      } else if (notificationType === 'SMS') {
+        userQuery.contact = { $exists: true, $ne: null, $ne: '' };
+      }
+      users = await User.find(userQuery).select(selectFields);
     } else if (targetAudience === 'Specific Users') {
       if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
         return res.status(400).json({
@@ -94,9 +128,14 @@ export const createAndSendNotification = async (req, res) => {
         });
       }
       userQuery._id = { $in: userIds };
-      // Only get users who have app notifications enabled
-      userQuery.appNotification = { $ne: false };
-      users = await User.find(userQuery).select('_id fcmToken apnsToken appNotification');
+      if (notificationType === 'Push') {
+        userQuery.appNotification = { $ne: false };
+      } else if (notificationType === 'Email') {
+        userQuery.email = { $exists: true, $ne: null, $ne: '' };
+      } else if (notificationType === 'SMS') {
+        userQuery.contact = { $exists: true, $ne: null, $ne: '' };
+      }
+      users = await User.find(userQuery).select(selectFields);
     } else {
       return res.status(400).json({
         success: false,
@@ -104,10 +143,23 @@ export const createAndSendNotification = async (req, res) => {
       });
     }
     
+    // Filter out users without required fields (for Email/SMS)
+    if (notificationType === 'Email') {
+      users = users.filter(u => u.email && u.email.trim());
+    } else if (notificationType === 'SMS') {
+      users = users.filter(u => u.contact && u.contact.trim());
+    }
+    
     if (users.length === 0) {
+      let errorMessage = 'No users found matching the criteria';
+      if (notificationType === 'Email') {
+        errorMessage = 'No users found with valid email addresses';
+      } else if (notificationType === 'SMS') {
+        errorMessage = 'No users found with valid phone numbers';
+      }
       return res.status(404).json({
         success: false,
-        message: 'No users found matching the criteria'
+        message: errorMessage
       });
     }
 
