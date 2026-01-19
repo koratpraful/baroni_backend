@@ -296,7 +296,14 @@ export const createAndSendNotification = async (req, res) => {
             successCount++;
           } catch (emailError) {
             console.error(`Error sending email to ${emailAddress}:`, emailError);
-            emailResults.push({ email: emailAddress, success: false, error: emailError.message });
+            // Extract user-friendly error message
+            let errorMsg = emailError.message || 'Failed to send email';
+            if (emailError.code === 'SMTP_NOT_CONFIGURED') {
+              errorMsg = 'SMTP not configured. Please set EMAIL_USER and EMAIL_PASS in environment variables.';
+            } else if (emailError.responseCode === 530 || errorMsg.includes('Authentication Required')) {
+              errorMsg = 'SMTP authentication failed. For Gmail, use App Password instead of regular password.';
+            }
+            emailResults.push({ email: emailAddress, success: false, error: errorMsg });
             failureCount++;
           }
         }
