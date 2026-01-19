@@ -660,7 +660,7 @@ export const getNotificationHistory = async (req, res) => {
 
     const { type, page = 1, limit = 20, search } = req.query;
 
-    // Build base query - only show admin notifications (general type or with admin data)
+    // Build base query - only show admin notifications (general/sms/email type or with admin data)
     const baseQuery = {
       $or: [
         { type: 'general' },
@@ -672,11 +672,13 @@ export const getNotificationHistory = async (req, res) => {
 
     // Filter by type (Push, SMS, Email, or All)
     if (type && type !== 'All') {
-      if (type === 'Push') {
+      // Normalize type value (case-insensitive, classic style)
+      const normalizedType = type.toString().trim().toLowerCase();
+      if (normalizedType === 'push') {
         baseQuery.type = 'general';
-      } else if (type === 'SMS') {
+      } else if (normalizedType === 'sms') {
         baseQuery.type = 'sms';
-      } else if (type === 'Email') {
+      } else if (normalizedType === 'email') {
         baseQuery.type = 'email';
       }
     }
