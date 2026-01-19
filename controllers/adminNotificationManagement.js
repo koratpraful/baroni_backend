@@ -374,6 +374,20 @@ export const createAndSendNotification = async (req, res) => {
  * Create notification template
  * POST /api/admin/notifications/templates
  */
+// Helper to normalize category keys: lowercase, no spaces
+const normalizeTemplateCategory = (value) => {
+  if (!value) return null;
+  const raw = value.toString().trim();
+  const normalized = raw.toLowerCase().replace(/\s+/g, '_');
+  // Map various inputs to canonical keys
+  if (['video_calls', 'video_call', 'video'].includes(normalized)) return 'video_calls';
+  if (['dedications', 'dedication'].includes(normalized)) return 'dedications';
+  if (['live_shows', 'live_show', 'live'].includes(normalized)) return 'live_shows';
+  if (['general'].includes(normalized)) return 'general';
+  // Fallback: return normalized as-is
+  return normalized;
+};
+
 export const createNotificationTemplate = async (req, res) => {
   try {
     const admin = req.user;
@@ -411,11 +425,14 @@ export const createNotificationTemplate = async (req, res) => {
     // Map service to category if not provided
     let templateCategory = category;
     if (!templateCategory) {
-      if (service === 'Live Show') templateCategory = 'Live Shows';
-      else if (service === 'Video Call') templateCategory = 'Video Calls';
-      else if (service === 'Dedication') templateCategory = 'Dedications';
-      else templateCategory = 'General';
+      if (service === 'Live Show' || service === 'live_show') templateCategory = 'live_shows';
+      else if (service === 'Video Call' || service === 'video_call') templateCategory = 'video_calls';
+      else if (service === 'Dedication' || service === 'dedication') templateCategory = 'dedications';
+      else templateCategory = 'general';
     }
+
+    // Normalize category to canonical lowercase key (no spaces)
+    templateCategory = normalizeTemplateCategory(templateCategory);
 
     const template = new NotificationTemplate({
       service,
@@ -462,7 +479,21 @@ export const getNotificationTemplates = async (req, res) => {
 
     // Filter by category
     if (category && category !== 'All') {
-      query.category = category;
+      // Normalize requested category and support both legacy and new keys
+      const normalized = normalizeTemplateCategory(category);
+      const categoryVariants = [];
+      if (normalized === 'video_calls') {
+        categoryVariants.push('video_calls', 'Video Calls');
+      } else if (normalized === 'dedications') {
+        categoryVariants.push('dedications', 'Dedications');
+      } else if (normalized === 'live_shows') {
+        categoryVariants.push('live_shows', 'Live Shows');
+      } else if (normalized === 'general') {
+        categoryVariants.push('general', 'General');
+      } else {
+        categoryVariants.push(normalized);
+      }
+      query.category = { $in: categoryVariants };
     }
 
     // Filter by notification type
