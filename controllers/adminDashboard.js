@@ -2379,7 +2379,7 @@ export const getTopStarsList = async (req, res) => {
       });
     }
 
-    const { filter = 'income' } = req.query;
+    const { filter = 'income', period = 'current_month' } = req.query;
 
     // Validate filter
     // income      -> total revenue from all services
@@ -2403,7 +2403,10 @@ export const getTopStarsList = async (req, res) => {
       return diffInMinutes <= 15;
     };
 
-    // Get all stars with all fields
+    // Calculate date range based on period
+    const { startDate, endDate } = getDateRange(period);
+
+    // Get all stars with all fields (lifetime profile fields, but metrics will be period-based)
     const stars = await User.find({
       role: 'star',
       isDeleted: { $ne: true }
@@ -2424,6 +2427,7 @@ export const getTopStarsList = async (req, res) => {
         $match: {
           receiverId: { $in: starIds },
           status: 'completed',
+          createdAt: { $gte: startDate, $lte: endDate },
           type: {
             $in: [
               'appointment_payment',
@@ -2470,7 +2474,8 @@ export const getTopStarsList = async (req, res) => {
       {
         $match: {
           starId: { $in: starIds },
-          status: 'completed'
+          status: 'completed',
+          createdAt: { $gte: startDate, $lte: endDate }
         }
       },
       {
@@ -2486,7 +2491,8 @@ export const getTopStarsList = async (req, res) => {
       {
         $match: {
           starId: { $in: starIds },
-          status: 'completed'
+          status: 'completed',
+          createdAt: { $gte: startDate, $lte: endDate }
         }
       },
       {
@@ -2638,6 +2644,7 @@ export const getTopStarsList = async (req, res) => {
       message: 'Top 50 stars retrieved successfully',
       data: {
         filter,
+        period,
         totalStars: stars.length,
         stars: top50Stars
       }
