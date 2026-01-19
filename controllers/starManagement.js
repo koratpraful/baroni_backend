@@ -444,24 +444,44 @@ export const updateStarProfile = async (req, res) => {
 
     // Email update logic
     if (email !== undefined) {
+      console.log('[UPDATE STAR PROFILE] Email update requested:', {
+        starId: starId,
+        currentEmail: star.email,
+        newEmail: email,
+        emailType: typeof email
+      });
+      
       if (email === null || email === '') {
         // Allow clearing email
+        console.log('[UPDATE STAR PROFILE] Clearing email');
         star.email = null;
       } else {
         const normalizedEmail = email.trim().toLowerCase();
+        const currentEmailNormalized = star.email?.toLowerCase() || '';
+        
+        console.log('[UPDATE STAR PROFILE] Email comparison:', {
+          currentEmailNormalized,
+          normalizedEmail,
+          isDifferent: currentEmailNormalized !== normalizedEmail
+        });
+        
         // Check if email is different (case-insensitive comparison)
-        if (star.email?.toLowerCase() !== normalizedEmail) {
+        if (currentEmailNormalized !== normalizedEmail) {
           const existing = await User.findOne({ 
             email: normalizedEmail, 
             _id: { $ne: starId } 
           });
           if (existing) {
+            console.log('[UPDATE STAR PROFILE] Email already in use by user:', existing._id);
             return res.status(409).json({
               success: false,
               message: 'Email already in use'
             });
           }
+          console.log('[UPDATE STAR PROFILE] Updating email to:', normalizedEmail);
           star.email = normalizedEmail;
+        } else {
+          console.log('[UPDATE STAR PROFILE] Email unchanged, skipping update');
         }
       }
     }
@@ -527,7 +547,9 @@ export const updateStarProfile = async (req, res) => {
       }
     }
 
+    console.log('[UPDATE STAR PROFILE] Saving star with email:', star.email);
     await star.save();
+    console.log('[UPDATE STAR PROFILE] Star saved successfully');
 
     // Handle services update if provided
     if (services !== undefined && Array.isArray(services)) {
