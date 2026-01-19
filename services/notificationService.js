@@ -1536,6 +1536,9 @@ class NotificationService {
       const iosDevUsers = iosUsers.filter(u => u.isDev === true);
       const iosProdUsers = iosUsers.filter(u => u.isDev === false);
       
+      // Track which tokens we've already sent to (to prevent duplicates)
+      const sentApnsTokens = new Set();
+      
       // Handle dev iOS users
       if (iosDevUsers.length > 0) {
         const devApnsProvider = this.getApnsProvider(true);
@@ -1546,6 +1549,8 @@ class NotificationService {
             apnsSuccessCount += result.successCount;
             apnsFailureCount += result.failureCount;
             apnsFailedTokens.push(...result.failedTokens);
+            // Mark these tokens as sent
+            devApnsTokens.forEach(token => sentApnsTokens.add(token));
           }
         }
       }
@@ -1560,12 +1565,16 @@ class NotificationService {
             apnsSuccessCount += result.successCount;
             apnsFailureCount += result.failureCount;
             apnsFailedTokens.push(...result.failedTokens);
+            // Mark these tokens as sent
+            prodApnsTokens.forEach(token => sentApnsTokens.add(token));
           }
         }
       }
       
-      // Legacy fallback for backward compatibility
-      if (apnsProvider && apnsTokens.length > 0) {
+      // Legacy fallback for backward compatibility - ONLY if we haven't sent via new approach
+      // This prevents duplicate notifications
+      const unsentApnsTokens = apnsTokens.filter(token => !sentApnsTokens.has(token));
+      if (apnsProvider && unsentApnsTokens.length > 0) {
         const note = new apn.Notification();
         const isVoip = (
           options.apnsVoip ||
@@ -1604,17 +1613,21 @@ class NotificationService {
 
         const chunks = [];
         const chunkSize = 100; // reasonable APNs batch size
-        for (let i = 0; i < apnsTokens.length; i += chunkSize) {
-          chunks.push(apnsTokens.slice(i, i + chunkSize));
+        let legacyApnsSuccessCount = 0;
+        let legacyApnsFailureCount = 0;
+        for (let i = 0; i < unsentApnsTokens.length; i += chunkSize) {
+          chunks.push(unsentApnsTokens.slice(i, i + chunkSize));
         }
         for (const chunk of chunks) {
           const resp = await apnsProvider.send(note, chunk);
+          legacyApnsSuccessCount += resp.sent.length;
+          legacyApnsFailureCount += resp.failed.length;
           apnsSuccessCount += resp.sent.length;
           apnsFailureCount += resp.failed.length;
           apnsFailedTokens.push(...resp.failed.map(f => f.device));
           if (resp.sent && resp.sent.length > 0) {
             const firstSent = resp.sent[0];
-            console.log('[APNs] success payload/response (sendToMultipleUsers chunk)', {
+            console.log('[APNs] success payload/response (sendToMultipleUsers legacy fallback chunk)', {
               topic: note.topic,
               alert: note.alert,
               payload: note.payload,
@@ -1623,16 +1636,19 @@ class NotificationService {
             });
           }
         }
-        console.log('[APNs] sendToMultipleUsers', {
+        console.log('[APNs] sendToMultipleUsers (legacy fallback)', {
           isVoip,
           topic: note.topic,
           title: notificationData.title,
-          successCount: apnsSuccessCount,
-          failureCount: apnsFailureCount
+          successCount: legacyApnsSuccessCount,
+          failureCount: legacyApnsFailureCount,
+          tokensSent: unsentApnsTokens.length,
+          totalApnsSuccessCount: apnsSuccessCount,
+          totalApnsFailureCount: apnsFailureCount
         });
-      } else if (!apnsProvider && apnsTokens.length > 0) {
-        apnsFailureCount = apnsTokens.length;
-        apnsFailedTokens.push(...apnsTokens);
+      } else if (!apnsProvider && unsentApnsTokens.length > 0) {
+        apnsFailureCount = unsentApnsTokens.length;
+        apnsFailedTokens.push(...unsentApnsTokens);
       }
 
       // Handle VoIP tokens separately
