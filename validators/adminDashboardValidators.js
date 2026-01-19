@@ -4,24 +4,65 @@ import { query, body, param } from 'express-validator';
 export const dashboardSummaryValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      // Legacy backend period keys
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      // Mobile app display labels (these will be normalized in getDateRange)
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Revenue Insights Validator
 export const revenueInsightsValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Active Users by Country Validator
 export const activeUsersByCountryValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days'),
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value'),
   
   query('limit')
     .optional()
@@ -33,8 +74,21 @@ export const activeUsersByCountryValidator = [
 export const costEvaluationValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Service Insights Validator
@@ -45,16 +99,42 @@ export const serviceInsightsValidator = [
   
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Top Stars Validator
 export const topStarsValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days'),
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value'),
   
   query('limit')
     .optional()
@@ -71,24 +151,63 @@ export const topStarsValidator = [
 export const completeDashboardValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Service Revenue Breakdown Validator
 export const serviceRevenueBreakdownValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Device Change Stats Validator
 export const deviceChangeStatsValidator = [
   query('period')
     .optional()
-    .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
-    .withMessage('Period must be one of: current_month, last_month, last_7_days, last_30_days')
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
 
 // Reported Users Details Validator
@@ -288,6 +407,24 @@ export const deleteEventValidator = [
 export const topStarsListValidator = [
   query('filter')
     .optional()
-    .isIn(['income', 'videoCalls', 'dedications'])
-    .withMessage('Filter must be one of: income, videoCalls, dedications')
+    .isIn(['income', 'videoCall', 'dedication', 'liveShow'])
+    .withMessage('Filter must be one of: income, videoCall, dedication, liveShow'),
+  
+  query('period')
+    .optional()
+    .isIn([
+      'current_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'last_3_months',
+      'last_6_months',
+      'this_year',
+      'Current Month',
+      'Last Month',
+      'Last 3 Months',
+      'Last 6 Months',
+      'This Year'
+    ])
+    .withMessage('Invalid period value')
 ];
