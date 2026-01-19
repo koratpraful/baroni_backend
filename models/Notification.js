@@ -30,7 +30,10 @@ const notificationSchema = new mongoose.Schema(
         'general',
         'star_promotion',
         'voip',
-        'push'
+        'push',
+        // New channels for admin notifications
+        'sms',
+        'email'
       ], 
       required: true,
       index: true 
