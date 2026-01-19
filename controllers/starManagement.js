@@ -124,7 +124,7 @@ export const getStarProfile = async (req, res) => {
     }
 
     const { starId } = req.params;
-    const { period = '30' } = req.query; // Default to 30 days
+    let { period = '30' } = req.query; // Default to 30 days
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
       return res.status(400).json({
@@ -133,9 +133,12 @@ export const getStarProfile = async (req, res) => {
       });
     }
 
-    // Validate period
-    const validPeriods = ['7', '15', '30', '60', '90'];
-    const periodDays = validPeriods.includes(period) ? parseInt(period) : 30;
+    // Validate and normalize period - ensure it's always a valid number
+    const validPeriods = ['7', '15', '30', '60', '90', 'all'];
+    if (!validPeriods.includes(String(period))) {
+      period = '30'; // Default to 30 days if invalid
+    }
+    const periodDays = period === 'all' ? null : parseInt(period);
 
     const star = await User.findById(starId)
       .populate('profession', 'name')
@@ -161,28 +164,35 @@ export const getStarProfile = async (req, res) => {
       : 0;
 
     // Get star's revenue and activity stats (based on period)
-    const periodStartDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
+    // IMPORTANT: Always use period-based calculation to ensure revenue and overview match
+    const periodStartDate = periodDays ? new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000) : null;
 
     // Revenue insights - get period-based revenue from transactions and current escrow from wallet
     // Only include revenue-generating transaction types: appointment_payment, dedication_request_payment, dedication_payment, live_show_attendance_payment, live_show_hosting_payment
+    const revenueMatch = {
+      receiverId: star._id,
+      status: 'completed',
+      type: {
+        $in: [
+          'appointment_payment',
+          'dedication_request_payment',
+          'dedication_payment',
+          'live_show_attendance_payment',
+          'live_show_hosting_payment'
+        ]
+      }
+    };
+    
+    // Only add date filter if period is not 'all'
+    if (periodStartDate) {
+      revenueMatch.createdAt = { $gte: periodStartDate };
+    }
+
     const [serviceRevenueBreakdown, starWallet] = await Promise.all([
       // Get service-wise revenue breakdown
       Transaction.aggregate([
         {
-          $match: {
-            receiverId: star._id,
-            status: 'completed',
-            type: {
-              $in: [
-                'appointment_payment',
-                'dedication_request_payment',
-                'dedication_payment',
-                'live_show_attendance_payment',
-                'live_show_hosting_payment'
-              ]
-            },
-            createdAt: { $gte: periodStartDate }
-          }
+          $match: revenueMatch
         },
         {
           $group: {
@@ -223,33 +233,109 @@ export const getStarProfile = async (req, res) => {
     };
 
     // Activity overview (based on period) - count COMPLETED items
-    // NOTE: Align this logic with userManagement.js so that
-    // overview numbers are consistent across admin screens.
+    // IMPORTANT: Count based on transaction dates (not appointment/dedication/live show creation dates)
+    // This ensures revenue and overview counts match the same period
+    // First, get all completed transactions in the period for this star
+    const overviewTransactionMatch = {
+      receiverId: star._id,
+      status: 'completed',
+      type: {
+        $in: [
+          'appointment_payment',
+          'dedication_request_payment',
+          'dedication_payment',
+          'live_show_attendance_payment',
+          'live_show_hosting_payment'
+        ]
+      }
+    };
+    
+    // Only add date filter if period is not 'all'
+    if (periodStartDate) {
+      overviewTransactionMatch.createdAt = { $gte: periodStartDate };
+    }
+    
+    const periodTransactions = await Transaction.find(overviewTransactionMatch).select('_id type').lean();
+
+    const transactionIds = periodTransactions.map(t => t._id);
+    const appointmentTxnIds = periodTransactions.filter(t => t.type === 'appointment_payment').map(t => t._id);
+    const dedicationTxnIds = periodTransactions.filter(t => 
+      t.type === 'dedication_request_payment' || t.type === 'dedication_payment'
+    ).map(t => t._id);
+    const liveShowTxnIds = periodTransactions.filter(t => 
+      t.type === 'live_show_attendance_payment' || t.type === 'live_show_hosting_payment'
+    ).map(t => t._id);
+
     const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
-      // Completed video call appointments in the period
-      Appointment.countDocuments({
-        starId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }),
-      // Completed dedication requests in the period
-      DedicationRequest.countDocuments({
-        starId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }),
-      // Completed live shows in the period
-      LiveShow.countDocuments({
-        starId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }),
+      // Video Calls: Count completed appointments that have transactions in the period
+      appointmentTxnIds.length > 0
+        ? Appointment.countDocuments({
+            starId: star._id,
+            status: 'completed',
+            transactionId: { $in: appointmentTxnIds }
+          })
+        : 0,
+      // Dedications: Count completed dedication requests that have transactions in the period
+      dedicationTxnIds.length > 0
+        ? DedicationRequest.countDocuments({
+            starId: star._id,
+            status: 'completed',
+            transactionId: { $in: dedicationTxnIds }
+          })
+        : 0,
+      // Live Shows: Count completed live shows that have transactions in the period
+      (async () => {
+        if (liveShowTxnIds.length === 0) return 0;
+        
+        // Separate hosting and attendance transactions
+        const hostingTxns = periodTransactions.filter(t => t.type === 'live_show_hosting_payment').map(t => t._id);
+        const attendanceTxns = periodTransactions.filter(t => t.type === 'live_show_attendance_payment').map(t => t._id);
+        
+        // Get live show IDs from hosting transactions
+        const hostingShowIds = hostingTxns.length > 0
+          ? await LiveShow.find({
+              starId: star._id,
+              status: 'completed',
+              transactionId: { $in: hostingTxns }
+            }).distinct('_id')
+          : [];
+        
+        // Get live show IDs from attendance records
+        const attendanceShowIds = attendanceTxns.length > 0
+          ? await LiveShowAttendance.find({
+              starId: star._id,
+              status: 'completed',
+              transactionId: { $in: attendanceTxns }
+            }).distinct('liveShowId')
+          : [];
+        
+        // Combine and get unique live show IDs
+        const allShowIds = [...new Set([
+          ...hostingShowIds.map(id => id.toString()),
+          ...attendanceShowIds.map(id => id.toString())
+        ])];
+        
+        if (allShowIds.length === 0) return 0;
+        
+        // Count unique completed live shows
+        return LiveShow.countDocuments({
+          starId: star._id,
+          status: 'completed',
+          _id: { $in: allShowIds }
+        });
+      })(),
       // Engaged users: unique fans who have completed transactions with this star
-      Transaction.distinct('payerId', {
-        receiverId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }).then(users => users.length)
+      (async () => {
+        const engagedUsersMatch = {
+          receiverId: star._id,
+          status: 'completed'
+        };
+        if (periodStartDate) {
+          engagedUsersMatch.createdAt = { $gte: periodStartDate };
+        }
+        const users = await Transaction.distinct('payerId', engagedUsersMatch);
+        return users.length;
+      })()
     ]);
 
     // Cancelled activities (based on period)
@@ -350,14 +436,14 @@ export const getStarProfile = async (req, res) => {
           createdAt: sample.createdAt
         })),
         overview: {
-          period: `${periodDays} days`,
+          period: periodDays ? `${periodDays} days` : 'all time',
           videoCalls,
           dedications,
           liveShows,
           engagedUsers
         },
         cancelled: {
-          period: `${periodDays} days`,
+          period: periodDays ? `${periodDays} days` : 'all time',
           videoCalls: cancelledVideoCalls,
           dedications: cancelledDedications,
           liveShows: cancelledLiveShows,
