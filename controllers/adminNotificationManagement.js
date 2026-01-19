@@ -3,6 +3,8 @@ import ScheduledNotification from '../models/ScheduledNotification.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import notificationService from '../services/notificationService.js';
+import { sendEmail } from '../services/emailService.js';
+import { sendBulkSMS } from '../services/smsService.js';
 import mongoose from 'mongoose';
 
 /**
@@ -114,27 +116,177 @@ export const createAndSendNotification = async (req, res) => {
     const body = message;
     const type = notificationType.toLowerCase() === 'push' ? 'general' : notificationType.toLowerCase();
 
+    // Create or update notification template to track usage
+    try {
+      const templateData = {
+        service: 'General',
+        notificationType: notificationType,
+        message: body,
+        category: 'General',
+        createdBy: admin._id
+      };
+      
+      // Find existing template with same message and type, or create new
+      let template = await NotificationTemplate.findOne({
+        message: body,
+        notificationType: notificationType
+      });
+      
+      if (template) {
+        // Update last used time and increment usage count
+        template.lastUsedAt = new Date();
+        template.usageCount = (template.usageCount || 0) + 1;
+        await template.save();
+      } else {
+        // Create new template
+        template = new NotificationTemplate(templateData);
+        template.lastUsedAt = new Date();
+        template.usageCount = 1;
+        await template.save();
+      }
+    } catch (templateError) {
+      console.error('Error creating/updating notification template:', templateError);
+      // Continue with notification sending even if template save fails
+    }
+
     // Send notifications
     let successCount = 0;
     let failureCount = 0;
     const targetUserIds = users.map(u => u._id);
 
     // For Push notifications, use the notification service
+    // IMPORTANT: Admin notifications should NEVER use VoIP - only regular push notifications
     if (notificationType === 'Push') {
       const result = await notificationService.sendToMultipleUsers(
         targetUserIds,
         { title, body, type: 'general' },
-        { sessionTitle, targetAudience, country },
-        {}
+        { sessionTitle, targetAudience, country, isAdminNotification: true }, // Flag to prevent VoIP
+        { apnsVoip: false } // Explicitly disable VoIP for admin notifications
       );
 
       successCount = result.successCount || 0;
       failureCount = result.failureCount || 0;
-    } else {
-      // For SMS and Email, you would integrate with respective services
-      // For now, we'll just mark them as sent
-      // TODO: Integrate with SMS and Email services
-      successCount = targetUserIds.length;
+    } else if (notificationType === 'SMS') {
+      // Send SMS to all users with valid phone numbers
+      try {
+        const usersWithContact = users.filter(u => u.contact && u.contact.trim());
+        const phoneNumbers = usersWithContact.map(u => u.contact.trim());
+        
+        if (phoneNumbers.length === 0) {
+          return res.status(404).json({
+            success: false,
+            message: 'No users found with valid phone numbers for SMS'
+          });
+        }
+
+        // Send bulk SMS
+        const smsResult = await sendBulkSMS(phoneNumbers, body);
+        successCount = smsResult.successCount;
+        failureCount = smsResult.failureCount;
+
+        // Create notification records for all users (both successful and failed)
+        const smsNotifications = targetUserIds.map((userId, index) => {
+          const user = users.find(u => u._id.toString() === userId.toString());
+          const phoneNumber = user?.contact?.trim();
+          const smsResultForUser = smsResult.results.find(r => r.phoneNumber === phoneNumber);
+          
+          return {
+            user: userId,
+            title: title,
+            body: body,
+            type: 'sms',
+            data: { sessionTitle, targetAudience, country, phoneNumber },
+            deliveryStatus: smsResultForUser?.success ? 'sent' : 'failed',
+            failureReason: smsResultForUser?.error || null
+          };
+        });
+        
+        await Notification.insertMany(smsNotifications);
+      } catch (err) {
+        console.error('Error sending SMS notifications:', err);
+        // Create failed notification records
+        try {
+          const failedNotifications = targetUserIds.map(userId => ({
+            user: userId,
+            title: title,
+            body: body,
+            type: 'sms',
+            data: { sessionTitle, targetAudience, country },
+            deliveryStatus: 'failed',
+            failureReason: err.message
+          }));
+          await Notification.insertMany(failedNotifications);
+        } catch (dbErr) {
+          console.error('Error creating failed SMS notification records:', dbErr);
+        }
+        successCount = 0;
+        failureCount = targetUserIds.length;
+      }
+    } else if (notificationType === 'Email') {
+      // Send email to all users with valid email addresses
+      try {
+        const usersWithEmail = users.filter(u => u.email && u.email.trim());
+        const emailAddresses = usersWithEmail.map(u => u.email.trim());
+        
+        if (emailAddresses.length === 0) {
+          return res.status(404).json({
+            success: false,
+            message: 'No users found with valid email addresses'
+          });
+        }
+
+        // Send emails to all recipients
+        const emailResults = [];
+        for (const emailAddress of emailAddresses) {
+          try {
+            const messageId = await sendEmail(emailAddress, title, body, true);
+            emailResults.push({ email: emailAddress, success: true, messageId });
+            successCount++;
+          } catch (emailError) {
+            console.error(`Error sending email to ${emailAddress}:`, emailError);
+            emailResults.push({ email: emailAddress, success: false, error: emailError.message });
+            failureCount++;
+          }
+        }
+
+        // Create notification records for all users
+        const emailNotifications = targetUserIds.map((userId) => {
+          const user = users.find(u => u._id.toString() === userId.toString());
+          const emailAddress = user?.email?.trim();
+          const emailResult = emailResults.find(r => r.email === emailAddress);
+          
+          return {
+            user: userId,
+            title: title,
+            body: body,
+            type: 'email',
+            data: { sessionTitle, targetAudience, country, emailAddress },
+            deliveryStatus: emailResult?.success ? 'sent' : 'failed',
+            failureReason: emailResult?.error || null
+          };
+        });
+        
+        await Notification.insertMany(emailNotifications);
+      } catch (err) {
+        console.error('Error sending email notifications:', err);
+        // Create failed notification records
+        try {
+          const failedNotifications = targetUserIds.map(userId => ({
+            user: userId,
+            title: title,
+            body: body,
+            type: 'email',
+            data: { sessionTitle, targetAudience, country },
+            deliveryStatus: 'failed',
+            failureReason: err.message
+          }));
+          await Notification.insertMany(failedNotifications);
+        } catch (dbErr) {
+          console.error('Error creating failed email notification records:', dbErr);
+        }
+        successCount = 0;
+        failureCount = targetUserIds.length;
+      }
     }
 
     return res.json({
@@ -418,38 +570,61 @@ export const getNotificationHistory = async (req, res) => {
 
     const { type, page = 1, limit = 20, search } = req.query;
 
-    const query = {};
+    // Build base query - only show admin notifications (general type or with admin data)
+    const baseQuery = {
+      $or: [
+        { type: 'general' },
+        { type: 'sms' },
+        { type: 'email' },
+        { 'data.isAdminNotification': true }
+      ]
+    };
 
-    // Filter by type (SMS, Email, or All)
+    // Filter by type (Push, SMS, Email, or All)
     if (type && type !== 'All') {
-      // Map SMS/Email to notification types
-      if (type === 'SMS') {
-        query.type = 'sms';
+      if (type === 'Push') {
+        baseQuery.type = 'general';
+      } else if (type === 'SMS') {
+        baseQuery.type = 'sms';
       } else if (type === 'Email') {
-        query.type = 'email';
-      } else {
-        query.type = type.toLowerCase();
+        baseQuery.type = 'email';
       }
     }
 
     // Search filter
     if (search) {
-      query.$or = [
+      baseQuery.$or = [
+        ...(baseQuery.$or || []),
         { title: { $regex: search, $options: 'i' } },
         { body: { $regex: search, $options: 'i' } }
       ];
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const notifications = await Notification.find(query)
-      .populate('user', 'name pseudo country role')
-      .sort({ sentAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
+    // Group notifications by title + body + type to show unique sent notifications
+    // Get the most recent notification for each unique title+body+type combination
+    const groupedNotifications = await Notification.aggregate([
+      { $match: baseQuery },
+      {
+        $group: {
+          _id: {
+            title: '$title',
+            body: '$body',
+            type: '$type'
+          },
+          lastUsedAt: { $max: '$sentAt' },
+          firstNotification: { $first: '$$ROOT' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { lastUsedAt: -1 } },
+      { $skip: (parseInt(page) - 1) * parseInt(limit) },
+      { $limit: parseInt(limit) }
+    ]);
 
     // Format notifications for history view
-    const formattedNotifications = notifications.map(notif => {
+    const formattedNotifications = groupedNotifications.map(group => {
+      const notif = group.firstNotification;
+      
       // Determine notification type badge
       let notificationTypeBadge = 'Push';
       if (notif.type === 'sms' || notif.type === 'SMS') {
@@ -458,32 +633,43 @@ export const getNotificationHistory = async (req, res) => {
         notificationTypeBadge = 'Email';
       }
 
-      // Determine audience
-      let audience = 'All Fans';
-      if (notif.user) {
-        if (notif.user.role === 'star') {
-          audience = 'All Stars';
-        } else if (notif.user.role === 'fan') {
-          audience = 'All Fans';
-        } else {
-          audience = 'All Users';
-        }
+      // Get audience from data field (stored when notification was sent)
+      let audience = 'All Users';
+      if (notif.data && notif.data.targetAudience) {
+        audience = notif.data.targetAudience;
       }
+
+      // Use the most recent sentAt time
+      const sentAt = group.lastUsedAt || notif.sentAt || notif.createdAt;
 
       return {
         _id: notif._id,
-        title: notif.title || 'Live show starting',
+        title: notif.title || 'Notification',
         message: notif.body,
         notificationType: notificationTypeBadge,
-        lastUsedAt: notif.sentAt,
-        time: formatTime(notif.sentAt),
-        date: formatDate(notif.sentAt),
+        lastUsedAt: sentAt,
+        time: formatTime(sentAt),
+        date: formatDate(sentAt),
         audience: audience,
-        user: notif.user
+        sentCount: group.count // Number of users who received this notification
       };
     });
 
-    const total = await Notification.countDocuments(query);
+    // Get total count of unique notifications
+    const totalResult = await Notification.aggregate([
+      { $match: baseQuery },
+      {
+        $group: {
+          _id: {
+            title: '$title',
+            body: '$body',
+            type: '$type'
+          }
+        }
+      },
+      { $count: 'total' }
+    ]);
+    const total = totalResult[0]?.total || 0;
 
     return res.json({
       success: true,
@@ -494,7 +680,7 @@ export const getNotificationHistory = async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(total / parseInt(limit)),
           totalNotifications: total,
-          hasNextPage: skip + notifications.length < total,
+          hasNextPage: (parseInt(page) * parseInt(limit)) < total,
           hasPrevPage: parseInt(page) > 1,
           limit: parseInt(limit)
         }
@@ -774,16 +960,17 @@ export const deleteScheduledNotification = async (req, res) => {
 };
 
 /**
- * Helper function to format time
+ * Helper function to format time (using local timezone)
  */
 function formatTime(date) {
   if (!date) return '';
   const d = new Date(date);
+  // Use local timezone for display
   const hours = d.getHours();
   const minutes = d.getMinutes();
   const ampm = hours >= 12 ? 'PM' : 'AM';
   const formattedHours = hours % 12 || 12;
-  const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+  const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes.toString().padStart(2, '0');
   return `${formattedHours}:${formattedMinutes} ${ampm}`;
 }
 

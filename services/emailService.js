@@ -22,4 +22,27 @@ export const sendResetEmail = async (to, token) => {
   return info.messageId;
 };
 
+/**
+ * Send general email notification
+ * @param {string} to - Recipient email address
+ * @param {string} subject - Email subject
+ * @param {string} body - Email body (HTML or plain text)
+ * @param {boolean} isHtml - Whether body is HTML (default: true)
+ * @returns {Promise<string>} Message ID
+ */
+export const sendEmail = async (to, subject, body, isHtml = true) => {
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.MAIL_FROM || process.env.EMAIL_USER || 'no-reply@baroni.app',
+      to,
+      subject: subject || 'Notification from Baroni',
+      [isHtml ? 'html' : 'text']: body
+    });
+    return info.messageId;
+  } catch (error) {
+    console.error('Error sending email:', error);
+    throw error;
+  }
+};
+
 
