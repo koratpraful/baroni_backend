@@ -11,6 +11,18 @@ import mongoose from 'mongoose';
 import { validationResult } from 'express-validator';
 import { getFirstValidationError } from '../utils/validationHelper.js';
 
+// Central list of transaction types that count as "service revenue"
+// This is reused across all dashboard revenue & service metrics so that
+// numbers stay consistent between endpoints and filters.
+const REVENUE_TRANSACTION_TYPES = [
+  'appointment_payment',
+  'dedication_request_payment',
+  'dedication_payment',
+  'live_show_attendance_payment',
+  'live_show_hosting_payment',
+  'become_star_payment'
+];
+
 // Helper function to get date range based on period
 // Handles frontend period values: "This Year", "Current Month", "Last 3 Months", etc.
 const getDateRange = (period) => {
@@ -210,11 +222,12 @@ export const getRevenueInsights = async (req, res) => {
     const { period = 'current_month' } = req.query;
     const { startDate, endDate } = getDateRange(period);
 
-    // Total revenue from completed transactions
+    // Total revenue from completed service transactions
     const totalRevenueResult = await Transaction.aggregate([
       {
         $match: {
           status: 'completed',
+          type: { $in: REVENUE_TRANSACTION_TYPES },
           createdAt: { $gte: startDate, $lte: endDate }
         }
       },
@@ -228,11 +241,12 @@ export const getRevenueInsights = async (req, res) => {
 
     const totalRevenue = totalRevenueResult[0]?.totalRevenue || 0;
 
-    // Escrow amount (pending transactions)
+    // Escrow amount (pending service transactions)
     const escrowResult = await Transaction.aggregate([
       {
         $match: {
           status: 'pending',
+          type: { $in: REVENUE_TRANSACTION_TYPES },
           createdAt: { $gte: startDate, $lte: endDate }
         }
       },
@@ -246,11 +260,12 @@ export const getRevenueInsights = async (req, res) => {
 
     const escrowAmount = escrowResult[0]?.escrowAmount || 0;
 
-    // Service-wise revenue breakdown
+    // Service-wise revenue breakdown (only service revenue types)
     const serviceRevenue = await Transaction.aggregate([
       {
         $match: {
           status: 'completed',
+          type: { $in: REVENUE_TRANSACTION_TYPES },
           createdAt: { $gte: startDate, $lte: endDate }
         }
       },
@@ -843,12 +858,13 @@ export const getTopStars = async (req, res) => {
     const { period = 'current_month', limit = 50, sortBy = 'revenue' } = req.query;
     const { startDate, endDate } = getDateRange(period);
 
-    // Get top stars by revenue
+    // Get top stars by revenue (only from service revenue transaction types)
     const topStars = await Transaction.aggregate([
       {
         $match: {
           receiverId: { $exists: true },
           status: 'completed',
+          type: { $in: REVENUE_TRANSACTION_TYPES },
           createdAt: { $gte: startDate, $lte: endDate }
         }
       },
@@ -1035,6 +1051,7 @@ const getRevenueInsightsData = async (period) => {
     {
       $match: {
         status: 'completed',
+        type: { $in: REVENUE_TRANSACTION_TYPES },
         createdAt: { $gte: startDate, $lte: endDate }
       }
     },
@@ -1050,6 +1067,7 @@ const getRevenueInsightsData = async (period) => {
     {
       $match: {
         status: 'pending',
+        type: { $in: REVENUE_TRANSACTION_TYPES },
         createdAt: { $gte: startDate, $lte: endDate }
       }
     },
@@ -1255,6 +1273,7 @@ const getTopStarsData = async (period) => {
       $match: {
         receiverId: { $exists: true },
         status: 'completed',
+        type: { $in: REVENUE_TRANSACTION_TYPES },
         createdAt: { $gte: startDate, $lte: endDate }
       }
     },
@@ -1313,11 +1332,12 @@ export const getServiceRevenueBreakdown = async (req, res) => {
     const { period = 'current_month' } = req.query;
     const { startDate, endDate } = getDateRange(period);
 
-    // Get service-wise revenue breakdown
+    // Get service-wise revenue breakdown (only service revenue transaction types)
     const serviceRevenue = await Transaction.aggregate([
       {
         $match: {
           status: 'completed',
+          type: { $in: REVENUE_TRANSACTION_TYPES },
           createdAt: { $gte: startDate, $lte: endDate }
         }
       },
@@ -1338,20 +1358,37 @@ export const getServiceRevenueBreakdown = async (req, res) => {
       }
     ]);
 
-    // Map transaction types to service names
+    // Map transaction types to service names and merge types belonging to the same service
     const serviceMapping = {
-      'appointment': 'Video Calls',
-      'live_show': 'Live Show',
-      'dedication': 'Dedication',
-      'coin_purchase': 'Coin Purchase',
-      'star_promotion': 'Star Promotion'
+      appointment_payment: 'Video Calls',
+      live_show_attendance_payment: 'Live Show',
+      live_show_hosting_payment: 'Live Show',
+      dedication_request_payment: 'Dedication',
+      dedication_payment: 'Dedication',
+      become_star_payment: 'Become Star'
     };
 
-    const formattedRevenue = serviceRevenue.map(service => ({
-      service: serviceMapping[service.service] || service.service,
+    const mergedByService = {};
+    for (const service of serviceRevenue) {
+      const label = serviceMapping[service.service] || service.service;
+      if (!mergedByService[label]) {
+        mergedByService[label] = {
+          service: label,
+          revenue: 0,
+          transactionCount: 0
+        };
+      }
+      mergedByService[label].revenue += service.revenue;
+      mergedByService[label].transactionCount += service.transactionCount;
+    }
+
+    const formattedRevenue = Object.values(mergedByService).map(service => ({
+      service: service.service,
       revenue: service.revenue,
       transactionCount: service.transactionCount,
-      averageTransaction: Math.round(service.averageTransaction * 100) / 100
+      averageTransaction: service.transactionCount
+        ? Math.round((service.revenue / service.transactionCount) * 100) / 100
+        : 0
     }));
 
     return res.json({
@@ -2144,6 +2181,7 @@ export const getDashboardOverview = async (req, res) => {
         {
           $match: {
             status: 'completed',
+            type: { $in: REVENUE_TRANSACTION_TYPES },
             createdAt: { $gte: startDate, $lte: endDate }
           }
         },
@@ -2159,6 +2197,7 @@ export const getDashboardOverview = async (req, res) => {
         {
           $match: {
             status: 'pending',
+            type: { $in: REVENUE_TRANSACTION_TYPES },
             createdAt: { $gte: startDate, $lte: endDate }
           }
         },
@@ -2174,6 +2213,7 @@ export const getDashboardOverview = async (req, res) => {
         {
           $match: {
             status: 'completed',
+            type: { $in: REVENUE_TRANSACTION_TYPES },
             createdAt: { $gte: startDate, $lte: endDate }
           }
         },
@@ -2681,7 +2721,7 @@ export const getTopStarsList = async (req, res) => {
     // Get star IDs
     const starIds = stars.map(star => star._id);
 
-    // Calculate revenue per service type for each star (from completed transactions)
+    // Calculate revenue per service type for each star (from completed service transactions only)
     // We consider the following transaction types:
     // - appointment_payment                         -> Video Call revenue
     // - dedication_request_payment, dedication_payment -> Dedication revenue
@@ -2693,13 +2733,7 @@ export const getTopStarsList = async (req, res) => {
           status: 'completed',
           createdAt: { $gte: startDate, $lte: endDate },
           type: {
-            $in: [
-              'appointment_payment',
-              'dedication_request_payment',
-              'dedication_payment',
-              'live_show_attendance_payment',
-              'live_show_hosting_payment'
-            ]
+            $in: REVENUE_TRANSACTION_TYPES
           }
         }
       },
@@ -2734,12 +2768,29 @@ export const getTopStarsList = async (req, res) => {
     ]);
 
     // Count completed video calls (appointments) for each star
+    // IMPORTANT: Use Transaction.createdAt for the period filter (not Appointment.createdAt)
+    // so that counts match revenue and other service filters.
     const videoCallsData = await Appointment.aggregate([
       {
         $match: {
           starId: { $in: starIds },
-          status: 'completed',
-          createdAt: { $gte: startDate, $lte: endDate }
+          status: 'completed'
+        }
+      },
+      {
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction'
+        }
+      },
+      { $unwind: '$transaction' },
+      {
+        $match: {
+          'transaction.status': 'completed',
+          'transaction.type': 'appointment_payment',
+          'transaction.createdAt': { $gte: startDate, $lte: endDate }
         }
       },
       {
@@ -2751,12 +2802,28 @@ export const getTopStarsList = async (req, res) => {
     ]);
 
     // Count completed dedications for each star
+    // IMPORTANT: Use Transaction.createdAt for the period filter (not DedicationRequest.createdAt)
     const dedicationsData = await DedicationRequest.aggregate([
       {
         $match: {
           starId: { $in: starIds },
-          status: 'completed',
-          createdAt: { $gte: startDate, $lte: endDate }
+          status: 'completed'
+        }
+      },
+      {
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction'
+        }
+      },
+      { $unwind: '$transaction' },
+      {
+        $match: {
+          'transaction.status': 'completed',
+          'transaction.type': { $in: ['dedication_request_payment', 'dedication_payment'] },
+          'transaction.createdAt': { $gte: startDate, $lte: endDate }
         }
       },
       {
