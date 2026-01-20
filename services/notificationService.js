@@ -1268,8 +1268,13 @@ class NotificationService {
    * @param {Object} options - Additional options for notification storage
    */
   async sendToMultipleUsers(userIds, notificationData, data = {}, options = {}) {
+    // IMPORTANT: Admin notifications should NEVER use VoIP
+    // Check if this is an admin notification (explicitly disable VoIP)
+    const isAdminNotification = data.isAdminNotification === true || options.isAdminNotification === true;
+    
     // Check if this is a VoIP notification
-    const isVoipExplicit = (
+    // For admin notifications, explicitly disable VoIP even if requested
+    const isVoipExplicit = !isAdminNotification && (
       options.apnsVoip === true ||
       (typeof data.pushType === 'string' && data.pushType.toLowerCase() === 'voip') ||
       (typeof notificationData.pushType === 'string' && notificationData.pushType.toLowerCase() === 'voip') ||
@@ -1531,6 +1536,9 @@ class NotificationService {
       const iosDevUsers = iosUsers.filter(u => u.isDev === true);
       const iosProdUsers = iosUsers.filter(u => u.isDev === false);
       
+      // Track which tokens we've already sent to (to prevent duplicates)
+      const sentApnsTokens = new Set();
+      
       // Handle dev iOS users
       if (iosDevUsers.length > 0) {
         const devApnsProvider = this.getApnsProvider(true);
@@ -1541,6 +1549,8 @@ class NotificationService {
             apnsSuccessCount += result.successCount;
             apnsFailureCount += result.failureCount;
             apnsFailedTokens.push(...result.failedTokens);
+            // Mark these tokens as sent
+            devApnsTokens.forEach(token => sentApnsTokens.add(token));
           }
         }
       }
@@ -1555,12 +1565,16 @@ class NotificationService {
             apnsSuccessCount += result.successCount;
             apnsFailureCount += result.failureCount;
             apnsFailedTokens.push(...result.failedTokens);
+            // Mark these tokens as sent
+            prodApnsTokens.forEach(token => sentApnsTokens.add(token));
           }
         }
       }
       
-      // Legacy fallback for backward compatibility
-      if (apnsProvider && apnsTokens.length > 0) {
+      // Legacy fallback for backward compatibility - ONLY if we haven't sent via new approach
+      // This prevents duplicate notifications
+      const unsentApnsTokens = apnsTokens.filter(token => !sentApnsTokens.has(token));
+      if (apnsProvider && unsentApnsTokens.length > 0) {
         const note = new apn.Notification();
         const isVoip = (
           options.apnsVoip ||
@@ -1599,17 +1613,21 @@ class NotificationService {
 
         const chunks = [];
         const chunkSize = 100; // reasonable APNs batch size
-        for (let i = 0; i < apnsTokens.length; i += chunkSize) {
-          chunks.push(apnsTokens.slice(i, i + chunkSize));
+        let legacyApnsSuccessCount = 0;
+        let legacyApnsFailureCount = 0;
+        for (let i = 0; i < unsentApnsTokens.length; i += chunkSize) {
+          chunks.push(unsentApnsTokens.slice(i, i + chunkSize));
         }
         for (const chunk of chunks) {
           const resp = await apnsProvider.send(note, chunk);
+          legacyApnsSuccessCount += resp.sent.length;
+          legacyApnsFailureCount += resp.failed.length;
           apnsSuccessCount += resp.sent.length;
           apnsFailureCount += resp.failed.length;
           apnsFailedTokens.push(...resp.failed.map(f => f.device));
           if (resp.sent && resp.sent.length > 0) {
             const firstSent = resp.sent[0];
-            console.log('[APNs] success payload/response (sendToMultipleUsers chunk)', {
+            console.log('[APNs] success payload/response (sendToMultipleUsers legacy fallback chunk)', {
               topic: note.topic,
               alert: note.alert,
               payload: note.payload,
@@ -1618,53 +1636,59 @@ class NotificationService {
             });
           }
         }
-        console.log('[APNs] sendToMultipleUsers', {
+        console.log('[APNs] sendToMultipleUsers (legacy fallback)', {
           isVoip,
           topic: note.topic,
           title: notificationData.title,
-          successCount: apnsSuccessCount,
-          failureCount: apnsFailureCount
+          successCount: legacyApnsSuccessCount,
+          failureCount: legacyApnsFailureCount,
+          tokensSent: unsentApnsTokens.length,
+          totalApnsSuccessCount: apnsSuccessCount,
+          totalApnsFailureCount: apnsFailureCount
         });
-      } else if (!apnsProvider && apnsTokens.length > 0) {
-        apnsFailureCount = apnsTokens.length;
-        apnsFailedTokens.push(...apnsTokens);
+      } else if (!apnsProvider && unsentApnsTokens.length > 0) {
+        apnsFailureCount = unsentApnsTokens.length;
+        apnsFailedTokens.push(...unsentApnsTokens);
       }
 
       // Handle VoIP tokens separately
+      // IMPORTANT: Skip VoIP for admin notifications to prevent duplicate notifications
       let voipSuccessCount = 0;
       let voipFailureCount = 0;
       const voipFailedTokens = [];
       
-      // Group VoIP users by their isDev setting
-      const voipDevUsers = iosUsers.filter(u => u.isDev === true && !!u.voipToken);
-      const voipProdUsers = iosUsers.filter(u => u.isDev === false && !!u.voipToken);
-      
-      // Handle dev VoIP users
-      if (voipDevUsers.length > 0) {
-        const devApnsProvider = this.getApnsProvider(true);
-        if (devApnsProvider) {
-          const devVoipTokens = voipDevUsers.map(u => u.voipToken);
-          const result = await this.sendVoipToTokens(devApnsProvider, devVoipTokens, notificationData, data, options, true);
-          voipSuccessCount += result.successCount;
-          voipFailureCount += result.failureCount;
-          voipFailedTokens.push(...result.failedTokens);
+      // Only send VoIP if explicitly requested AND not an admin notification
+      if (isVoipExplicit && !isAdminNotification) {
+        // Group VoIP users by their isDev setting
+        const voipDevUsers = iosUsers.filter(u => u.isDev === true && !!u.voipToken);
+        const voipProdUsers = iosUsers.filter(u => u.isDev === false && !!u.voipToken);
+        
+        // Handle dev VoIP users
+        if (voipDevUsers.length > 0) {
+          const devApnsProvider = this.getApnsProvider(true);
+          if (devApnsProvider) {
+            const devVoipTokens = voipDevUsers.map(u => u.voipToken);
+            const result = await this.sendVoipToTokens(devApnsProvider, devVoipTokens, notificationData, data, options, true);
+            voipSuccessCount += result.successCount;
+            voipFailureCount += result.failureCount;
+            voipFailedTokens.push(...result.failedTokens);
+          }
         }
-      }
-      
-      // Handle production VoIP users
-      if (voipProdUsers.length > 0) {
-        const prodApnsProvider = this.getApnsProvider(false);
-        if (prodApnsProvider) {
-          const prodVoipTokens = voipProdUsers.map(u => u.voipToken);
-          const result = await this.sendVoipToTokens(prodApnsProvider, prodVoipTokens, notificationData, data, options, false);
-          voipSuccessCount += result.successCount;
-          voipFailureCount += result.failureCount;
-          voipFailedTokens.push(...result.failedTokens);
+        
+        // Handle production VoIP users
+        if (voipProdUsers.length > 0) {
+          const prodApnsProvider = this.getApnsProvider(false);
+          if (prodApnsProvider) {
+            const prodVoipTokens = voipProdUsers.map(u => u.voipToken);
+            const result = await this.sendVoipToTokens(prodApnsProvider, prodVoipTokens, notificationData, data, options, false);
+            voipSuccessCount += result.successCount;
+            voipFailureCount += result.failureCount;
+            voipFailedTokens.push(...result.failedTokens);
+          }
         }
-      }
-      
-      // Legacy fallback for backward compatibility
-      if (apnsProvider && voipTokens.length > 0) {
+        
+        // Legacy fallback for backward compatibility
+        if (apnsProvider && voipTokens.length > 0) {
         const voipNote = new apn.Notification();
         voipNote.topic = process.env.APNS_VOIP_BUNDLE_ID || process.env.APNS_BUNDLE_ID;
         voipNote.pushType = 'voip';
@@ -1707,15 +1731,19 @@ class NotificationService {
             });
           }
         }
-        console.log('[VoIP] sendToMultipleUsers', {
-          topic: voipNote.topic,
-          title: notificationData.title,
-          successCount: voipSuccessCount,
-          failureCount: voipFailureCount
-        });
-      } else if (!apnsProvider && voipTokens.length > 0) {
-        voipFailureCount = voipTokens.length;
-        voipFailedTokens.push(...voipTokens);
+          console.log('[VoIP] sendToMultipleUsers', {
+            topic: voipNote.topic,
+            title: notificationData.title,
+            successCount: voipSuccessCount,
+            failureCount: voipFailureCount
+          });
+        } else if (!apnsProvider && voipTokens.length > 0) {
+          voipFailureCount = voipTokens.length;
+          voipFailedTokens.push(...voipTokens);
+        }
+      } else {
+        // Skip VoIP for admin notifications
+        console.log('[MULTICAST] Skipping VoIP notifications for admin notification');
       }
 
       const response = {

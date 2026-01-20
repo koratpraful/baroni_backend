@@ -13,7 +13,8 @@
     "migrate:baroni-ids": "node scripts/migrateBaroniIds.js",
     "migrate:transaction-status": "node scripts/migrateTransactionStatus.js",
     "migrate:agora-keys": "node scripts/runAgoraKeyMigration.js",
-    "init:config": "node scripts/initializeDefaultConfig.js"
+    "init:config": "node scripts/initializeDefaultConfig.js",
+    "delete:test-users": "node scripts/deleteTestUsers.js"
   },
   "keywords": [],
   "author": "",

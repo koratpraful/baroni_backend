@@ -7,6 +7,7 @@ import Transaction from '../models/Transaction.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
+import LiveShowAttendance from '../models/LiveShowAttendance.js';
 import Availability from '../models/Availability.js';
 import { getOrCreateStarWallet } from '../services/starWalletService.js';
 import mongoose from 'mongoose';
@@ -123,7 +124,7 @@ export const getStarProfile = async (req, res) => {
     }
 
     const { starId } = req.params;
-    const { period = '30' } = req.query; // Default to 30 days
+    let { period = '30' } = req.query; // Default to 30 days
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
       return res.status(400).json({
@@ -132,9 +133,12 @@ export const getStarProfile = async (req, res) => {
       });
     }
 
-    // Validate period
-    const validPeriods = ['7', '15', '30', '60', '90'];
-    const periodDays = validPeriods.includes(period) ? parseInt(period) : 30;
+    // Validate and normalize period - ensure it's always a valid number
+    const validPeriods = ['7', '15', '30', '60', '90', 'all'];
+    if (!validPeriods.includes(String(period))) {
+      period = '30'; // Default to 30 days if invalid
+    }
+    const periodDays = period === 'all' ? null : parseInt(period);
 
     const star = await User.findById(starId)
       .populate('profession', 'name')
@@ -160,23 +164,40 @@ export const getStarProfile = async (req, res) => {
       : 0;
 
     // Get star's revenue and activity stats (based on period)
-    const periodStartDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
+    // IMPORTANT: Always use period-based calculation to ensure revenue and overview match
+    const periodStartDate = periodDays ? new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000) : null;
 
     // Revenue insights - get period-based revenue from transactions and current escrow from wallet
-    const [revenueStats, starWallet] = await Promise.all([
-      // Period-based total revenue from completed transactions
+    // Only include revenue-generating transaction types: appointment_payment, dedication_request_payment, dedication_payment, live_show_attendance_payment, live_show_hosting_payment
+    const revenueMatch = {
+      receiverId: star._id,
+      status: 'completed',
+      type: {
+        $in: [
+          'appointment_payment',
+          'dedication_request_payment',
+          'dedication_payment',
+          'live_show_attendance_payment',
+          'live_show_hosting_payment'
+        ]
+      }
+    };
+    
+    // Only add date filter if period is not 'all'
+    if (periodStartDate) {
+      revenueMatch.createdAt = { $gte: periodStartDate };
+    }
+
+    const [serviceRevenueBreakdown, starWallet] = await Promise.all([
+      // Get service-wise revenue breakdown
       Transaction.aggregate([
-      {
-        $match: {
-          receiverId: star._id,
-          status: 'completed',
-          createdAt: { $gte: periodStartDate }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-            totalRevenue: { $sum: '$amount' }
+        {
+          $match: revenueMatch
+        },
+        {
+          $group: {
+            _id: '$type',
+            amount: { $sum: '$amount' }
           }
         }
       ]),
@@ -184,37 +205,137 @@ export const getStarProfile = async (req, res) => {
       getOrCreateStarWallet(star._id)
     ]);
 
-    const periodRevenue = revenueStats[0]?.totalRevenue || 0;
     const currentEscrow = starWallet?.escrow || 0;
+
+    // Map transaction types to service names and calculate totals
+    const serviceRevenueMap = {};
+    serviceRevenueBreakdown.forEach(service => {
+      if (service._id === 'appointment_payment') {
+        serviceRevenueMap.videoCall = service.amount;
+      } else if (service._id === 'dedication_request_payment' || service._id === 'dedication_payment') {
+        serviceRevenueMap.dedication = (serviceRevenueMap.dedication || 0) + service.amount;
+      } else if (service._id === 'live_show_attendance_payment' || service._id === 'live_show_hosting_payment') {
+        serviceRevenueMap.liveShow = (serviceRevenueMap.liveShow || 0) + service.amount;
+      }
+    });
+
+    // Calculate total revenue as sum of all services (ensures accuracy)
+    const totalRevenue = (serviceRevenueMap.videoCall || 0) + (serviceRevenueMap.liveShow || 0) + (serviceRevenueMap.dedication || 0);
     
     const revenue = {
-      totalRevenue: periodRevenue,
-      escrowAmount: currentEscrow
+      totalRevenue: totalRevenue,
+      escrowAmount: currentEscrow,
+      serviceBreakdown: {
+        videoCall: serviceRevenueMap.videoCall || 0,
+        liveShow: serviceRevenueMap.liveShow || 0,
+        dedication: serviceRevenueMap.dedication || 0
+      }
     };
 
     // Activity overview (based on period) - count COMPLETED items
+    // IMPORTANT: Count based on transaction dates (not appointment/dedication/live show creation dates)
+    // This ensures revenue and overview counts match the same period
+    // First, get all completed transactions in the period for this star
+    const overviewTransactionMatch = {
+      receiverId: star._id,
+      status: 'completed',
+      type: {
+        $in: [
+          'appointment_payment',
+          'dedication_request_payment',
+          'dedication_payment',
+          'live_show_attendance_payment',
+          'live_show_hosting_payment'
+        ]
+      }
+    };
+    
+    // Only add date filter if period is not 'all'
+    if (periodStartDate) {
+      overviewTransactionMatch.createdAt = { $gte: periodStartDate };
+    }
+    
+    const periodTransactions = await Transaction.find(overviewTransactionMatch).select('_id type').lean();
+
+    const transactionIds = periodTransactions.map(t => t._id);
+    const appointmentTxnIds = periodTransactions.filter(t => t.type === 'appointment_payment').map(t => t._id);
+    const dedicationTxnIds = periodTransactions.filter(t => 
+      t.type === 'dedication_request_payment' || t.type === 'dedication_payment'
+    ).map(t => t._id);
+    const liveShowTxnIds = periodTransactions.filter(t => 
+      t.type === 'live_show_attendance_payment' || t.type === 'live_show_hosting_payment'
+    ).map(t => t._id);
+
     const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
-      Appointment.countDocuments({
-        starId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }),
-      DedicationRequest.countDocuments({
-        starId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }),
-      LiveShow.countDocuments({
-        starId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }),
+      // Video Calls: Count completed appointments that have transactions in the period
+      appointmentTxnIds.length > 0
+        ? Appointment.countDocuments({
+            starId: star._id,
+            status: 'completed',
+            transactionId: { $in: appointmentTxnIds }
+          })
+        : 0,
+      // Dedications: Count completed dedication requests that have transactions in the period
+      dedicationTxnIds.length > 0
+        ? DedicationRequest.countDocuments({
+            starId: star._id,
+            status: 'completed',
+            transactionId: { $in: dedicationTxnIds }
+          })
+        : 0,
+      // Live Shows: Count completed live shows that have transactions in the period
+      (async () => {
+        if (liveShowTxnIds.length === 0) return 0;
+        
+        // Separate hosting and attendance transactions
+        const hostingTxns = periodTransactions.filter(t => t.type === 'live_show_hosting_payment').map(t => t._id);
+        const attendanceTxns = periodTransactions.filter(t => t.type === 'live_show_attendance_payment').map(t => t._id);
+        
+        // Get live show IDs from hosting transactions
+        const hostingShowIds = hostingTxns.length > 0
+          ? await LiveShow.find({
+              starId: star._id,
+              status: 'completed',
+              transactionId: { $in: hostingTxns }
+            }).distinct('_id')
+          : [];
+        
+        // Get live show IDs from attendance records
+        const attendanceShowIds = attendanceTxns.length > 0
+          ? await LiveShowAttendance.find({
+              starId: star._id,
+              status: 'completed',
+              transactionId: { $in: attendanceTxns }
+            }).distinct('liveShowId')
+          : [];
+        
+        // Combine and get unique live show IDs
+        const allShowIds = [...new Set([
+          ...hostingShowIds.map(id => id.toString()),
+          ...attendanceShowIds.map(id => id.toString())
+        ])];
+        
+        if (allShowIds.length === 0) return 0;
+        
+        // Count unique completed live shows
+        return LiveShow.countDocuments({
+          starId: star._id,
+          status: 'completed',
+          _id: { $in: allShowIds }
+        });
+      })(),
       // Engaged users: unique fans who have completed transactions with this star
-      Transaction.distinct('payerId', {
-        receiverId: star._id,
-        status: 'completed',
-        createdAt: { $gte: periodStartDate }
-      }).then(users => users.length)
+      (async () => {
+        const engagedUsersMatch = {
+          receiverId: star._id,
+          status: 'completed'
+        };
+        if (periodStartDate) {
+          engagedUsersMatch.createdAt = { $gte: periodStartDate };
+        }
+        const users = await Transaction.distinct('payerId', engagedUsersMatch);
+        return users.length;
+      })()
     ]);
 
     // Cancelled activities (based on period)
@@ -315,14 +436,14 @@ export const getStarProfile = async (req, res) => {
           createdAt: sample.createdAt
         })),
         overview: {
-          period: `${periodDays} days`,
+          period: periodDays ? `${periodDays} days` : 'all time',
           videoCalls,
           dedications,
           liveShows,
           engagedUsers
         },
         cancelled: {
-          period: `${periodDays} days`,
+          period: periodDays ? `${periodDays} days` : 'all time',
           videoCalls: cancelledVideoCalls,
           dedications: cancelledDedications,
           liveShows: cancelledLiveShows,
@@ -330,7 +451,8 @@ export const getStarProfile = async (req, res) => {
         },
         revenue: {
           total: revenue.totalRevenue,
-          escrow: revenue.escrowAmount
+          escrow: revenue.escrowAmount,
+          serviceBreakdown: revenue.serviceBreakdown
         }
       }
     });
@@ -375,7 +497,8 @@ export const updateStarProfile = async (req, res) => {
       isVerified,
       introVideo,
       status,
-      feature_star
+      feature_star,
+      services  // Support bulk service updates
     } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(starId)) {
@@ -395,32 +518,63 @@ export const updateStarProfile = async (req, res) => {
 
     // Validate about field minimum length if provided
     // Allow empty string/null to clear, but if provided, must be at least 100 characters
-    if (about !== undefined && about !== null && about !== '') {
-      const trimmedAbout = typeof about === 'string' ? about.trim() : '';
-      if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
-        return res.status(400).json({
-          success: false,
-          message: 'About field must be at least 100 characters if provided'
-        });
+    if (about !== undefined) {
+      // Allow null or empty string to clear the field
+      if (about === null || about === '') {
+        // This is valid - clearing the field
+      } else if (typeof about === 'string') {
+        const trimmedAbout = about.trim();
+        // If after trimming it's still not empty, it must be at least 100 characters
+        if (trimmedAbout.length > 0 && trimmedAbout.length < 100) {
+          return res.status(400).json({
+            success: false,
+            message: 'About field must be at least 100 characters if provided for stars'
+          });
+        }
       }
     }
 
-    // Email uniqueness check if changing email
-    if (email !== undefined && email !== null && email !== '') {
-      const normalizedEmail = email.toLowerCase();
-      // Check if email is different (case-insensitive comparison)
-      if (star.email?.toLowerCase() !== normalizedEmail) {
-        const existing = await User.findOne({ 
-          email: normalizedEmail, 
-          _id: { $ne: starId } 
+    // Email update logic
+    if (email !== undefined) {
+      console.log('[UPDATE STAR PROFILE] Email update requested:', {
+        starId: starId,
+        currentEmail: star.email,
+        newEmail: email,
+        emailType: typeof email
+      });
+      
+      if (email === null || email === '') {
+        // Allow clearing email
+        console.log('[UPDATE STAR PROFILE] Clearing email');
+        star.email = null;
+      } else {
+        const normalizedEmail = email.trim().toLowerCase();
+        const currentEmailNormalized = star.email?.toLowerCase() || '';
+        
+        console.log('[UPDATE STAR PROFILE] Email comparison:', {
+          currentEmailNormalized,
+          normalizedEmail,
+          isDifferent: currentEmailNormalized !== normalizedEmail
         });
-        if (existing) {
-          return res.status(409).json({
-            success: false,
-            message: 'Email already in use'
+        
+        // Check if email is different (case-insensitive comparison)
+        if (currentEmailNormalized !== normalizedEmail) {
+          const existing = await User.findOne({ 
+            email: normalizedEmail, 
+            _id: { $ne: starId } 
           });
+          if (existing) {
+            console.log('[UPDATE STAR PROFILE] Email already in use by user:', existing._id);
+            return res.status(409).json({
+              success: false,
+              message: 'Email already in use'
+            });
+          }
+          console.log('[UPDATE STAR PROFILE] Updating email to:', normalizedEmail);
+          star.email = normalizedEmail;
+        } else {
+          console.log('[UPDATE STAR PROFILE] Email unchanged, skipping update');
         }
-        star.email = normalizedEmail;
       }
     }
 
@@ -439,11 +593,16 @@ export const updateStarProfile = async (req, res) => {
     if (about !== undefined) {
       // Only update if it meets minimum length requirement or is being cleared
       if (about === '' || about === null) {
-        star.about = about;
-      } else if (about.trim().length >= 100) {
-        star.about = about;
+        star.about = null; // Clear the field
+      } else if (typeof about === 'string') {
+        const trimmed = about.trim();
+        if (trimmed.length === 0) {
+          star.about = null; // Clear if empty after trim
+        } else if (trimmed.length >= 100) {
+          star.about = trimmed; // Update if meets minimum requirement
+        }
+        // If it doesn't meet requirement, validation should have caught it
       }
-      // If it doesn't meet requirement, validation should have caught it
     }
     if (location !== undefined) star.location = location;
     if (preferredLanguage !== undefined) star.preferredLanguage = preferredLanguage;
@@ -467,7 +626,10 @@ export const updateStarProfile = async (req, res) => {
     if (feature_star !== undefined) star.feature_star = feature_star;
     
     // Update status (maps to availableForBookings and hidden)
-    if (status !== undefined) {
+    // IMPORTANT: Only apply status logic if status is explicitly provided AND 
+    // availableForBookings/hidden are NOT individually provided
+    // This prevents status from overriding individual toggle updates
+    if (status !== undefined && availableForBookings === undefined && hidden === undefined) {
       if (status === 'active') {
         star.availableForBookings = true;
         star.hidden = false;
@@ -477,7 +639,32 @@ export const updateStarProfile = async (req, res) => {
       }
     }
 
+    console.log('[UPDATE STAR PROFILE] Saving star with email:', star.email);
     await star.save();
+    console.log('[UPDATE STAR PROFILE] Star saved successfully');
+
+    // Handle services update if provided
+    if (services !== undefined && Array.isArray(services)) {
+      try {
+        // Delete all existing services for this star
+        await Service.deleteMany({ userId: star._id });
+        
+        // Create new services
+        if (services.length > 0) {
+          const servicesToCreate = services.map(service => ({
+            type: service.type,
+            price: parseFloat(service.price) || 0,
+            userId: star._id
+          }));
+          
+          await Service.insertMany(servicesToCreate);
+        }
+      } catch (serviceError) {
+        console.error('Error updating services:', serviceError);
+        // Don't fail the entire request if service update fails
+        // The profile is already saved, so we continue
+      }
+    }
 
     // Populate profession for response
     await star.populate('profession', 'name');
@@ -1370,10 +1557,14 @@ export const getFeaturedStars = async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // IMPORTANT: Exclude blocked users from featured stars list
+    // Blocked users have: hidden === true OR availableForBookings === false
     const featuredStars = await User.find({
       role: 'star',
       feature_star: true,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
+      hidden: { $ne: true }, // Exclude hidden/blocked users
+      availableForBookings: true // Only show users available for bookings
     })
       .populate('profession', 'name')
       .select('name pseudo baroniId profilePic country profession feature_star createdAt')
@@ -1385,7 +1576,9 @@ export const getFeaturedStars = async (req, res) => {
     const totalFeaturedStars = await User.countDocuments({
       role: 'star',
       feature_star: true,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
+      hidden: { $ne: true }, // Exclude hidden/blocked users
+      availableForBookings: true // Only show users available for bookings
     });
 
     return res.json({

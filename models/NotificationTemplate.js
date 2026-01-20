@@ -4,7 +4,8 @@ const notificationTemplateSchema = new mongoose.Schema(
   {
     service: {
       type: String,
-      enum: ['Live Show', 'Video Call', 'Dedication', 'General'],
+      // Keep legacy labels for backward compatibility, but prefer lowercase keys going forward
+      enum: ['Live Show', 'Video Call', 'Dedication', 'General', 'live_show', 'video_call', 'dedication', 'general'],
       required: true,
       index: true
     },
@@ -21,8 +22,19 @@ const notificationTemplateSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['Video Calls', 'Dedications', 'Live Shows', 'General'],
-      default: 'General',
+      // New canonical keys: lowercase, no spaces
+      // Legacy values kept to avoid breaking existing data
+      enum: [
+        'video_calls',
+        'dedications',
+        'live_shows',
+        'general',
+        'Video Calls',
+        'Dedications',
+        'Live Shows',
+        'General'
+      ],
+      default: 'general',
       index: true
     },
     createdBy: {

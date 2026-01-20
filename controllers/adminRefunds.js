@@ -101,12 +101,21 @@ const getDurationFromTimeRange = (timeRange) => {
 };
 
 // Helper function to map transaction status to refund status
-const getRefundStatus = (transaction) => {
+// IMPORTANT: If transaction is completed but service is cancelled, it needs refund
+const getRefundStatus = (transaction, serviceDetails = null) => {
   if (transaction.status === 'refunded') return 'refunded';
   if (transaction.status === 'failed') return 'failed';
   if (transaction.status === 'pending' || transaction.status === 'initiated') return 'pending';
-  // For completed transactions, check if they can be refunded
-  return 'pending'; // Default for refundable completed transactions
+  // For completed transactions, check if service is cancelled
+  if (transaction.status === 'completed' && serviceDetails) {
+    // Check service status
+    const serviceStatus = serviceDetails.status;
+    if (serviceStatus === 'cancelled' || serviceStatus === 'rejected') {
+      return 'pending'; // Payment completed but service cancelled - needs refund
+    }
+  }
+  // For completed transactions without cancelled service, they are not refundable
+  return null; // Not refundable
 };
 
 export const listRefundables = async (req, res) => {
@@ -115,9 +124,23 @@ export const listRefundables = async (req, res) => {
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(100, Math.max(1, Number(req.query.limit || 20)));
 
-    const match = {};
+    // Define refundable transaction types (service payments that can be refunded)
+    // IMPORTANT: Only show refundable transactions (appointments, dedications, live shows)
+    // Exclude become_star_payment and other non-refundable types
+    const refundableTypes = [
+      'appointment_payment',
+      'dedication_request_payment',
+      'live_show_attendance_payment',
+      'live_show_hosting_payment'
+    ];
+
+    const match = {
+      type: { $in: refundableTypes } // Only show refundable transaction types
+    };
     
     // Map UI status to transaction status
+    // IMPORTANT: If no status filter, show all refundable transactions including:
+    // - refunded, failed, pending, initiated, AND completed (if service is cancelled)
     if (status) {
       if (status === 'refunded') {
         match.status = 'refunded';
@@ -125,7 +148,11 @@ export const listRefundables = async (req, res) => {
         match.status = 'failed';
       } else if (status === 'pending') {
         match.status = { $in: ['pending', 'initiated'] };
+      } else if (status === 'completed') {
+        // Show completed transactions (will filter by service status later)
+        match.status = 'completed';
       }
+      // If status is not specified, show all refundable transactions
     }
     
     // Map service type filter
@@ -135,9 +162,15 @@ export const listRefundables = async (req, res) => {
       } else if (service === 'dedication') {
         match.type = 'dedication_request_payment';
       } else if (service === 'live_show') {
-        match.type = 'live_show_payment';
+        match.type = { $in: ['live_show_attendance_payment', 'live_show_hosting_payment'] };
       } else {
+        // Only allow if it's a refundable type
+        if (refundableTypes.includes(service)) {
         match.type = service;
+        } else {
+          // Invalid service type, return empty results
+          match.type = { $in: [] };
+        }
       }
     }
     
@@ -147,7 +180,7 @@ export const listRefundables = async (req, res) => {
     // Date filtering: Use service date (appointment date) instead of transaction createdAt
     // This ensures cancelled appointments show based on their scheduled date, not cancellation date
     const dateRange = parseRange(from, to);
-    
+
     // Search by payer/receiver name or pseudo or baroniId
     let userIds = [];
     if (q) {
@@ -257,6 +290,50 @@ export const listRefundables = async (req, res) => {
       }
     }
 
+    // IMPORTANT: Filter by service status BEFORE pagination
+    // Show completed transactions ONLY if service is cancelled
+    // This ensures we show payments that need refunds (payment completed but service cancelled)
+    aggregationPipeline.push({
+      $addFields: {
+        serviceStatus: {
+          $cond: {
+            if: { $eq: ['$type', 'appointment_payment'] },
+            then: { $arrayElemAt: ['$appointment.status', 0] },
+            else: {
+              $cond: {
+                if: { $eq: ['$type', 'dedication_request_payment'] },
+                then: { $arrayElemAt: ['$dedication.status', 0] },
+                else: {
+                  $cond: {
+                    if: { $in: ['$type', ['live_show_attendance_payment', 'live_show_hosting_payment']] },
+                    then: { $arrayElemAt: ['$liveshow.status', 0] },
+                    else: null
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Filter: Show transactions if:
+    // 1. Status is refunded, failed, pending, initiated (always show)
+    // 2. Status is completed AND service status is cancelled (payment done but service cancelled)
+    aggregationPipeline.push({
+      $match: {
+        $or: [
+          { status: { $in: ['refunded', 'failed', 'pending', 'initiated'] } },
+          { 
+            $and: [
+              { status: 'completed' },
+              { serviceStatus: 'cancelled' }
+            ]
+          }
+        ]
+      }
+    });
+
     // Add sorting, pagination, and population
     aggregationPipeline.push(
       { $sort: { createdAt: -1 } },
@@ -343,6 +420,25 @@ export const listRefundables = async (req, res) => {
                 }
               }
             }
+          },
+          serviceStatus: {
+            $cond: {
+              if: { $eq: ['$type', 'appointment_payment'] },
+              then: { $arrayElemAt: ['$appointment.status', 0] },
+              else: {
+                $cond: {
+                  if: { $eq: ['$type', 'dedication_request_payment'] },
+                  then: { $arrayElemAt: ['$dedication.status', 0] },
+                  else: {
+                    $cond: {
+                      if: { $in: ['$type', ['live_show_attendance_payment', 'live_show_hosting_payment']] },
+                      then: { $arrayElemAt: ['$liveshow.status', 0] },
+                      else: null
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -376,6 +472,24 @@ export const listRefundables = async (req, res) => {
       }
     }
 
+    // IMPORTANT: Apply same service status filter to count pipeline
+    // Show transactions if:
+    // 1. Status is refunded, failed, pending, initiated (always show)
+    // 2. Status is completed AND service status is cancelled (payment done but service cancelled)
+    countPipeline.push({
+      $match: {
+        $or: [
+          { status: { $in: ['refunded', 'failed', 'pending', 'initiated'] } },
+          { 
+            $and: [
+              { status: 'completed' },
+              { serviceStatus: 'cancelled' }
+            ]
+          }
+        ]
+      }
+    });
+
     countPipeline.push({ $count: 'total' });
 
     const [transactionsResult, totalResult] = await Promise.all([
@@ -392,7 +506,8 @@ export const listRefundables = async (req, res) => {
     const defaultSlotDuration = `${defaultSlotDurationMinutes} min`;
 
     // Enrich transactions with service details, commission, and formatted data
-    const enrichedItems = await Promise.all(transactions.map(async (txn) => {
+    // Filter out null items (non-refundable completed transactions)
+    const enrichedItems = (await Promise.all(transactions.map(async (txn) => {
       const payer = txn.payerId;
       const receiver = txn.receiverId;
       
@@ -417,8 +532,8 @@ export const listRefundables = async (req, res) => {
           }
         } else {
           appointment = await Appointment.findOne({ transactionId: txn._id })
-            .populate('availabilityId')
-            .lean();
+          .populate('availabilityId')
+          .lean();
         }
         if (appointment) {
           serviceId = `SRV-${appointment._id.toString().slice(-8).toUpperCase()}`;
@@ -457,11 +572,17 @@ export const listRefundables = async (req, res) => {
         if (txn.liveshow && txn.liveshow.length > 0) {
           liveShow = txn.liveshow[0];
         } else {
-          liveShow = await LiveShow.findOne({ transactionId: txn._id }).lean();
+          liveShow = await LiveShow.findOne({ transactionId: txn._id })
+            .populate('starId', 'name pseudo baroniId profilePic role isVerified profession')
+            .lean();
         }
         if (liveShow) {
           serviceId = `SRV-${liveShow._id.toString().slice(-8).toUpperCase()}`;
           serviceDetails = liveShow;
+          // Ensure starId is populated for display logic
+          if (liveShow.starId && typeof liveShow.starId === 'object') {
+            serviceDetails.starId = liveShow.starId;
+          }
         }
       }
       
@@ -506,8 +627,13 @@ export const listRefundables = async (req, res) => {
       // Format payment ID
       const paymentId = txn.externalPaymentId ? `PAY-${txn.externalPaymentId}` : `PAY-${txn._id.toString().slice(-8).toUpperCase()}`;
       
-      // Get refund status
-      const refundStatus = getRefundStatus(txn);
+      // Get refund status (pass serviceDetails to check if service is cancelled)
+      const refundStatus = getRefundStatus(txn, serviceDetails);
+      
+      // Skip if refundStatus is null (not refundable - completed payment with non-cancelled service)
+      if (refundStatus === null) {
+        return null; // This will be filtered out later
+      }
       
       // Format scheduled date & time from service details
       let scheduledDateTime = null;
@@ -538,10 +664,101 @@ export const listRefundables = async (req, res) => {
         }
       }
       
+      // IMPORTANT: Determine who cancelled and adjust payer/receiver display accordingly
+      // For refunds, we want to show the data of the person who cancelled
+      let displayPayer = payer;
+      let displayReceiver = receiver;
+      let cancelledBy = null; // 'star' or 'fan'
+      
+      if (serviceDetails) {
+        // Determine who cancelled based on service type and status
+        if (txn.type === 'appointment_payment') {
+          // For appointments:
+          // - If status is 'rejected' → Star cancelled (rejectAppointment endpoint)
+          // - If status is 'cancelled' → Fan cancelled (cancelAppointment endpoint, non-admin)
+          if (serviceDetails.status === 'rejected') {
+            cancelledBy = 'star';
+            // Star cancelled: Show star (receiver) as payer, fan (payer) as receiver
+            displayPayer = receiver; // Star who cancelled
+            displayReceiver = payer;  // Fan who was cancelled
+          } else if (serviceDetails.status === 'cancelled') {
+            cancelledBy = 'fan';
+            // Fan cancelled: Keep original (fan is payer, star is receiver)
+            displayPayer = payer;  // Fan who cancelled
+            displayReceiver = receiver; // Star who was cancelled
+          }
+        } else if (txn.type === 'dedication_request_payment') {
+          // For dedications: Only fan can cancel (cancelDedicationRequest endpoint)
+          if (serviceDetails.status === 'cancelled') {
+            cancelledBy = 'fan';
+            // Fan cancelled: Keep original (fan is payer, star is receiver)
+            displayPayer = payer;  // Fan who cancelled
+            displayReceiver = receiver; // Star who was cancelled
+          }
+        } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
+          // For live shows: Star can cancel their own shows
+          // IMPORTANT: For live_show_hosting_payment, receiver is admin, but we need to show original star
+          // For live_show_attendance_payment, receiver is already star
+          if (serviceDetails.status === 'cancelled' && serviceDetails.starId) {
+            const starIdStr = serviceDetails.starId.toString ? serviceDetails.starId.toString() : String(serviceDetails.starId);
+            
+            // For hosting payment, receiver is admin, so we need to get the star from serviceDetails
+            if (txn.type === 'live_show_hosting_payment') {
+              // Hosting payment: payer is star, receiver is admin
+              // When cancelled, show star (from serviceDetails) as receiver, admin (receiver) should not be shown
+              // The star who created the show should be shown as receiver
+              let starFromService = serviceDetails.starId;
+              
+              // If starId is already populated (object), use it directly
+              if (starFromService && typeof starFromService === 'object' && starFromService._id) {
+                cancelledBy = 'star';
+                // Star cancelled: Show star (from serviceDetails) as receiver, payer (star) as payer
+                displayPayer = payer; // Star who cancelled (payer is the star who created the show)
+                displayReceiver = starFromService; // Star who was receiver (same as payer for hosting)
+              } else if (starFromService) {
+                // Get star user details if not populated
+                const starUser = await User.findById(starFromService).lean();
+                if (starUser) {
+                  cancelledBy = 'star';
+                  // Star cancelled: Show star (from serviceDetails) as receiver
+                  displayPayer = payer; // Star who cancelled (payer is the star who created the show)
+                  displayReceiver = starUser; // Star who was receiver
+                }
+              }
+            } else {
+              // Attendance payment: payer is fan, receiver is star
+            const receiverIdStr = receiver?._id?.toString ? receiver._id.toString() : String(receiver?._id || '');
+            if (starIdStr === receiverIdStr) {
+              cancelledBy = 'star';
+              // Star cancelled: Show star (receiver) as payer, fan (payer) as receiver
+              displayPayer = receiver; // Star who cancelled
+              displayReceiver = payer;  // Fan who was cancelled
+            } else {
+              cancelledBy = 'fan';
+              // Fan cancelled: Keep original
+              displayPayer = payer;  // Fan who cancelled
+              displayReceiver = receiver; // Star who was cancelled
+              }
+            }
+          }
+        }
+      }
+      
+      // Map transaction type to refund type (appointment, dedication, live_show)
+      let refundType = null;
+      if (txn.type === 'appointment_payment') {
+        refundType = 'appointment';
+      } else if (txn.type === 'dedication_request_payment') {
+        refundType = 'dedication';
+      } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
+        refundType = 'live_show';
+      }
+
       return {
         id: txn._id,
         transactionId: txn._id,
-        type: txn.type,
+        type: txn.type, // Original transaction type (appointment_payment, etc.)
+        refundType: refundType, // Simple refund type: 'appointment', 'dedication', 'live_show'
         status: txn.status,
         refundStatus: refundStatus,
         amount: txn.amount,
@@ -554,43 +771,44 @@ export const listRefundables = async (req, res) => {
         externalAmount: txn.externalAmount,
         paymentId: paymentId,
         serviceId: serviceId,
-        serviceType: serviceType,
+        serviceType: serviceType, // Display name: 'Video Call', 'Dedication', 'Live Show'
         serviceDuration: serviceDuration,
         scheduledDateTime: scheduledDateTime,
         description: txn.description,
         createdAt: txn.createdAt,
         updatedAt: txn.updatedAt,
         formattedDate: formatDate(txn.createdAt),
-        payer: payer ? {
-          id: payer._id,
-          name: payer.name,
-          pseudo: payer.pseudo,
-          baroniId: payer.baroniId,
-          profilePic: payer.profilePic,
-          role: payer.role,
-          isVerified: payer.isVerified,
-          profession: payer.profession ? {
-            id: payer.profession._id || payer.profession.id || null,
-            name: payer.profession.name || ''
+        cancelledBy: cancelledBy, // 'star' or 'fan' - who cancelled
+        payer: displayPayer ? {
+          id: displayPayer._id,
+          name: displayPayer.name,
+          pseudo: displayPayer.pseudo,
+          baroniId: displayPayer.baroniId,
+          profilePic: displayPayer.profilePic,
+          role: displayPayer.role,
+          isVerified: displayPayer.isVerified,
+          profession: displayPayer.profession ? {
+            id: displayPayer.profession._id || displayPayer.profession.id || null,
+            name: displayPayer.profession.name || ''
           } : null
         } : null,
-        receiver: receiver ? {
-          id: receiver._id,
-          name: receiver.name,
-          pseudo: receiver.pseudo,
-          baroniId: receiver.baroniId,
-          profilePic: receiver.profilePic,
-          role: receiver.role,
-          isVerified: receiver.isVerified,
-          profession: receiver.profession ? {
-            id: receiver.profession._id || receiver.profession.id || null,
-            name: receiver.profession.name || ''
+        receiver: displayReceiver ? {
+          id: displayReceiver._id,
+          name: displayReceiver.name,
+          pseudo: displayReceiver.pseudo,
+          baroniId: displayReceiver.baroniId,
+          profilePic: displayReceiver.profilePic,
+          role: displayReceiver.role,
+          isVerified: displayReceiver.isVerified,
+          profession: displayReceiver.profession ? {
+            id: displayReceiver.profession._id || displayReceiver.profession.id || null,
+            name: displayReceiver.profession.name || ''
           } : null
         } : null,
         metadata: txn.metadata,
         serviceDetails: serviceDetails
       };
-    }));
+    }))).filter(item => item !== null); // Remove null items (non-refundable transactions)
 
     return res.json({ success: true, data: { items: enrichedItems, page, limit, total } });
   } catch (err) {

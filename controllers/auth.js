@@ -412,31 +412,79 @@ export const completeProfile = async (req, res) => {
     const user = req.user;
     if (!user?._id) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-    const { name, pseudo, preferredLanguage, preferredCurrency, country, email, contact, about, location, profession, profilePic, availableForBookings, appNotification, hidden } = req.body;
+    const {
+      name,
+      pseudo,
+      preferredLanguage,
+      preferredCurrency,
+      country,
+      email,
+      contact,
+      about,
+      location,
+      profession,
+      profilePic,
+      availableForBookings,
+      appNotification,
+      hidden
+    } = req.body;
     let { dedications, services, dedicationSamples } = req.body;
 
 
     // Pseudo (nickname) is no longer enforced to be unique
 
-    // Email uniqueness check if changing email
-    if (email !== undefined && email !== null && email !== '') {
-      const normalizedEmail = email.toLowerCase();
-      // Check if email is different (case-insensitive comparison)
-      if (user.email?.toLowerCase() !== normalizedEmail) {
-        const existing = await User.findOne({ 
-          email: normalizedEmail, 
-          _id: { $ne: user._id } 
-        });
-        if (existing) {
-          return res.status(409).json({
-            success: false,
-            message: 'Email already in use'
+    // Email update logic (more robust + logging for debugging)
+    if (typeof email !== 'undefined') {
+      console.log('[COMPLETE PROFILE] Email update requested:', {
+        userId: user._id,
+        currentEmail: user.email,
+        incomingEmail: email,
+        type: typeof email
+      });
+
+      // Normalize string emails (trim + lowercase)
+      if (typeof email === 'string') {
+        const trimmed = email.trim();
+
+        // If after trimming it's empty, treat as clearing email
+        if (trimmed === '') {
+          console.log('[COMPLETE PROFILE] Clearing email (empty string received)');
+          user.email = null;
+        } else {
+          const normalizedEmail = trimmed.toLowerCase();
+          const currentEmailNormalized = user.email ? String(user.email).toLowerCase() : '';
+
+          console.log('[COMPLETE PROFILE] Email comparison:', {
+            currentEmailNormalized,
+            normalizedEmail,
+            isDifferent: currentEmailNormalized !== normalizedEmail
           });
+
+          // Only run uniqueness check if email actually changed
+          if (currentEmailNormalized !== normalizedEmail) {
+            const existing = await User.findOne({
+              email: normalizedEmail,
+              _id: { $ne: user._id }
+            });
+            if (existing) {
+              console.log('[COMPLETE PROFILE] Email already in use by user:', existing._id);
+              return res.status(409).json({
+                success: false,
+                message: 'Email already in use'
+              });
+            }
+            console.log('[COMPLETE PROFILE] Updating email to:', normalizedEmail);
+            user.email = normalizedEmail;
+          } else {
+            // Even if same email, ensure normalized version is stored
+            user.email = normalizedEmail;
+            console.log('[COMPLETE PROFILE] Email unchanged, stored normalized value');
+          }
         }
-        user.email = normalizedEmail;
-      } else {
-        // Even if same email, ensure it's stored in lowercase
-        user.email = normalizedEmail;
+      } else if (email === null) {
+        // Explicitly clear email when null is sent
+        console.log('[COMPLETE PROFILE] Clearing email (null received)');
+        user.email = null;
       }
     }
     if (contact) user.contact = contact;

@@ -78,6 +78,9 @@ export const sanitizeUserData = (user) => {
       // Just an ID string - keep it but we'll format it in createSanitizedUserResponse
       // For now, leave it as is
     }
+  } else {
+    // Ensure profession is always an object, not null/undefined
+    userObj.profession = null;
   }
 
   return userObj;

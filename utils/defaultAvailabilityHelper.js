@@ -5,8 +5,8 @@ import { convertLocalToUTC } from './timezoneHelper.js';
 
 /**
  * Generate default weekly slots for a new Star
- * Creates 5 slots from 21:00 - 21:50 (each slot is 10 minutes) for next 7 days (1 week)
- * Slots: 21:00-21:10, 21:10-21:20, 21:20-21:30, 21:30-21:40, 21:40-21:50
+ * Creates 26 slots from 19:30 - 23:50 (each slot is 10 minutes) for next 7 days (1 week)
+ * Slots: 19:30-19:40, 19:40-19:50, 19:50-20:00, ..., 23:40-23:50
  * @param {string|ObjectId} userId - User ID of the new star
  * @returns {Promise<void>}
  */
@@ -65,19 +65,30 @@ export const createDefaultDailySlots = async (userId) => {
             return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
         };
 
-        // Generate 5 slots based on config slotDuration starting from 21:00
-        const startHour = 21;
-        const startMinute = 0;
+        // Generate slots from 19:30 to 23:50 (26 slots, each 10 minutes)
+        // Start: 19:30 (19 hours, 30 minutes = 1170 minutes from midnight)
+        // End: 23:50 (23 hours, 50 minutes = 1430 minutes from midnight)
+        // Total duration: 1430 - 1170 = 260 minutes = 26 slots of 10 minutes each
+        const startHour = 19;
+        const startMinute = 30;
+        const endHour = 23;
+        const endMinute = 50;
+        
+        // Calculate total number of slots
+        const startTotalMinutes = startHour * 60 + startMinute; // 1170 minutes
+        const endTotalMinutes = endHour * 60 + endMinute; // 1430 minutes
+        const totalSlots = (endTotalMinutes - startTotalMinutes) / slotDurationMinutes; // 26 slots
+        
         const slotStrings = [];
         
-        for (let i = 0; i < 5; i++) {
-            const slotStartMinutes = startMinute + (i * slotDurationMinutes);
-            const slotStartHour = startHour + Math.floor(slotStartMinutes / 60);
-            const slotStartMin = slotStartMinutes % 60;
+        for (let i = 0; i < totalSlots; i++) {
+            const slotStartTotalMinutes = startTotalMinutes + (i * slotDurationMinutes);
+            const slotStartHour = Math.floor(slotStartTotalMinutes / 60);
+            const slotStartMin = slotStartTotalMinutes % 60;
             
-            const slotEndMinutes = slotStartMinutes + slotDurationMinutes;
-            const slotEndHour = startHour + Math.floor(slotEndMinutes / 60);
-            const slotEndMin = slotEndMinutes % 60;
+            const slotEndTotalMinutes = slotStartTotalMinutes + slotDurationMinutes;
+            const slotEndHour = Math.floor(slotEndTotalMinutes / 60);
+            const slotEndMin = slotEndTotalMinutes % 60;
             
             const slotStart = formatTime(slotStartHour, slotStartMin);
             const slotEnd = formatTime(slotEndHour, slotEndMin);
