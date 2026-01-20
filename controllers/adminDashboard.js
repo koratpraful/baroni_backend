@@ -24,7 +24,7 @@ const REVENUE_TRANSACTION_TYPES = [
 ];
 
 // Helper function to get date range based on period
-// Handles frontend period values: "This Year", "Current Month", "Last 3 Months", etc.
+// Handles frontend period values: "This Year", "Current Month", "Last 3 Months", "All Time", etc.
 const getDateRange = (period) => {
   try {
     const now = new Date();
@@ -96,6 +96,12 @@ const getDateRange = (period) => {
       case 'last30_days':
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         return { startDate: thirtyDaysAgo, endDate: now };
+
+      // All Time (no upper bound other than "now")
+      case 'all_time':
+      case 'alltime':
+        // Start from a very early date to include all historical data
+        return { startDate: new Date(1970, 0, 1), endDate: now };
       
       default:
         // Default to current month
