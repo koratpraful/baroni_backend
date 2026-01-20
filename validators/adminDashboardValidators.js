@@ -12,6 +12,7 @@ export const dashboardSummaryValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       // Mobile app display labels (these will be normalized in getDateRange)
@@ -19,6 +20,7 @@ export const dashboardSummaryValidator = [
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -36,12 +38,14 @@ export const revenueInsightsValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -59,12 +63,14 @@ export const activeUsersByCountryValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -87,12 +93,14 @@ export const costEvaluationValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -114,12 +122,14 @@ export const serviceInsightsValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -137,12 +147,14 @@ export const topStarsValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -170,12 +182,14 @@ export const completeDashboardValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -193,12 +207,14 @@ export const serviceRevenueBreakdownValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -216,12 +232,14 @@ export const deviceChangeStatsValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])
@@ -437,12 +455,14 @@ export const topStarsListValidator = [
       'last_30_days',
       'last_3_months',
       'last_6_months',
+      'last_12_months',
       'this_year',
       'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
+      'Last 12 Months',
       'This Year',
       'All Time'
     ])

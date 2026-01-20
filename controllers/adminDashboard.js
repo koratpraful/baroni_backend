@@ -78,6 +78,15 @@ const getDateRange = (period) => {
       case 'last6_months':
         const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
         return { startDate: sixMonthsAgo, endDate: endOfMonth };
+
+      // Last 12 Months
+      case 'last_12_months':
+      case 'last12months':
+      case 'last_12months':
+      case 'last12_months':
+        // Start from 12 months ago, at the beginning of that month, up to end of current month
+        const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+        return { startDate: twelveMonthsAgo, endDate: endOfMonth };
       
       // Last 7 Days
       case 'last_7_days':

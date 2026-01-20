@@ -12,6 +12,7 @@ const PERIODS = [
   'last_month',
   'last_3_months',
   'last_6_months',
+  'last_12_months',
   'this_year',
   'all_time'
 ];
