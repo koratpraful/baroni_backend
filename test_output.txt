@@ -1,1 +1,119 @@
-﻿
+Admin Dashboard Verification Report
+Base URL : http://localhost:4000
+
+================================================================================
+🔎 Period: current_month
+Revenue.totalRevenue          : 18200
+Overview.revenue.totalRevenue : 18200
+Service breakdown sum         : 18200
+Top stars income sum          : 8200
+Revenue.escrowAmount          : 240
+Overview.revenue.escrowAmount : 240
+VideoCall revenue - breakdown / overview / service-insights : 8100 / 8100 / 8100
+LiveShow revenue  - breakdown / overview / service-insights : 0 / 0 / 0
+Dedication revenue- breakdown / overview / service-insights : 100 / 100 / 100
+VideoCall minutes - cost-eval / overview                    : 1626 / 1626
+LiveShow minutes  - cost-eval / overview                    : 0 / 0
+Dedication minutes- cost-eval / overview                    : 0 / 0
+Summary.newUsers              : 13
+Overview.summary.newUsers     : 13
+Summary.engagedFans           : 8
+Overview.summary.engagedFans  : 8
+✅ Period current_month: ALL CHECKS PASSED
+================================================================================
+🔎 Period: last_month
+Revenue.totalRevenue          : 15425
+Overview.revenue.totalRevenue : 15425
+Service breakdown sum         : 15425
+Top stars income sum          : 12025
+Revenue.escrowAmount          : 360
+Overview.revenue.escrowAmount : 360
+VideoCall revenue - breakdown / overview / service-insights : 12075 / 12075 / 12075
+LiveShow revenue  - breakdown / overview / service-insights : 0 / 0 / 0
+Dedication revenue- breakdown / overview / service-insights : 300 / 300 / 300
+VideoCall minutes - cost-eval / overview                    : 286 / 286
+LiveShow minutes  - cost-eval / overview                    : 0 / 0
+Dedication minutes- cost-eval / overview                    : 10 / 10
+Summary.newUsers              : 31
+Overview.summary.newUsers     : 31
+Summary.engagedFans           : 29
+Overview.summary.engagedFans  : 29
+✅ Period last_month: ALL CHECKS PASSED
+================================================================================
+🔎 Period: last_3_months
+Revenue.totalRevenue          : 37173
+Overview.revenue.totalRevenue : 37173
+Service breakdown sum         : 37173
+Top stars income sum          : 23413
+Revenue.escrowAmount          : 600
+Overview.revenue.escrowAmount : 600
+VideoCall revenue - breakdown / overview / service-insights : 23025 / 23025 / 23025
+LiveShow revenue  - breakdown / overview / service-insights : 0 / 0 / 0
+Dedication revenue- breakdown / overview / service-insights : 738 / 738 / 738
+VideoCall minutes - cost-eval / overview                    : 2883 / 2883
+LiveShow minutes  - cost-eval / overview                    : 0 / 0
+Dedication minutes- cost-eval / overview                    : 25 / 25
+Summary.newUsers              : 64
+Overview.summary.newUsers     : 64
+Summary.engagedFans           : 40
+Overview.summary.engagedFans  : 40
+✅ Period last_3_months: ALL CHECKS PASSED
+================================================================================
+🔎 Period: last_6_months
+Revenue.totalRevenue          : 37173
+Overview.revenue.totalRevenue : 37173
+Service breakdown sum         : 37173
+Top stars income sum          : 23413
+Revenue.escrowAmount          : 600
+Overview.revenue.escrowAmount : 600
+VideoCall revenue - breakdown / overview / service-insights : 23025 / 23025 / 23025
+LiveShow revenue  - breakdown / overview / service-insights : 0 / 0 / 0
+Dedication revenue- breakdown / overview / service-insights : 738 / 738 / 738
+VideoCall minutes - cost-eval / overview                    : 2883 / 2883
+LiveShow minutes  - cost-eval / overview                    : 0 / 0
+Dedication minutes- cost-eval / overview                    : 25 / 25
+Summary.newUsers              : 64
+Overview.summary.newUsers     : 64
+Summary.engagedFans           : 40
+Overview.summary.engagedFans  : 40
+✅ Period last_6_months: ALL CHECKS PASSED
+================================================================================
+🔎 Period: this_year
+Revenue.totalRevenue          : 18200
+Overview.revenue.totalRevenue : 18200
+Service breakdown sum         : 18200
+Top stars income sum          : 8200
+Revenue.escrowAmount          : 240
+Overview.revenue.escrowAmount : 240
+VideoCall revenue - breakdown / overview / service-insights : 8100 / 8100 / 8100
+LiveShow revenue  - breakdown / overview / service-insights : 0 / 0 / 0
+Dedication revenue- breakdown / overview / service-insights : 100 / 100 / 100
+VideoCall minutes - cost-eval / overview                    : 1626 / 1626
+LiveShow minutes  - cost-eval / overview                    : 0 / 0
+Dedication minutes- cost-eval / overview                    : 0 / 0
+Summary.newUsers              : 13
+Overview.summary.newUsers     : 13
+Summary.engagedFans           : 8
+Overview.summary.engagedFans  : 8
+✅ Period this_year: ALL CHECKS PASSED
+================================================================================
+🔎 Period: all_time
+Revenue.totalRevenue          : 37173
+Overview.revenue.totalRevenue : 37173
+Service breakdown sum         : 37173
+Top stars income sum          : 23413
+Revenue.escrowAmount          : 600
+Overview.revenue.escrowAmount : 600
+VideoCall revenue - breakdown / overview / service-insights : 23025 / 23025 / 23025
+LiveShow revenue  - breakdown / overview / service-insights : 0 / 0 / 0
+Dedication revenue- breakdown / overview / service-insights : 738 / 738 / 738
+VideoCall minutes - cost-eval / overview                    : 2883 / 2883
+LiveShow minutes  - cost-eval / overview                    : 0 / 0
+Dedication minutes- cost-eval / overview                    : 25 / 25
+Summary.newUsers              : 64
+Overview.summary.newUsers     : 64
+Summary.engagedFans           : 40
+Overview.summary.engagedFans  : 40
+✅ Period all_time: ALL CHECKS PASSED
+
+Verification finished. See details above.

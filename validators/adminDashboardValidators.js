@@ -13,12 +13,14 @@ export const dashboardSummaryValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       // Mobile app display labels (these will be normalized in getDateRange)
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -35,11 +37,13 @@ export const revenueInsightsValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -56,11 +60,13 @@ export const activeUsersByCountryValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value'),
   
@@ -82,11 +88,13 @@ export const costEvaluationValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -107,11 +115,13 @@ export const serviceInsightsValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -128,11 +138,13 @@ export const topStarsValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value'),
   
@@ -159,11 +171,13 @@ export const completeDashboardValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -180,11 +194,13 @@ export const serviceRevenueBreakdownValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -201,11 +217,13 @@ export const deviceChangeStatsValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
@@ -420,11 +438,13 @@ export const topStarsListValidator = [
       'last_3_months',
       'last_6_months',
       'this_year',
+      'all_time',
       'Current Month',
       'Last Month',
       'Last 3 Months',
       'Last 6 Months',
-      'This Year'
+      'This Year',
+      'All Time'
     ])
     .withMessage('Invalid period value')
 ];
