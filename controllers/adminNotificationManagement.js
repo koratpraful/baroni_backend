@@ -388,6 +388,55 @@ const normalizeTemplateCategory = (value) => {
   return normalized;
 };
 
+// Normalize service values to a canonical label that matches the schema enum
+const normalizeServiceValue = (value) => {
+  if (!value) return null;
+  const raw = value.toString().trim().toLowerCase();
+  if (['video call', 'video calls', 'video_call', 'video_calls', 'video'].includes(raw)) {
+    return 'Video Call';
+  }
+  if (['dedication', 'dedications'].includes(raw)) {
+    return 'Dedication';
+  }
+  if (['live show', 'live shows', 'live_show', 'live_shows', 'live'].includes(raw)) {
+    return 'Live Show';
+  }
+  if (['general'].includes(raw)) {
+    return 'General';
+  }
+  return value;
+};
+
+// Normalize notification type to schema enum (Push/SMS/Email)
+const normalizeNotificationType = (value) => {
+  if (!value) return null;
+  const raw = value.toString().trim().toLowerCase();
+  if (raw === 'push') return 'Push';
+  if (raw === 'sms') return 'SMS';
+  if (raw === 'email') return 'Email';
+  return value;
+};
+
+const mapServiceToCategory = (service) => {
+  const normalizedService = normalizeServiceValue(service);
+  if (!normalizedService) return null;
+  if (normalizedService === 'Video Call') return 'video_calls';
+  if (normalizedService === 'Dedication') return 'dedications';
+  if (normalizedService === 'Live Show') return 'live_shows';
+  if (normalizedService === 'General') return 'general';
+  return null;
+};
+
+const buildServiceVariants = (service) => {
+  const variants = [];
+  const normalizedService = normalizeServiceValue(service);
+  if (!normalizedService) return variants;
+  variants.push(normalizedService);
+  variants.push(normalizedService.toLowerCase());
+  variants.push(normalizedService.toLowerCase().replace(/\s+/g, '_'));
+  return [...new Set(variants)];
+};
+
 export const createNotificationTemplate = async (req, res) => {
   try {
     const admin = req.user;
@@ -400,22 +449,25 @@ export const createNotificationTemplate = async (req, res) => {
 
     const { service, notificationType, message, category } = req.body;
 
+    const normalizedService = normalizeServiceValue(service);
+    const normalizedNotificationType = normalizeNotificationType(notificationType);
+
     // Validation
-    if (!service || !notificationType || !message) {
+    if (!normalizedService || !normalizedNotificationType || !message) {
       return res.status(400).json({
         success: false,
         message: 'Service, notification type, and message are required'
       });
     }
 
-    if (!['Live Show', 'Video Call', 'Dedication', 'General'].includes(service)) {
+    if (!['Live Show', 'Video Call', 'Dedication', 'General', 'live_show', 'video_call', 'dedication', 'general'].includes(normalizedService)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid service type'
       });
     }
 
-    if (!['Push', 'SMS', 'Email'].includes(notificationType)) {
+    if (!['Push', 'SMS', 'Email'].includes(normalizedNotificationType)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid notification type'
@@ -425,18 +477,15 @@ export const createNotificationTemplate = async (req, res) => {
     // Map service to category if not provided
     let templateCategory = category;
     if (!templateCategory) {
-      if (service === 'Live Show' || service === 'live_show') templateCategory = 'live_shows';
-      else if (service === 'Video Call' || service === 'video_call') templateCategory = 'video_calls';
-      else if (service === 'Dedication' || service === 'dedication') templateCategory = 'dedications';
-      else templateCategory = 'general';
+      templateCategory = mapServiceToCategory(normalizedService) || 'general';
     }
 
     // Normalize category to canonical lowercase key (no spaces)
     templateCategory = normalizeTemplateCategory(templateCategory);
 
     const template = new NotificationTemplate({
-      service,
-      notificationType,
+      service: normalizedService,
+      notificationType: normalizedNotificationType,
       message,
       category: templateCategory,
       createdBy: admin._id
@@ -473,14 +522,28 @@ export const getNotificationTemplates = async (req, res) => {
       });
     }
 
-    const { category, notificationType, search, page = 1, limit = 20 } = req.query;
+    const { category, notificationType, search, service, page = 1, limit = 20 } = req.query;
 
     const query = {};
 
+    const normalizedService = normalizeServiceValue(service);
+    const normalizedNotificationType = normalizeNotificationType(notificationType);
+
+    // Support filtering by service (maps to category + service field)
+    if (normalizedService) {
+      const serviceOptions = buildServiceVariants(service);
+      if (serviceOptions.length) {
+        query.service = { $in: serviceOptions };
+      }
+    }
+
+    // If category not provided but service is present, derive category from service
+    const effectiveCategory = category || mapServiceToCategory(normalizedService);
+
     // Filter by category
-    if (category && category !== 'All') {
+    if (effectiveCategory && effectiveCategory !== 'All') {
       // Normalize requested category and support both legacy and new keys
-      const normalized = normalizeTemplateCategory(category);
+      const normalized = normalizeTemplateCategory(effectiveCategory);
       const categoryVariants = [];
       if (normalized === 'video_calls') {
         categoryVariants.push('video_calls', 'Video Calls');
@@ -497,8 +560,8 @@ export const getNotificationTemplates = async (req, res) => {
     }
 
     // Filter by notification type
-    if (notificationType && notificationType !== 'All') {
-      query.notificationType = notificationType;
+    if (normalizedNotificationType && normalizedNotificationType !== 'All') {
+      query.notificationType = normalizedNotificationType;
     }
 
     // Search filter
@@ -561,6 +624,9 @@ export const updateNotificationTemplate = async (req, res) => {
     const { id } = req.params;
     const { service, notificationType, message, category } = req.body;
 
+    const normalizedService = normalizeServiceValue(service);
+    const normalizedNotificationType = normalizeNotificationType(notificationType);
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -577,10 +643,10 @@ export const updateNotificationTemplate = async (req, res) => {
     }
 
     // Update fields
-    if (service) template.service = service;
-    if (notificationType) template.notificationType = notificationType;
+    if (normalizedService) template.service = normalizedService;
+    if (normalizedNotificationType) template.notificationType = normalizedNotificationType;
     if (message) template.message = message;
-    if (category) template.category = category;
+    if (category) template.category = normalizeTemplateCategory(category);
 
     await template.save();
 

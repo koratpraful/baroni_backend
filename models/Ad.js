@@ -25,8 +25,9 @@ const adSchema = new mongoose.Schema(
     },
     status: { 
       type: String, 
-      enum: ['active', 'paused', 'draft', 'expired'], 
-      default: 'draft',
+      // Draft removed: ads start live and can be paused or expired
+      enum: ['active', 'paused', 'expired'], 
+      default: 'active',
       index: true 
     },
     createdBy: { 

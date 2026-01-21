@@ -5,8 +5,9 @@ import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
 import Config from '../models/Config.js';
 import { refundTransaction } from '../services/transactionService.js';
-import { getEffectiveCommission, applyCommission } from '../utils/commissionHelper.js';
 import mongoose from 'mongoose';
+
+const LEGACY_COMMISSION_RATE = 0.3; // Default commission for historical transactions without stored value
 
 const parseRange = (from, to) => {
   const range = {};
@@ -586,43 +587,27 @@ export const listRefundables = async (req, res) => {
         }
       }
       
-      // Calculate commission and net amount based on admin commission configuration
-      let commissionAmount = 0;
+      // Use stored commission if present; fallback to 30% for legacy rows
+      let commissionAmount = null;
       let netAmount = txn.amount;
-      
-      if (txn.type === 'appointment_payment' || 
-          txn.type === 'dedication_request_payment' || 
-          txn.type === 'live_show_attendance_payment' || 
-          txn.type === 'live_show_hosting_payment') {
-        try {
-          // Map transaction type to service type key for commission calculation
-          let serviceTypeKey;
-          if (txn.type === 'appointment_payment') {
-            serviceTypeKey = 'videoCall';
-          } else if (txn.type === 'dedication_request_payment') {
-            serviceTypeKey = 'dedication';
-          } else if (txn.type === 'live_show_attendance_payment' || txn.type === 'live_show_hosting_payment') {
-            serviceTypeKey = 'liveShow';
-          }
-          
-          // Get country code from receiver or payer
-          const countryCode = receiver?.country || payer?.country;
-          
-          // Get effective commission rate from admin configuration
-          const commissionRate = await getEffectiveCommission({ 
-            serviceType: serviceTypeKey, 
-            countryCode 
-          });
-          
-          // Calculate commission and net amount based on percentage
-          const { commission, netAmount: net } = applyCommission(txn.amount, commissionRate);
-          commissionAmount = commission;
-          netAmount = net;
-        } catch (err) {
-          console.error('Error calculating commission:', err);
-          // If commission calculation fails, keep default values (0 commission, full amount as net)
+
+      const isCommissionBasedService = txn.type === 'appointment_payment' || 
+        txn.type === 'dedication_request_payment' || 
+        txn.type === 'live_show_attendance_payment' || 
+        txn.type === 'live_show_hosting_payment';
+
+      if (isCommissionBasedService) {
+        if (typeof txn.commissionAmount === 'number') {
+          commissionAmount = txn.commissionAmount;
+        } else if (txn.amount !== undefined && txn.amount !== null) {
+          commissionAmount = Math.round(Number(txn.amount) * LEGACY_COMMISSION_RATE * 100) / 100;
         }
       }
+
+      if (commissionAmount === null) {
+        commissionAmount = 0;
+      }
+      netAmount = Math.max(0, Math.round((Number(txn.amount || 0) - commissionAmount) * 100) / 100);
       
       // Format payment ID
       const paymentId = txn.externalPaymentId ? `PAY-${txn.externalPaymentId}` : `PAY-${txn._id.toString().slice(-8).toUpperCase()}`;
