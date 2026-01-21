@@ -44,8 +44,8 @@ const priorityValidation = body('priority')
 
 const statusValidation = body('status')
   .optional()
-  .isIn(['active', 'paused', 'draft', 'expired'])
-  .withMessage('Status must be one of: active, paused, draft, expired');
+  .isIn(['active', 'paused', 'expired'])
+  .withMessage('Status must be one of: active, paused, expired');
 
 const dateValidation = (field) => body(field)
   .optional()
@@ -130,8 +130,8 @@ export const getUserAdsValidation = [
     .withMessage('Limit must be between 1 and 100'),
   query('status')
     .optional()
-    .isIn(['active', 'paused', 'draft', 'expired'])
-    .withMessage('Status must be one of: active, paused, draft, expired'),
+    .isIn(['active', 'paused', 'expired'])
+    .withMessage('Status must be one of: active, paused, expired'),
   query('sortBy')
     .optional()
     .isIn(['createdAt', 'updatedAt', 'title', 'status', 'priority', 'startDate', 'endDate'])

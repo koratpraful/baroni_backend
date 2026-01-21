@@ -5,6 +5,39 @@ import orangeMoneyService from './orangeMoneyService.js';
 import { TRANSACTION_STATUSES, PAYMENT_MODES, TRANSACTION_TYPES } from '../utils/transactionConstants.js';
 import NotificationHelper from '../utils/notificationHelper.js';
 import { addToEscrow } from './starWalletService.js';
+import { getEffectiveCommission } from '../utils/commissionHelper.js';
+
+const COMMISSION_FALLBACK_RATE = 0.3; // 30% fallback for legacy rows without stored commission
+
+const TRANSACTION_SERVICE_TYPE_MAP = {
+  [TRANSACTION_TYPES.APPOINTMENT_PAYMENT]: 'videoCall',
+  [TRANSACTION_TYPES.DEDICATION_REQUEST_PAYMENT]: 'dedication',
+  [TRANSACTION_TYPES.LIVE_SHOW_ATTENDANCE_PAYMENT]: 'liveShow',
+  [TRANSACTION_TYPES.LIVE_SHOW_HOSTING_PAYMENT]: 'liveShow'
+};
+
+const roundToTwo = (value) => Math.round(Number(value) * 100) / 100;
+
+const calculateCommissionForTransaction = async (transactionType, amount, countryCode) => {
+  const serviceType = TRANSACTION_SERVICE_TYPE_MAP[transactionType];
+  if (!serviceType || amount === undefined || amount === null) {
+    return { commissionAmount: 0, commissionRate: 0 };
+  }
+
+  try {
+    const commissionRate = await getEffectiveCommission({ serviceType, countryCode });
+    return {
+      commissionAmount: roundToTwo(Number(amount) * Number(commissionRate)),
+      commissionRate: Number(commissionRate)
+    };
+  } catch (err) {
+    console.error('[TransactionService] Failed to get commission rate; using fallback 30%:', err);
+    return {
+      commissionAmount: roundToTwo(Number(amount) * COMMISSION_FALLBACK_RATE),
+      commissionRate: COMMISSION_FALLBACK_RATE
+    };
+  }
+};
 
 /**
  * Create a hybrid transaction with coin + external payment logic
@@ -47,6 +80,13 @@ export const createHybridTransaction = async (transactionData) => {
       if (!payer) {
         throw new Error('Payer not found');
       }
+
+      // Persist commission at creation time so historical data stays accurate
+      const { commissionAmount, commissionRate } = await calculateCommissionForTransaction(
+        type,
+        amount,
+        payer?.country
+      );
 
       const coinBalance = payer.coinBalance || 0;
       let coinAmount = 0;
@@ -119,6 +159,8 @@ export const createHybridTransaction = async (transactionData) => {
         status: paymentMode === PAYMENT_MODES.COIN ? TRANSACTION_STATUSES.PENDING : TRANSACTION_STATUSES.INITIATED,
         coinAmount,
         externalAmount,
+        commissionAmount,
+        commissionRateApplied: commissionRate,
         externalPaymentId,
         refundTimer: paymentMode === PAYMENT_MODES.HYBRID ? new Date(Date.now() + (15 * 60 * 1000)) : null,
         metadata
@@ -187,12 +229,14 @@ export const createTransaction = async (transactionData) => {
         throw new Error('Amount must be greater than 0');
       }
 
+      let payerCountry;
       // If payment mode is coin, check if payer has sufficient balance
       if (paymentMode === 'coin') {
         const payer = await User.findById(payerId).session(session);
         if (!payer) {
           throw new Error('Payer not found');
         }
+        payerCountry = payer.country;
 
         if (payer.coinBalance < amount) {
           throw new Error('Insufficient coin balance');
@@ -206,6 +250,12 @@ export const createTransaction = async (transactionData) => {
         );
       }
 
+      const { commissionAmount, commissionRate } = await calculateCommissionForTransaction(
+        type,
+        amount,
+        payerCountry
+      );
+
       // Create transaction record with pending status
       await Transaction.create([{
         type,
@@ -215,6 +265,8 @@ export const createTransaction = async (transactionData) => {
         description,
         paymentMode,
         status: 'pending',
+        commissionAmount,
+        commissionRateApplied: commissionRate,
         metadata
       }], { session });
     });

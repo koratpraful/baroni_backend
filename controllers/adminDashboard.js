@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
+import StarWallet from '../models/StarWallet.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
@@ -24,7 +25,7 @@ const REVENUE_TRANSACTION_TYPES = [
 ];
 
 // Helper function to get date range based on period
-// Handles frontend period values: "This Year", "Current Month", "Last 3 Months", etc.
+// Handles frontend period values: "This Year", "Current Month", "Last 3 Months", "All Time", etc.
 const getDateRange = (period) => {
   try {
     const now = new Date();
@@ -78,6 +79,15 @@ const getDateRange = (period) => {
       case 'last6_months':
         const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
         return { startDate: sixMonthsAgo, endDate: endOfMonth };
+
+      // Last 12 Months
+      case 'last_12_months':
+      case 'last12months':
+      case 'last_12months':
+      case 'last12_months':
+        // Start from 12 months ago, at the beginning of that month, up to end of current month
+        const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+        return { startDate: twelveMonthsAgo, endDate: endOfMonth };
       
       // Last 7 Days
       case 'last_7_days':
@@ -96,6 +106,12 @@ const getDateRange = (period) => {
       case 'last30_days':
         const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         return { startDate: thirtyDaysAgo, endDate: now };
+
+      // All Time (no upper bound other than "now")
+      case 'all_time':
+      case 'alltime':
+        // Start from a very early date to include all historical data
+        return { startDate: new Date(1970, 0, 1), endDate: now };
       
       default:
         // Default to current month
@@ -282,13 +298,23 @@ export const getRevenueInsights = async (req, res) => {
       amount: service.amount
     }));
 
+    // Current jackpot balance across all stars (not part of totalRevenue; separate line item)
+    const jackpotAgg = await StarWallet.aggregate([
+      { $group: { _id: null, jackpot: { $sum: '$jackpot' } } }
+    ]);
+    const jackpotAmount = jackpotAgg[0]?.jackpot || 0;
+
     return res.json({
       success: true,
       message: 'Revenue insights retrieved successfully',
       data: {
         totalRevenue,
         escrowAmount,
-        serviceRevenue: serviceBreakdown
+        jackpotAmount,
+        serviceRevenue: [
+          ...serviceBreakdown,
+          { service: 'jackpot', amount: jackpotAmount }
+        ]
       }
     });
 

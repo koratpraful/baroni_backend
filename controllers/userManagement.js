@@ -1029,7 +1029,7 @@ export const getManagementUserProfile = async (req, res) => {
   }
 };
 
-// Overview (7/15/30 day) for fan or star by ID (admin)
+// Overview (7/15/30 day or named periods) for fan or star by ID (admin)
 export const getManagementUserOverview = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -1047,9 +1047,66 @@ export const getManagementUserOverview = async (req, res) => {
     }
 
     const { id } = req.params;
-    const days = parseInt(req.query.period || '30', 10);
-    const allowed = [7, 15, 30];
-    const periodDays = allowed.includes(days) ? days : 30;
+    const rawPeriod = (req.query.period || '30').toString().trim();
+
+    const getSinceFromPeriod = (periodValue) => {
+      const now = new Date();
+      const msPerDay = 24 * 60 * 60 * 1000;
+
+      // Support old numeric style ("7", "15", "30")
+      if (['7', '15', '30'].includes(periodValue)) {
+        const days = parseInt(periodValue, 10);
+        const since = new Date(now.getTime() - days * msPerDay);
+        return { since, periodDays: days };
+      }
+
+      // Support named periods
+      const normalized = periodValue.toLowerCase();
+
+      if (normalized === 'current_month') {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const diffDays = Math.round((now.getTime() - startOfMonth.getTime()) / msPerDay);
+        return { since: startOfMonth, periodDays: diffDays || 1 };
+      }
+
+      if (normalized === 'last_month') {
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        const diffDays = Math.round((endOfLastMonth.getTime() - startOfLastMonth.getTime()) / msPerDay);
+        return { since: startOfLastMonth, periodDays: diffDays || 1 };
+      }
+
+      if (normalized === 'last_3_months') {
+        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        const diffDays = Math.round((now.getTime() - threeMonthsAgo.getTime()) / msPerDay);
+        return { since: threeMonthsAgo, periodDays: diffDays || 1 };
+      }
+
+      if (normalized === 'last_6_months') {
+        const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+        const diffDays = Math.round((now.getTime() - sixMonthsAgo.getTime()) / msPerDay);
+        return { since: sixMonthsAgo, periodDays: diffDays || 1 };
+      }
+
+      if (normalized === 'this_year') {
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        const diffDays = Math.round((now.getTime() - startOfYear.getTime()) / msPerDay);
+        return { since: startOfYear, periodDays: diffDays || 1 };
+      }
+
+      if (normalized === 'all_time') {
+        const start = new Date(1970, 0, 1);
+        const diffDays = Math.round((now.getTime() - start.getTime()) / msPerDay);
+        return { since: start, periodDays: diffDays || 1 };
+      }
+
+      // Fallback: behave like 30 days
+      const fallbackDays = 30;
+      const fallbackSince = new Date(now.getTime() - fallbackDays * msPerDay);
+      return { since: fallbackSince, periodDays: fallbackDays };
+    };
+
+    const { since, periodDays } = getSinceFromPeriod(rawPeriod);
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -1065,8 +1122,6 @@ export const getManagementUserOverview = async (req, res) => {
         message: 'User not found'
       });
     }
-
-    const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000);
 
     let starOverview = null;
     let starCancelled = null;
