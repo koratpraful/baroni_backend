@@ -48,6 +48,7 @@ export const createAd = async (req, res) => {
       link: (link && link.trim() !== '') ? link.trim() : undefined,
       image: imageUrl,
       createdBy,
+      status: 'active', // ads go live on creation; can be paused later
       budget: budget ? parseFloat(budget) : undefined,
       targetAudience: targetAudience || 'all',
       targetCountry: targetCountry || undefined,
@@ -91,16 +92,31 @@ export const getUserAds = async (req, res) => {
       });
     }
 
-    const { page = 1, limit = 10, status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    const { page = 1, limit = 10, status, sortBy = 'createdAt', sortOrder = 'desc', createdBy } = req.query;
     const userId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
 
     const query = { 
-      createdBy: userId, 
       isDeleted: false 
     };
 
-    // Filter by status if provided
-    if (status && ['active', 'paused', 'draft', 'expired'].includes(status)) {
+    // Admins see all unless filtered; non-admins only their own
+    if (isAdmin) {
+      if (createdBy) {
+        if (!mongoose.Types.ObjectId.isValid(createdBy)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid createdBy'
+          });
+        }
+        query.createdBy = createdBy;
+      }
+    } else {
+      query.createdBy = userId;
+    }
+
+    // Filter by status if provided (draft removed)
+    if (status && ['active', 'paused', 'expired'].includes(status)) {
       query.status = status;
     }
 
@@ -165,10 +181,12 @@ export const getAd = async (req, res) => {
       });
     }
 
+    const isAdmin = req.user.role === 'admin';
+
     const ad = await Ad.findOne({ 
       _id: id, 
-      createdBy: userId, 
-      isDeleted: false 
+      isDeleted: false,
+      ...(isAdmin ? {} : { createdBy: userId })
     }).populate('createdBy', 'name email baroniId');
 
     if (!ad) {
@@ -219,10 +237,12 @@ export const updateAd = async (req, res) => {
       });
     }
 
+    const isAdmin = req.user.role === 'admin';
+
     const ad = await Ad.findOne({ 
       _id: id, 
-      createdBy: userId, 
-      isDeleted: false 
+      isDeleted: false,
+      ...(isAdmin ? {} : { createdBy: userId })
     });
 
     if (!ad) {
@@ -305,10 +325,12 @@ export const deleteAd = async (req, res) => {
       });
     }
 
+    const isAdmin = req.user.role === 'admin';
+
     const ad = await Ad.findOne({ 
       _id: id, 
-      createdBy: userId, 
-      isDeleted: false 
+      isDeleted: false,
+      ...(isAdmin ? {} : { createdBy: userId })
     });
 
     if (!ad) {
@@ -363,21 +385,17 @@ export const getActiveAds = async (req, res) => {
       ]
     };
 
-    // Filter by target audience
-    if (audience && ['all', 'fans', 'stars'].includes(audience)) {
-      query.$or = [
-        { targetAudience: 'all' },
-        { targetAudience: audience }
-      ];
-    }
+    const audienceFilter = (audience && ['all', 'fans', 'stars'].includes(audience))
+      ? ['all', audience]
+      : ['all'];
 
-    // Filter by country if provided
-    if (country) {
-      query.$or = [
-        { targetCountry: { $exists: false } },
-        { targetCountry: country }
-      ];
-    }
+    // Build AND conditions for audience and country so they don't overwrite each other
+    query.$and = [
+      { targetAudience: { $in: audienceFilter } },
+      country
+        ? { $or: [{ targetCountry: { $exists: false } }, { targetCountry: country }] }
+        : {}
+    ].filter(Boolean);
 
     const ads = await Ad.find(query)
       .populate('createdBy', 'name baroniId')

@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Transaction from '../models/Transaction.js';
+import StarWallet from '../models/StarWallet.js';
 import Appointment from '../models/Appointment.js';
 import DedicationRequest from '../models/DedicationRequest.js';
 import LiveShow from '../models/LiveShow.js';
@@ -297,13 +298,23 @@ export const getRevenueInsights = async (req, res) => {
       amount: service.amount
     }));
 
+    // Current jackpot balance across all stars (not part of totalRevenue; separate line item)
+    const jackpotAgg = await StarWallet.aggregate([
+      { $group: { _id: null, jackpot: { $sum: '$jackpot' } } }
+    ]);
+    const jackpotAmount = jackpotAgg[0]?.jackpot || 0;
+
     return res.json({
       success: true,
       message: 'Revenue insights retrieved successfully',
       data: {
         totalRevenue,
         escrowAmount,
-        serviceRevenue: serviceBreakdown
+        jackpotAmount,
+        serviceRevenue: [
+          ...serviceBreakdown,
+          { service: 'jackpot', amount: jackpotAmount }
+        ]
       }
     });
 

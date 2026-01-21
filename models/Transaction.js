@@ -53,6 +53,15 @@ const transactionSchema = new mongoose.Schema(
       min: 0,
       default: 0
     },
+    commissionAmount: {
+      type: Number,
+      min: 0
+    },
+    commissionRateApplied: {
+      type: Number,
+      min: 0,
+      max: 1
+    },
     refundTimer: {
       type: Date,
       index: true

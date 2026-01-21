@@ -306,16 +306,36 @@ export const upsertCountryOverride = async (req, res) => {
 
 export const deleteCountryOverride = async (req, res) => {
   try {
-    const code = String(req.params.countryCode || '').toUpperCase();
+    const rawCode = req.params.countryCode || req.query.countryCode || req.body?.countryCode || '';
+    const rawName = req.query.country || req.body?.country || '';
+    const code = String(rawCode).trim().toUpperCase();
+    const name = String(rawName).trim().toLowerCase();
+
+    if (!code && !name) {
+      return res.status(400).json({ success: false, message: 'countryCode or country is required' });
+    }
+
     const cfg = await CommissionConfig.getSingleton();
     const before = cfg.countryOverrides?.length || 0;
-    cfg.countryOverrides = (cfg.countryOverrides || []).filter((c) => c.countryCode !== code);
+
+    cfg.countryOverrides = (cfg.countryOverrides || []).filter((c) => {
+      const matchCode = code && c.countryCode === code;
+      const matchName = name && c.country?.trim().toLowerCase() === name;
+      return !(matchCode || matchName);
+    });
+
     if ((cfg.countryOverrides?.length || 0) === before) {
       return res.status(404).json({ success: false, message: 'Override not found' });
     }
+
     cfg.updatedBy = req.user?._id;
     await cfg.save();
-    return res.json({ success: true, data: cfg });
+
+    return res.json({
+      success: true,
+      message: 'Country override deleted',
+      data: cfg.countryOverrides
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
