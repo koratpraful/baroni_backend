@@ -33,7 +33,9 @@ import {
   resetStarPassword,
   deleteStar,
   updateStarVerifiedStatus,
-  updateStarIntroVideo
+  updateStarIntroVideo,
+  adminDeleteSlot,
+  adminDeleteSlotsByDate
 } from '../../controllers/starManagement.js';
 import {
   getAllReviews,
@@ -82,6 +84,8 @@ import {
   deleteStarValidator,
   updateStarVerifiedStatusValidator,
   updateStarIntroVideoValidator,
+  adminDeleteSlotValidator,
+  adminDeleteSlotsByDateValidator,
   getAllReviewsValidator,
   getReviewDetailsValidator,
   updateReviewValidator,
@@ -177,6 +181,12 @@ router.put('/stars/:starId/dedication-samples/:sampleId', uploadVideoOnly.single
 
 // Delete star dedication sample
 router.delete('/stars/:starId/dedication-samples/:sampleId', deleteStarDedicationSampleValidator, deleteStarDedicationSample);
+
+// Admin: Delete a single time slot
+router.delete('/stars/:starId/availabilities/:availabilityId/slots/:slotId', adminDeleteSlotValidator, adminDeleteSlot);
+
+// Admin: Delete all slots for a specific date
+router.delete('/stars/:starId/availabilities/date', adminDeleteSlotsByDateValidator, adminDeleteSlotsByDate);
 
 // ==================== REVIEW MANAGEMENT ROUTES ====================
 
