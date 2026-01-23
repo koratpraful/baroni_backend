@@ -509,6 +509,183 @@ export const getUserDetails = async (req, res) => {
       };
     }
 
+    // Get availability data for stars (similar to getStarProfile)
+    let filteredAvailability = [];
+    if (user.role === 'star') {
+      try {
+        // Get star's country for timezone-aware date calculation
+        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
+        const starCountry = user.country || null;
+
+        // Helper function to get current date in star's country timezone
+        const getCurrentDateString = () => {
+          if (!starCountry) {
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          }
+          
+          try {
+            const offsetHours = getCountryTimezoneOffset(starCountry);
+            const offsetMs = offsetHours * 60 * 60 * 1000;
+            const now = new Date();
+            const localTime = new Date(now.getTime() + offsetMs);
+            const year = localTime.getUTCFullYear();
+            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(localTime.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          } catch (error) {
+            console.error('Error getting current date for star country:', error);
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          }
+        };
+
+        const currentDateString = getCurrentDateString();
+
+        // Fetch availability data
+        const availability = await Availability.find({
+          userId: user._id,
+          date: { $gte: currentDateString }
+        }).sort({ date: 1 }).lean();
+
+        // Helper function to parse time slot and convert to UTC Date object
+        function parseTimeSlotToUTCDate(dateStr, slot, country) {
+          if (!slot || typeof slot !== 'string' || !dateStr) return null;
+          
+          try {
+            const utcDate = convertLocalToUTC(dateStr, slot, country);
+            return utcDate;
+          } catch (error) {
+            console.error(`Error parsing time slot ${slot} on ${dateStr}:`, error);
+            return null;
+          }
+        }
+
+        // Merge availabilities by date
+        const mergedByDate = new Map();
+        
+        availability.forEach(item => {
+          const doc = item;
+          const dateKey = doc.date;
+          
+          if (!mergedByDate.has(dateKey)) {
+            mergedByDate.set(dateKey, {
+              _id: doc._id,
+              userId: doc.userId,
+              date: doc.date,
+              isWeekly: doc.isWeekly || false,
+              isDaily: doc.isDaily || false,
+              timeSlots: [...(doc.timeSlots || [])],
+              createdAt: doc.createdAt,
+              updatedAt: doc.updatedAt
+            });
+          } else {
+            const merged = mergedByDate.get(dateKey);
+            const existingSlotsMap = new Map();
+            
+            merged.timeSlots.forEach(slot => {
+              existingSlotsMap.set(slot.slot, slot);
+            });
+            
+            doc.timeSlots.forEach(slot => {
+              if (!existingSlotsMap.has(slot.slot)) {
+                merged.timeSlots.push(slot);
+              }
+            });
+            
+            if (doc.isWeekly) merged.isWeekly = true;
+            if (doc.isDaily) merged.isDaily = true;
+          }
+        });
+
+        const mergedAvailability = Array.from(mergedByDate.values());
+
+        // Helper function to parse time slot for sorting
+        function parseTimeSlot(slot) {
+          if (!slot || typeof slot !== 'string') return 0;
+
+          const parts = slot.split(' - ');
+          if (parts.length !== 2) return 0;
+
+          const startTime = parts[0].trim();
+
+          const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+          if (h24Match) {
+            const hour = parseInt(h24Match[1], 10);
+            const minute = parseInt(h24Match[2], 10);
+            return hour * 60 + minute;
+          }
+
+          const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+          if (ampmMatch) {
+            let hour = parseInt(ampmMatch[1], 10);
+            const minute = parseInt(ampmMatch[2], 10);
+            const ampm = ampmMatch[3].toUpperCase();
+
+            if (ampm === 'PM' && hour !== 12) hour += 12;
+            if (ampm === 'AM' && hour === 12) hour = 0;
+
+            return hour * 60 + minute;
+          }
+
+          return 0;
+        }
+
+        // Filter out unavailable and past slots
+        filteredAvailability = Array.isArray(mergedAvailability)
+          ? mergedAvailability
+              .map((item) => {
+                const timeSlots = Array.isArray(item.timeSlots)
+                  ? item.timeSlots
+                      .filter((s) => {
+                        // Only show available slots
+                        if (!s || s.status !== 'available') return false;
+
+                        // Filter out past slots
+                        const currentUTCTime = new Date();
+                        const today = currentDateString;
+
+                        let slotStartTime = null;
+                        if (s.utcStartTime) {
+                          slotStartTime = new Date(s.utcStartTime);
+                        } else {
+                          slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
+                        }
+
+                        if (slotStartTime && slotStartTime <= currentUTCTime) {
+                          return false;
+                        }
+                        return true;
+                      })
+                      .sort((a, b) => {
+                        // Sort by UTC start time if available, otherwise by slot string
+                        if (a.utcStartTime && b.utcStartTime) {
+                          return new Date(a.utcStartTime) - new Date(b.utcStartTime);
+                        }
+                        const timeA = parseTimeSlot(a.slot);
+                        const timeB = parseTimeSlot(b.slot);
+                        return timeA - timeB;
+                      })
+                  : [];
+                return { ...item, timeSlots };
+              })
+              .filter((item) => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
+              .sort((a, b) => {
+                return new Date(a.date) - new Date(b.date);
+              })
+          : [];
+      } catch (error) {
+        console.error('Error fetching availability for star:', error);
+        filteredAvailability = [];
+      }
+    }
+
     // Helper function to get country flag emoji from country name or code
     const getCountryFlag = (country) => {
       if (!country) return null;
@@ -671,7 +848,8 @@ export const getUserDetails = async (req, res) => {
         },
         stats,
         starInsights,
-        fanInsights
+        fanInsights,
+        availability: user.role === 'star' ? filteredAvailability : null
       }
     });
 
@@ -800,6 +978,7 @@ export const getManagementUserProfile = async (req, res) => {
     // Star-only insights
     let reviews = [];
     let starInsights = null;
+    let managementAvailability = [];
 
     if (user.role === 'star') {
       reviews = await Review.find({ starId: user._id })
@@ -916,6 +1095,150 @@ export const getManagementUserProfile = async (req, res) => {
           hasAvailableSlots: Boolean(hasAvailableTimeSlots)
         }
       };
+
+      // Detailed availability list for management profile (future available slots)
+      try {
+        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
+        const starCountry = user.country || null;
+
+        const getCurrentDateString = () => {
+          if (!starCountry) {
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          }
+
+          try {
+            const offsetHours = getCountryTimezoneOffset(starCountry);
+            const offsetMs = offsetHours * 60 * 60 * 1000;
+            const now = new Date();
+            const localTime = new Date(now.getTime() + offsetMs);
+            const year = localTime.getUTCFullYear();
+            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(localTime.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          } catch (error) {
+            console.error('Error getting current date for star country (management profile):', error);
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(now.getUTCDate()).
+              padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          }
+        };
+
+        const currentDateString = getCurrentDateString();
+
+        const availabilityDocs = await Availability.find({
+          userId: user._id,
+          date: { $gte: currentDateString }
+        }).sort({ date: 1 }).lean();
+
+        const parseTimeSlotToUTCDate = (dateStr, slot, country) => {
+          if (!slot || typeof slot !== 'string' || !dateStr) return null;
+          try {
+            return convertLocalToUTC(dateStr, slot, country);
+          } catch (error) {
+            console.error(`Error parsing time slot ${slot} on ${dateStr} (management profile):`, error);
+            return null;
+          }
+        };
+
+        const mergedByDate = new Map();
+        availabilityDocs.forEach(doc => {
+          const dateKey = doc.date;
+          if (!mergedByDate.has(dateKey)) {
+            mergedByDate.set(dateKey, {
+              _id: doc._id,
+              userId: doc.userId,
+              date: doc.date,
+              isWeekly: doc.isWeekly || false,
+              isDaily: doc.isDaily || false,
+              timeSlots: [...(doc.timeSlots || [])],
+              createdAt: doc.createdAt,
+              updatedAt: doc.updatedAt
+            });
+          } else {
+            const merged = mergedByDate.get(dateKey);
+            const existingSlotsMap = new Map();
+            merged.timeSlots.forEach(slot => {
+              existingSlotsMap.set(slot.slot, slot);
+            });
+            doc.timeSlots.forEach(slot => {
+              if (!existingSlotsMap.has(slot.slot)) {
+                merged.timeSlots.push(slot);
+              }
+            });
+            if (doc.isWeekly) merged.isWeekly = true;
+            if (doc.isDaily) merged.isDaily = true;
+          }
+        });
+
+        const mergedAvailability = Array.from(mergedByDate.values());
+
+        const parseSlotMinutes = (slot) => {
+          if (!slot || typeof slot !== 'string') return 0;
+          const parts = slot.split(' - ');
+          if (parts.length !== 2) return 0;
+          const startTime = parts[0].trim();
+          const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+          if (h24Match) {
+            const hour = parseInt(h24Match[1], 10);
+            const minute = parseInt(h24Match[2], 10);
+            return hour * 60 + minute;
+          }
+          const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+          if (ampmMatch) {
+            let hour = parseInt(ampmMatch[1], 10);
+            const minute = parseInt(ampmMatch[2], 10);
+            const ampm = ampmMatch[3].toUpperCase();
+            if (ampm === 'PM' && hour !== 12) hour += 12;
+            if (ampm === 'AM' && hour === 12) hour = 0;
+            return hour * 60 + minute;
+          }
+          return 0;
+        };
+
+        managementAvailability = Array.isArray(mergedAvailability)
+          ? mergedAvailability
+              .map(item => {
+                const timeSlots = Array.isArray(item.timeSlots)
+                  ? item.timeSlots
+                      .filter(s => {
+                        if (!s || s.status !== 'available') return false;
+                        const currentUTCTime = new Date();
+                        let slotStartTime = null;
+                        if (s.utcStartTime) {
+                          slotStartTime = new Date(s.utcStartTime);
+                        } else {
+                          slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
+                        }
+                        if (slotStartTime && slotStartTime <= currentUTCTime) {
+                          return false;
+                        }
+                        return true;
+                      })
+                      .sort((a, b) => {
+                        if (a.utcStartTime && b.utcStartTime) {
+                          return new Date(a.utcStartTime) - new Date(b.utcStartTime);
+                        }
+                        const timeA = parseSlotMinutes(a.slot);
+                        const timeB = parseSlotMinutes(b.slot);
+                        return timeA - timeB;
+                      })
+                  : [];
+                return { ...item, timeSlots };
+              })
+              .filter(item => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
+              .sort((a, b) => new Date(a.date) - new Date(b.date))
+          : [];
+      } catch (err) {
+        console.error('Error building management availability list for star:', err);
+        managementAvailability = [];
+      }
     }
 
     // Calculate status based on availableForBookings and hidden
@@ -1016,7 +1339,8 @@ export const getManagementUserProfile = async (req, res) => {
           }))
         },
         stats,
-        starInsights
+        starInsights,
+        availability: user.role === 'star' ? managementAvailability : null
       }
     });
 
