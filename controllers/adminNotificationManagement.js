@@ -170,11 +170,40 @@ export const createAndSendNotification = async (req, res) => {
 
     // Create or update notification template to track usage
     try {
+      // Optional service/category for tracking purposes
+      const rawService = (req.body.service || 'General').toString().trim().toLowerCase();
+      let trackedService = 'General';
+      if (['video call', 'video calls', 'video_call', 'video_calls', 'video', 'appointment', 'appointments'].includes(rawService)) {
+        trackedService = 'Video Call';
+      } else if (['dedication', 'dedications'].includes(rawService)) {
+        trackedService = 'Dedication';
+      } else if (['live show', 'live shows', 'live_show', 'live_shows', 'live'].includes(rawService)) {
+        trackedService = 'Live Show';
+      } else if (['general'].includes(rawService)) {
+        trackedService = 'General';
+      }
+
+      let trackedCategory;
+      // If explicit category provided, normalize it; otherwise derive from trackedService
+      if (req.body.category) {
+        const rawCategory = req.body.category.toString().trim().toLowerCase().replace(/\s+/g, '_');
+        if (['video_calls', 'video_call', 'video'].includes(rawCategory)) trackedCategory = 'video_calls';
+        else if (['dedications', 'dedication'].includes(rawCategory)) trackedCategory = 'dedications';
+        else if (['live_shows', 'live_show', 'live'].includes(rawCategory)) trackedCategory = 'live_shows';
+        else if (['general'].includes(rawCategory)) trackedCategory = 'general';
+        else trackedCategory = rawCategory;
+      } else {
+        if (trackedService === 'Video Call') trackedCategory = 'video_calls';
+        else if (trackedService === 'Dedication') trackedCategory = 'dedications';
+        else if (trackedService === 'Live Show') trackedCategory = 'live_shows';
+        else trackedCategory = 'general';
+      }
+
       const templateData = {
-        service: 'General',
+        service: trackedService,
         notificationType: notificationType,
         message: body,
-        category: 'General',
+        category: trackedCategory,
         createdBy: admin._id
       };
       
