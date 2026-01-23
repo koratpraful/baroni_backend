@@ -888,3 +888,26 @@ export const getReportedUsersStatsValidator = [
     .isIn(['current_month', 'last_month', 'last_7_days', 'last_30_days'])
     .withMessage('Invalid period')
 ];
+
+export const adminDeleteSlotValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  param('availabilityId')
+    .isMongoId()
+    .withMessage('Invalid availability ID'),
+  param('slotId')
+    .isMongoId()
+    .withMessage('Invalid slot ID')
+];
+
+export const adminDeleteSlotsByDateValidator = [
+  param('starId')
+    .isMongoId()
+    .withMessage('Invalid star ID'),
+  body('date')
+    .isString()
+    .trim()
+    .matches(/^\d{4}-\d{2}-\d{2}$/)
+    .withMessage('Date must be in YYYY-MM-DD format')
+];

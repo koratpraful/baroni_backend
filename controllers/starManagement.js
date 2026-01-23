@@ -11,6 +11,7 @@ import LiveShowAttendance from '../models/LiveShowAttendance.js';
 import Availability from '../models/Availability.js';
 import { getOrCreateStarWallet } from '../services/starWalletService.js';
 import mongoose from 'mongoose';
+import { validationResult } from 'express-validator';
 
 // Helper function to get country flag emoji from country name or code
 const getCountryFlag = (country) => {
@@ -367,6 +368,47 @@ export const getStarProfile = async (req, res) => {
       })
     ]);
 
+    // Get star's country for timezone-aware date calculation
+    const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
+    const starCountry = star.country || null;
+
+    // Helper function to get current date in star's country timezone
+    const getCurrentDateString = () => {
+      if (!starCountry) {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(now.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      
+      try {
+        const offsetHours = getCountryTimezoneOffset(starCountry);
+        const offsetMs = offsetHours * 60 * 60 * 1000;
+        const now = new Date();
+        const localTime = new Date(now.getTime() + offsetMs);
+        const year = localTime.getUTCFullYear();
+        const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(localTime.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch (error) {
+        console.error('Error getting current date for star country:', error);
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(now.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    };
+
+    const currentDateString = getCurrentDateString();
+
+    // Fetch availability data (similar to star.js getStarById)
+    const availability = await Availability.find({
+      userId: star._id,
+      date: { $gte: currentDateString }
+    }).sort({ date: 1 }).lean();
+
     // Check if star has available time slots
     const hasAvailableTimeSlots = await Availability.findOne({
       userId: star._id,
@@ -383,6 +425,134 @@ export const getStarProfile = async (req, res) => {
       // If availableForBookings is false, keep it false
       finalAvailableForBookings = false;
     }
+
+    // Helper function to parse time slot and convert to UTC Date object for comparison
+    function parseTimeSlotToUTCDate(dateStr, slot, country) {
+      if (!slot || typeof slot !== 'string' || !dateStr) return null;
+      
+      try {
+        const utcDate = convertLocalToUTC(dateStr, slot, country);
+        return utcDate;
+      } catch (error) {
+        console.error(`Error parsing time slot ${slot} on ${dateStr}:`, error);
+        return null;
+      }
+    }
+
+    // Merge availabilities by date (combine daily and weekly slots for same date)
+    const mergedByDate = new Map();
+    
+    availability.forEach(item => {
+      const doc = item;
+      const dateKey = doc.date;
+      
+      if (!mergedByDate.has(dateKey)) {
+        mergedByDate.set(dateKey, {
+          _id: doc._id,
+          userId: doc.userId,
+          date: doc.date,
+          isWeekly: doc.isWeekly || false,
+          isDaily: doc.isDaily || false,
+          timeSlots: [...(doc.timeSlots || [])],
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt
+        });
+      } else {
+        const merged = mergedByDate.get(dateKey);
+        const existingSlotsMap = new Map();
+        
+        merged.timeSlots.forEach(slot => {
+          existingSlotsMap.set(slot.slot, slot);
+        });
+        
+        doc.timeSlots.forEach(slot => {
+          if (!existingSlotsMap.has(slot.slot)) {
+            merged.timeSlots.push(slot);
+          }
+        });
+        
+        if (doc.isWeekly) merged.isWeekly = true;
+        if (doc.isDaily) merged.isDaily = true;
+      }
+    });
+
+    const mergedAvailability = Array.from(mergedByDate.values());
+
+    // Helper function to parse time slot for sorting
+    function parseTimeSlot(slot) {
+      if (!slot || typeof slot !== 'string') return 0;
+
+      const parts = slot.split(' - ');
+      if (parts.length !== 2) return 0;
+
+      const startTime = parts[0].trim();
+
+      const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+      if (h24Match) {
+        const hour = parseInt(h24Match[1], 10);
+        const minute = parseInt(h24Match[2], 10);
+        return hour * 60 + minute;
+      }
+
+      const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (ampmMatch) {
+        let hour = parseInt(ampmMatch[1], 10);
+        const minute = parseInt(ampmMatch[2], 10);
+        const ampm = ampmMatch[3].toUpperCase();
+
+        if (ampm === 'PM' && hour !== 12) hour += 12;
+        if (ampm === 'AM' && hour === 12) hour = 0;
+
+        return hour * 60 + minute;
+      }
+
+      return 0;
+    }
+
+    // Filter out unavailable (booked) and locked (payment link sent) time slots
+    // Only show slots with status 'available' and future slots
+    const filteredAvailability = Array.isArray(mergedAvailability)
+      ? mergedAvailability
+          .map((item) => {
+            const timeSlots = Array.isArray(item.timeSlots)
+              ? item.timeSlots
+                  .filter((s) => {
+                    // Only show available slots
+                    if (!s || s.status !== 'available') return false;
+
+                    // Filter out past slots
+                    const currentUTCTime = new Date();
+                    const today = currentDateString;
+
+                    let slotStartTime = null;
+                    if (s.utcStartTime) {
+                      slotStartTime = new Date(s.utcStartTime);
+                    } else {
+                      slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
+                    }
+
+                    if (slotStartTime && slotStartTime <= currentUTCTime) {
+                      return false;
+                    }
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    // Sort by UTC start time if available, otherwise by slot string
+                    if (a.utcStartTime && b.utcStartTime) {
+                      return new Date(a.utcStartTime) - new Date(b.utcStartTime);
+                    }
+                    const timeA = parseTimeSlot(a.slot);
+                    const timeB = parseTimeSlot(b.slot);
+                    return timeA - timeB;
+                  })
+              : [];
+            return { ...item, timeSlots };
+          })
+          .filter((item) => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
+          .sort((a, b) => {
+            return new Date(a.date) - new Date(b.date);
+          })
+      : [];
 
     return res.json({
       success: true,
@@ -453,7 +623,8 @@ export const getStarProfile = async (req, res) => {
           total: revenue.totalRevenue,
           escrow: revenue.escrowAmount,
           serviceBreakdown: revenue.serviceBreakdown
-        }
+        },
+        availability: filteredAvailability
       }
     });
 
@@ -2022,6 +2193,247 @@ export const updateStarIntroVideo = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to update star intro video'
+    });
+  }
+};
+
+// Admin: Delete a single time slot by slotId
+export const adminDeleteSlot = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId, availabilityId, slotId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(availabilityId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid availability ID'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(slotId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid slot ID'
+      });
+    }
+
+    // Verify star exists
+    const star = await User.findById(starId).select('role');
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    // Find availability
+    const availability = await Availability.findOne({
+      _id: availabilityId,
+      userId: starId
+    });
+
+    if (!availability) {
+      return res.status(404).json({
+        success: false,
+        message: 'Availability not found'
+      });
+    }
+
+    // Find the specific time slot
+    const timeSlot = availability.timeSlots.find((t) => String(t._id) === String(slotId));
+    if (!timeSlot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Time slot not found'
+      });
+    }
+
+    // Check if slot has any appointments (pending, approved, or in_progress)
+    const appointment = await Appointment.findOne({
+      starId: starId,
+      availabilityId: availability._id,
+      timeSlotId: timeSlot._id,
+      status: { $in: ['pending', 'approved', 'in_progress'] }
+    });
+
+    if (appointment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete this time slot. It has an active appointment.',
+        data: {
+          appointmentId: appointment._id,
+          appointmentStatus: appointment.status,
+          fanId: appointment.fanId,
+          date: appointment.date,
+          time: appointment.time
+        }
+      });
+    }
+
+    // Remove the slot from timeSlots array
+    const beforeCount = availability.timeSlots.length;
+    availability.timeSlots = availability.timeSlots.filter(
+      (t) => String(t._id) !== String(slotId)
+    );
+
+    if (availability.timeSlots.length === beforeCount) {
+      return res.status(404).json({
+        success: false,
+        message: 'Time slot not found'
+      });
+    }
+
+    // If no slots remain, delete the entire availability
+    if (availability.timeSlots.length === 0) {
+      await availability.deleteOne();
+      return res.json({
+        success: true,
+        message: 'Time slot deleted and availability removed (no remaining slots)'
+      });
+    }
+
+    // Save the updated availability
+    await availability.save();
+
+    return res.json({
+      success: true,
+      message: 'Time slot deleted successfully',
+      data: {
+        availabilityId: availability._id,
+        date: availability.date,
+        remainingSlots: availability.timeSlots.length
+      }
+    });
+
+  } catch (err) {
+    console.error('Admin delete slot error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete time slot'
+    });
+  }
+};
+
+// Admin: Delete all slots for a specific date
+export const adminDeleteSlotsByDate = async (req, res) => {
+  try {
+    const admin = req.user;
+    if (!admin || admin.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { starId } = req.params;
+    const { date } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(starId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid star ID'
+      });
+    }
+
+    if (!date || typeof date !== 'string' || !date.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date is required (format: YYYY-MM-DD)'
+      });
+    }
+
+    const dateStr = date.trim();
+
+    // Verify star exists
+    const star = await User.findById(starId).select('role');
+    if (!star || star.role !== 'star') {
+      return res.status(404).json({
+        success: false,
+        message: 'Star not found'
+      });
+    }
+
+    // Find all availabilities for this date
+    const availabilities = await Availability.find({
+      userId: starId,
+      date: dateStr
+    });
+
+    if (!availabilities || availabilities.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `No availability found for date ${dateStr}`
+      });
+    }
+
+    // Check all slots for appointments before deletion
+    const slotsWithAppointments = [];
+    for (const availability of availabilities) {
+      for (const slot of availability.timeSlots) {
+        const appointment = await Appointment.findOne({
+          starId: starId,
+          availabilityId: availability._id,
+          timeSlotId: slot._id,
+          status: { $in: ['pending', 'approved', 'in_progress'] }
+        });
+
+        if (appointment) {
+          slotsWithAppointments.push({
+            slotId: slot._id,
+            slot: slot.slot,
+            appointmentId: appointment._id,
+            appointmentStatus: appointment.status,
+            fanId: appointment.fanId
+          });
+        }
+      }
+    }
+
+    if (slotsWithAppointments.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete slots. Some slots have active appointments.',
+        data: {
+          date: dateStr,
+          slotsWithAppointments: slotsWithAppointments
+        }
+      });
+    }
+
+    // Delete all availabilities for this date
+    const deleteResult = await Availability.deleteMany({
+      userId: starId,
+      date: dateStr
+    });
+
+    return res.json({
+      success: true,
+      message: `All slots deleted successfully for date ${dateStr}`,
+      data: {
+        date: dateStr,
+        deletedAvailabilities: deleteResult.deletedCount
+      }
+    });
+
+  } catch (err) {
+    console.error('Admin delete slots by date error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete slots by date'
     });
   }
 };
