@@ -111,9 +111,11 @@ liveShowSchema.virtual('isAtCapacity').get(function() {
   return this.currentAttendees >= this.maxCapacity;
 });
 
-// Virtual for checking if show is upcoming (pending in future)
+// Virtual for checking if show is upcoming (pending and on/after today)
 liveShowSchema.virtual('isUpcoming').get(function() {
-  return this.date > new Date() && this.status === 'pending';
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  return this.date >= todayStart && this.status === 'pending';
 });
 
 const LiveShow = mongoose.model('LiveShow', liveShowSchema);
