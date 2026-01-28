@@ -49,8 +49,21 @@ export const getLiveShowDetails = async (req, res) => {
       });
     }
 
-    // Calculate time until live show
-    const liveShowDateTime = new Date(liveShow.date);
+    // Calculate time until live show (combine date + time)
+    const liveShowDateTime = (() => {
+      try {
+        const base = new Date(liveShow.date);
+        if (liveShow.time && typeof liveShow.time === 'string') {
+          const [hh, mm] = liveShow.time.split(':').map((v) => parseInt(v, 10));
+          if (!Number.isNaN(hh)) base.setHours(hh);
+          if (!Number.isNaN(mm)) base.setMinutes(mm);
+          base.setSeconds(0, 0);
+        }
+        return base;
+      } catch (_e) {
+        return new Date(liveShow.date);
+      }
+    })();
     const now = new Date();
     const timeUntilLiveShow = liveShowDateTime.getTime() - now.getTime();
 
@@ -109,7 +122,9 @@ export const getLiveShowDetails = async (req, res) => {
         ...(liveShow.paymentStatus ? { paymentStatus: liveShow.paymentStatus } : {}),
         description: liveShow.description,
         thumbnail: liveShow.thumbnail,
+        // Joined flags for fan (both camelCase and snake_case for consistency)
         isJoined: !!userAttendance,
+        is_joined: !!userAttendance,
         attendanceStatus: userAttendance ? userAttendance.status : null,
         ...(userAttendance && userAttendance.paymentStatus ? { attendancePaymentStatus: userAttendance.paymentStatus } : {}),
         createdAt: liveShow.createdAt,
@@ -174,6 +189,22 @@ const sanitizeLiveShow = (show) => ({
   updatedAt: show.updatedAt,
 });
 
+// Helper: combine date and time into a Date object
+const buildShowDateTime = (date, time) => {
+  if (!date) return null;
+  const dt = new Date(date);
+  if (!time || typeof time !== 'string') return dt;
+  try {
+    const [hh, mm] = time.split(':').map((v) => parseInt(v, 10));
+    if (!Number.isNaN(hh)) dt.setHours(hh);
+    if (!Number.isNaN(mm)) dt.setMinutes(mm);
+    dt.setSeconds(0, 0);
+  } catch (_e) {
+    // keep original date
+  }
+  return dt;
+};
+
 const setPerUserFlags = (sanitized, show, req) => {
   const data = { ...sanitized };
   console.log(data,"ttttttttttttyyyyyyyyyy")
@@ -196,15 +227,17 @@ const setPerUserFlags = (sanitized, show, req) => {
   data.isLiked = Array.isArray(show.likes) && req.user
     ? show.likes.some(u => u.toString() === req.user._id.toString())
     : false;
-  // Derived flag: upcoming if scheduled in the future and still pending
+  // Derived flag: upcoming if scheduled in the future (or later today) and still pending
   try {
+    const showDateTime = show && show.date ? buildShowDateTime(show.date, show.time) : null;
     const now = new Date();
-    const showDate = show && show.date ? new Date(show.date) : null;
-    data.isUpcoming = !!(showDate && showDate.getTime() > now.getTime() && show.status === 'pending');
+    data.isUpcoming = !!(showDateTime && showDateTime.getTime() > now.getTime() && show.status === 'pending');
   } catch (_e) {
     data.isUpcoming = false;
   }
-  return {...data,description: show.description};
+  // Standardized joined flag for frontend (snake_case)
+  data.is_joined = !!data.hasJoined;
+  return { ...data, description: show.description };
 };
 
 // Create a new live show (star)
@@ -219,7 +252,7 @@ export const createLiveShow = async (req, res) => {
     const { sessionTitle, date, time, attendanceFee, hostingPrice, maxCapacity, description, starName } = req.body;
 
     // Enforce date rule via feature flag: allow creating for today only if enabled
-    const showDate = new Date(date);
+    const showDate = buildShowDateTime(date, time);
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const startOfTomorrow = new Date(startOfToday);
@@ -298,7 +331,8 @@ export const createLiveShow = async (req, res) => {
 
     const liveShow = await LiveShow.create({
       sessionTitle,
-      date: new Date(date),
+      // Persist a single canonical Date combining the chosen day and time.
+      date: buildShowDateTime(date, time),
       time: String(time),
       attendanceFee: Number(attendanceFee),
       hostingPrice: Number(hostingPrice),
@@ -375,18 +409,30 @@ export const getAllLiveShows = async (req, res) => {
     const { status, starId, upcoming } = req.query;
 
     const allowedStatuses = ['pending', 'completed', 'cancelled'];
+    const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : undefined;
+    const normalizedUpcoming = typeof upcoming === 'string' ? upcoming.toLowerCase() : undefined;
+    const isUpcomingRequested =
+      normalizedUpcoming === 'true' ||
+      normalizedUpcoming === '1' ||
+      normalizedUpcoming === 'yes' ||
+      normalizedStatus === 'upcoming';
+
     const filter = {};
-    if (status && allowedStatuses.includes(status)) filter.status = status;
+    if (normalizedStatus && allowedStatuses.includes(normalizedStatus)) {
+      filter.status = normalizedStatus;
+    }
     if (starId && mongoose.Types.ObjectId.isValid(starId)) filter.starId = starId;
-    if (upcoming === 'true') {
-      filter.date = { $gt: new Date() };
+    if (isUpcomingRequested) {
+      // Upcoming means scheduled strictly in the future and still pending
+      const now = new Date();
+      filter.date = { $gt: now };
       filter.status = 'pending';
     }
 
     const shows = await LiveShow.find(filter).populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' }).sort({ date: 1 });
     const withComputed = shows.map((show) => {
       const sanitized = sanitizeLiveShow(show);
-      const dateObj = sanitized.date ? new Date(sanitized.date) : undefined;
+      const dateObj = sanitized.date ? buildShowDateTime(sanitized.date, sanitized.time) : undefined;
       const timeToNowMs = dateObj ? (dateObj.getTime() - Date.now()) : undefined;
       const flagged = setPerUserFlags(sanitized, show, req);
       const likescount = Array.isArray(show.likes) ? show.likes.length : 0;
@@ -1015,7 +1061,14 @@ export const getStarAllShows = async (req, res) => {
 
     const filter = { starId };
     const allowedStatuses = ['pending', 'completed', 'cancelled'];
-    if (status && allowedStatuses.includes(status)) filter.status = status;
+    const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : undefined;
+
+    if (normalizedStatus === 'upcoming') {
+      filter.status = 'pending';
+      filter.date = { $gt: new Date() };
+    } else if (normalizedStatus && allowedStatuses.includes(normalizedStatus)) {
+      filter.status = normalizedStatus;
+    }
 
     const shows = await LiveShow.find(filter).sort({ date: -1 });
 
@@ -1114,13 +1167,23 @@ export const completeLiveShowAttendance = async (req, res) => {
 export const getMyShows = async (req, res) => {
   try {
     const { status, upcoming } = req.query;
+    const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : undefined;
+    const normalizedUpcoming = typeof upcoming === 'string' ? upcoming.toLowerCase() : undefined;
+    const isUpcomingRequested =
+      normalizedUpcoming === 'true' ||
+      normalizedUpcoming === '1' ||
+      normalizedUpcoming === 'yes' ||
+      normalizedStatus === 'upcoming';
+
     let shows = [];
 
     if (req.user.role === 'fan') {
       // For fans: get shows they have joined
       const filter = { attendees: req.user._id };
-      if (status && ['pending', 'completed', 'cancelled'].includes(status)) filter.status = status;
-      if (upcoming === 'true') {
+      if (normalizedStatus && ['pending', 'completed', 'cancelled'].includes(normalizedStatus)) {
+        filter.status = normalizedStatus;
+      }
+      if (isUpcomingRequested) {
         filter.date = { $gt: new Date() };
         filter.status = 'pending';
       }
@@ -1138,8 +1201,10 @@ export const getMyShows = async (req, res) => {
     } else if (req.user.role === 'star') {
       // For stars: get shows they have hosted
       const filter = { starId: req.user._id };
-      if (status && ['pending', 'completed', 'cancelled'].includes(status)) filter.status = status;
-      if (upcoming === 'true') {
+      if (normalizedStatus && ['pending', 'completed', 'cancelled'].includes(normalizedStatus)) {
+        filter.status = normalizedStatus;
+      }
+      if (isUpcomingRequested) {
         filter.date = { $gt: new Date() };
         filter.status = 'pending';
       }
