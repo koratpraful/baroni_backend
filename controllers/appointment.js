@@ -1321,7 +1321,8 @@ export const cancelAppointment = async (req, res) => {
               sliceStartTime: file.sliceStartTime || 0
             }));
           }
-          console.log(`[VideoCallRecording] STOP appointment=${appt._id} files=${stopResult.files?.length || 0} (cancel)`);
+          const fc = stopResult.files?.length || 0;
+          console.log(`[VideoCallRecording] STOP appointment=${appt._id} files=${fc} saved=${fc > 0 ? 'yes' : 'no'} (cancel)`);
         } else {
           appt.recordingStatus = 'failed';
           console.error(`[VideoCallRecording] STOP_FAIL appointment=${appt._id} (cancel)`, stopResult.error);
@@ -1557,6 +1558,9 @@ export const completeAppointment = async (req, res) => {
       (appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired'));
     const isCallStarting = currentDuration === 0 && durationInSeconds > 0;
 
+    // Always log so video call + recording flow is visible in logs
+    console.log(`[VideoCallRecording] appointment=${id} +${durationInSeconds}s endCall=${shouldEndCall} recording=${isRecordingActive ? 'active' : 'no'} callStart=${isCallStarting}`);
+
     if (shouldEndCall) {
       // Call ending – stop recording below; no start
     } else if (isRecordingActive) {
@@ -1617,6 +1621,7 @@ export const completeAppointment = async (req, res) => {
       const hasActive = latestAppt?.recordingResourceId && latestAppt?.recordingSid &&
         (latestAppt.recordingStatus === 'recording' || latestAppt.recordingStatus === 'acquired');
       if (hasActive) {
+        console.log(`[VideoCallRecording] STOPPING appointment=${id} channel=${latestAppt.recordingChannelName || id}`);
         try {
           const channelName = latestAppt.recordingChannelName || String(id);
           const stopResult = await stopRecording(
@@ -1640,7 +1645,8 @@ export const completeAppointment = async (req, res) => {
                 })) : []
               }
             });
-            console.log(`[VideoCallRecording] STOP appointment=${id} files=${stopResult.files?.length || 0}`);
+            const fileCount = stopResult.files?.length || 0;
+            console.log(`[VideoCallRecording] STOP appointment=${id} files=${fileCount} saved=${fileCount > 0 ? 'yes' : 'no'}`);
           } else {
             await Appointment.findByIdAndUpdate(id, { $set: { recordingStatus: 'failed' } });
             console.error(`[VideoCallRecording] STOP_FAIL appointment=${id}`, stopResult.error);
@@ -1649,6 +1655,8 @@ export const completeAppointment = async (req, res) => {
           await Appointment.findByIdAndUpdate(id, { $set: { recordingStatus: 'failed' } });
           console.error(`[VideoCallRecording] STOP_EXCEPTION appointment=${id}`, recordingError.message);
         }
+      } else {
+        console.log(`[VideoCallRecording] STOP_SKIP appointment=${id} (no active recording)`);
       }
     }
     
