@@ -26,10 +26,18 @@ const formatDate = (dateStr) => {
 const parseRange = (from, to) => {
   const range = {};
   if (from) range.$gte = new Date(from);
-  if (to) range.$lte = new Date(to);
+  if (to) {
+    const end = new Date(to);
+    end.setHours(23, 59, 59, 999);
+    range.$lte = end;
+  }
   return Object.keys(range).length ? range : undefined;
 };
 
+/**
+ * Jackpot metrics (Paid / Pending / Failed) from JackpotWithdrawalRequest.
+ * Calendar: use ?date=today or ?from=ISO&to=ISO (to is end-of-day).
+ */
 export const getJackpotMetrics = async (req, res) => {
   try {
     const { date, from, to } = req.query;
@@ -40,16 +48,25 @@ export const getJackpotMetrics = async (req, res) => {
     const walletsAgg = await StarWallet.aggregate([{ $group: { _id: null, jackpot: { $sum: '$jackpot' } } }]);
     const totalCurrentJackpot = walletsAgg[0]?.jackpot || 0;
 
-    const paidToday = await Withdrawal.aggregate([
-      { $match: { status: 'completed', ...(dateFilter ? { createdAt: dateFilter } : {}) } },
+    // Use JackpotWithdrawalRequest (same source as list) – Paid=approved, Pending=pending, Failed=rejected
+    const paidMatch = { status: 'approved' };
+    if (dateFilter) paidMatch.processedAt = dateFilter;
+    const paidToday = await JackpotWithdrawalRequest.aggregate([
+      { $match: paidMatch },
       { $group: { _id: null, amount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
-    const pending = await Withdrawal.aggregate([
-      { $match: { status: 'approved', ...(dateFilter ? { createdAt: dateFilter } : {}) } },
+
+    const pendingMatch = { status: 'pending' };
+    if (dateFilter) pendingMatch.createdAt = dateFilter;
+    const pending = await JackpotWithdrawalRequest.aggregate([
+      { $match: pendingMatch },
       { $group: { _id: null, amount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
-    const failed = await Withdrawal.aggregate([
-      { $match: { status: 'failed', ...(dateFilter ? { createdAt: dateFilter } : {}) } },
+
+    const failedMatch = { status: 'rejected' };
+    if (dateFilter) failedMatch.processedAt = dateFilter;
+    const failed = await JackpotWithdrawalRequest.aggregate([
+      { $match: failedMatch },
       { $group: { _id: null, amount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
 

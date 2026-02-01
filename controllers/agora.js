@@ -35,7 +35,7 @@ export const AgoraRtcToken = async (req,res) => {
         console.log(`[AgoraRtcToken] Channel: ${channel}`);
         console.log(`[AgoraRtcToken] UID: ${uid}`);
 
-        // Check if this is an appointment channel
+        // Check if this is an appointment (video call) channel – only these get cloud recording
         // Channel can be in format: "appointment_{appointmentId}" OR just "{appointmentId}"
         let appointmentId = null;
         let isAppointmentChannel = false;

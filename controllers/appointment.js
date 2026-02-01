@@ -54,6 +54,11 @@ const sanitize = (doc) => {
     ...(doc.referenceAppointment ? { referenceAppointment: doc.referenceAppointment } : {}),
     // is_appointment_pending: true when appointment is completed but fan hasn't given review yet
     is_appointment_pending: doc.is_appointment_pending === true,
+    // Agora cloud recording – so client knows recording status and file list after video call ends
+    ...(doc.recordingStatus != null ? { recordingStatus: doc.recordingStatus } : {}),
+    ...(Array.isArray(doc.recordingFiles) && doc.recordingFiles.length > 0 ? { recordingFiles: doc.recordingFiles } : {}),
+    ...(doc.recordingStartedAt ? { recordingStartedAt: doc.recordingStartedAt } : {}),
+    ...(doc.recordingStoppedAt ? { recordingStoppedAt: doc.recordingStoppedAt } : {}),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -1726,16 +1731,24 @@ export const completeAppointment = async (req, res) => {
       console.log(`[RECORDING] ℹ️  NO STOP - Call not ending (endCall: ${endCall}, shouldEndCall: ${shouldEndCall})`);
     }
     
+    // Refetch appointment so response includes recordingFiles/recordingStatus when we just stopped recording
+    let finalAppointment = updated;
+    if (shouldEndCall) {
+      const refreshed = await Appointment.findById(id);
+      if (refreshed) finalAppointment = refreshed;
+    }
+    const responseDurationSeconds = typeof finalAppointment.callDuration === 'number' ? finalAppointment.callDuration : finalDurationSeconds;
+    
     // Check if review exists for this appointment (by fan)
     let hasReview = false;
     try {
       const existingReview = await Review.findOne({
-        appointmentId: updated._id,
-        reviewerId: updated.fanId
+        appointmentId: finalAppointment._id,
+        reviewerId: finalAppointment.fanId
       });
       hasReview = !!existingReview;
     } catch (reviewError) {
-      console.error(`[CompleteAppointment] Error checking review for appointment ${updated._id}:`, reviewError);
+      console.error(`[CompleteAppointment] Error checking review for appointment ${finalAppointment._id}:`, reviewError);
       // Continue even if review check fails
     }
     
@@ -1743,13 +1756,11 @@ export const completeAppointment = async (req, res) => {
       success: true, 
       message: 'Call duration added successfully',
       data: {
-        appointment: sanitize(updated), // Both callDuration and duration will be in seconds with same value
-        // Additional duration info in seconds
-        totalDurationSeconds: finalDurationSeconds,
-        callDuration: finalDurationSeconds, // Duration in seconds
-        duration: finalDurationSeconds, // Duration in seconds (same as callDuration)
-        isFullyCompleted: finalDurationSeconds >= 300,
-        // Review info - true if fan has already given review for this appointment
+        appointment: sanitize(finalAppointment), // Includes recordingFiles/recordingStatus when call ended
+        totalDurationSeconds: responseDurationSeconds,
+        callDuration: responseDurationSeconds,
+        duration: responseDurationSeconds,
+        isFullyCompleted: responseDurationSeconds >= 300,
         hasReview: hasReview
       }
     });

@@ -27,7 +27,11 @@ const formatDate = (dateStr) => {
 const parseRange = (from, to) => {
   const range = {};
   if (from) range.$gte = new Date(from);
-  if (to) range.$lte = new Date(to);
+  if (to) {
+    const end = new Date(to);
+    end.setHours(23, 59, 59, 999);
+    range.$lte = end;
+  }
   return Object.keys(range).length ? range : undefined;
 };
 
