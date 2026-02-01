@@ -2,7 +2,9 @@
 
 ## ✅ Implementation Summary
 
-Agora Cloud Recording has been successfully integrated into the video call system. All video calls are now automatically recorded when they start and stopped when they end.
+Agora Cloud Recording has been successfully integrated into the **video call** system. All **video calls (Appointments)** are now automatically recorded when they start and stopped when they end; recordings are saved to cloud storage and file metadata is stored on the appointment.
+
+**Scope:** Recording applies only to **video calls**, i.e. **Appointments** (1:1 star–fan live call via Agora). **Dedication** in this app is a separate flow (fan request → star records/uploads a video); there is no live Agora call for dedication, so no dedication-specific cloud recording.
 
 ## 📋 Files Modified/Created
 
