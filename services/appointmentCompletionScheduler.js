@@ -128,8 +128,8 @@ export const processCompletedAppointments = async () => {
           // Stop Agora cloud recording if it was started
           if (appointment.recordingResourceId && appointment.recordingSid && (appointment.recordingStatus === 'recording' || appointment.recordingStatus === 'acquired')) {
             try {
-              // CRITICAL: Use the EXACT channel name format that was used when starting
-              const channelName = `appointment_${appointment._id}`;
+              // CRITICAL: Use the EXACT channel name that was used when starting (may be raw ID or appointment_ prefix)
+              const channelName = appointment.recordingChannelName || `appointment_${appointment._id}`;
               console.log(`[AppointmentCompletionScheduler] ===== STOPPING AGORA RECORDING =====`);
               console.log(`[AppointmentCompletionScheduler] Appointment ID: ${appointment._id}`);
               console.log(`[AppointmentCompletionScheduler] Channel Name: ${channelName}`);
@@ -273,8 +273,8 @@ export const processCompletedAppointments = async () => {
             // Stop Agora cloud recording if it was started (for missed appointments)
             if (appointment.recordingResourceId && appointment.recordingSid && (appointment.recordingStatus === 'recording' || appointment.recordingStatus === 'acquired')) {
               try {
-                // CRITICAL: Use the EXACT channel name format that was used when starting
-                const channelName = `appointment_${appointment._id}`;
+                // CRITICAL: Use the EXACT channel name that was used when starting (may be raw ID or appointment_ prefix)
+                const channelName = appointment.recordingChannelName || `appointment_${appointment._id}`;
                 console.log(`[AppointmentCompletionScheduler] ===== STOPPING AGORA RECORDING (MISSED) =====`);
                 console.log(`[AppointmentCompletionScheduler] Appointment ID: ${appointment._id}`);
                 console.log(`[AppointmentCompletionScheduler] Channel Name: ${channelName}`);

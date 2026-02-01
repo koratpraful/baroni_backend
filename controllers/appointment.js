@@ -1297,8 +1297,8 @@ export const cancelAppointment = async (req, res) => {
     // IMPORTANT: Use the exact channel name and IDs that were saved when recording started
     if (appt.recordingResourceId && appt.recordingSid && (appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired')) {
       try {
-        // CRITICAL: Use the EXACT channel name format that was used when starting
-        const channelName = `appointment_${appt._id}`;
+        // CRITICAL: Use the EXACT channel name that was used when starting (may be raw ID or appointment_ prefix)
+        const channelName = appt.recordingChannelName || `appointment_${appt._id}`;
         console.log(`[CancelAppointment] ===== STOPPING AGORA RECORDING =====`);
         console.log(`[CancelAppointment] Appointment ID: ${appt._id}`);
         console.log(`[CancelAppointment] Channel Name: ${channelName}`);
@@ -1639,6 +1639,7 @@ export const completeAppointment = async (req, res) => {
             if (!updateQuery.$set) updateQuery.$set = {};
             updateQuery.$set.recordingResourceId = recordingResult.resourceId;
             updateQuery.$set.recordingSid = recordingResult.sid;
+            updateQuery.$set.recordingChannelName = channelName;
             updateQuery.$set.recordingStatus = 'recording';
             updateQuery.$set.recordingStartedAt = new Date();
             console.log(`[RECORDING] ✅ STARTED - ResourceID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
@@ -1685,7 +1686,7 @@ export const completeAppointment = async (req, res) => {
       if (latestAppt?.recordingResourceId && latestAppt?.recordingSid && 
           (latestAppt.recordingStatus === 'recording' || latestAppt.recordingStatus === 'acquired')) {
         try {
-          const channelName = `appointment_${id}`;
+          const channelName = latestAppt.recordingChannelName || `appointment_${id}`;
           console.log(`[RECORDING] 🛑 STOPPING - Appointment: ${id}, Channel: ${channelName}, Reason: call ended`);
           
           const stopResult = await stopRecording(

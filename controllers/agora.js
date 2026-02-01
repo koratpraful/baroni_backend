@@ -83,9 +83,8 @@ export const AgoraRtcToken = async (req,res) => {
                     // Note: Status can be approved, in_progress, or completed - all are valid for recording
                     const isValidStatus = ['approved', 'in_progress', 'completed'].includes(appointment.status);
                     const isPaymentCompleted = appointment.paymentStatus === 'completed';
-                    const isRecordingNotStarted = !appointment.recordingResourceId || 
-                                                  appointment.recordingStatus !== 'recording' && 
-                                                  appointment.recordingStatus !== 'acquired';
+                    const isRecordingNotStarted = !appointment.recordingResourceId ||
+                                                  (appointment.recordingStatus !== 'recording' && appointment.recordingStatus !== 'acquired');
                     
                     const shouldStartRecording = isValidStatus && isPaymentCompleted && isRecordingNotStarted;
                     
@@ -95,9 +94,10 @@ export const AgoraRtcToken = async (req,res) => {
                     console.log(`[AgoraRtcToken]   - Recording check: ${isRecordingNotStarted} (hasResourceId: ${!!appointment.recordingResourceId}, status: ${appointment.recordingStatus || 'none'})`);
                     
                     if (shouldStartRecording) {
-                        // Normalize channel name for recording (use appointment_ prefix)
-                        const recordingChannelName = `appointment_${appointmentId}`;
-                        console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Original Channel: ${channel}, Recording Channel: ${recordingChannelName}`);
+                        // CRITICAL: Use the SAME channel name the client is joining (channel from request).
+                        // Recording must join the same Agora channel as users; otherwise it records an empty channel.
+                        const recordingChannelName = channel;
+                        console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Channel: ${recordingChannelName} (must match client join)`);
                         
                         // Start recording asynchronously (don't block token generation)
                         startRecordingForChannel(recordingChannelName, 'mix')
@@ -107,11 +107,12 @@ export const AgoraRtcToken = async (req,res) => {
                                         $set: {
                                             recordingResourceId: recordingResult.resourceId,
                                             recordingSid: recordingResult.sid,
+                                            recordingChannelName: recordingChannelName,
                                             recordingStatus: 'recording',
                                             recordingStartedAt: new Date()
                                         }
                                     });
-                                    console.log(`[AgoraRtcToken] ✅ RECORDING STARTED - ResourceID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}`);
+                                    console.log(`[AgoraRtcToken] ✅ RECORDING STARTED - ResourceID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}, Channel: ${recordingChannelName}`);
                                 } else {
                                     await Appointment.findByIdAndUpdate(appointmentId, {
                                         $set: { recordingStatus: 'failed' }
