@@ -34,6 +34,7 @@ const appointmentSchema = new mongoose.Schema(
     // Agora Cloud Recording fields
     recordingResourceId: { type: String, default: null }, // Resource ID from Agora acquire
     recordingSid: { type: String, default: null }, // Recording session ID from Agora start
+    recordingChannelName: { type: String, default: null }, // Exact Agora channel name used when recording started (must match client join channel)
     recordingStatus: { type: String, enum: ['not_started', 'acquired', 'recording', 'stopped', 'failed'], default: 'not_started' },
     recordingFiles: [{ 
       fileName: String,
