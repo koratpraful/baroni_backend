@@ -32,6 +32,7 @@ const appointmentSchema = new mongoose.Schema(
     // Review pending flag - true when appointment is completed but fan hasn't given review yet
     is_appointment_pending: { type: Boolean, default: false, index: true },
     // Agora Cloud Recording fields
+    recordingChannelName: { type: String, default: null }, // Exact channel name used for recording (must match client join)
     recordingResourceId: { type: String, default: null }, // Resource ID from Agora acquire
     recordingSid: { type: String, default: null }, // Recording session ID from Agora start
     recordingStatus: { type: String, enum: ['not_started', 'acquired', 'recording', 'stopped', 'failed'], default: 'not_started' },

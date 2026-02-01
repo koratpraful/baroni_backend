@@ -1302,8 +1302,8 @@ export const cancelAppointment = async (req, res) => {
     // IMPORTANT: Use the exact channel name and IDs that were saved when recording started
     if (appt.recordingResourceId && appt.recordingSid && (appt.recordingStatus === 'recording' || appt.recordingStatus === 'acquired')) {
       try {
-        // CRITICAL: Use the EXACT channel name format that was used when starting
-        const channelName = `appointment_${appt._id}`;
+        // Use exact channel name that was used when recording started (must match client join)
+        const channelName = appt.recordingChannelName || String(appt._id);
         console.log(`[CancelAppointment] ===== STOPPING AGORA RECORDING =====`);
         console.log(`[CancelAppointment] Appointment ID: ${appt._id}`);
         console.log(`[CancelAppointment] Channel Name: ${channelName}`);
@@ -1634,7 +1634,8 @@ export const completeAppointment = async (req, res) => {
       
       if (shouldStartRecording) {
         try {
-          const channelName = `appointment_${id}`;
+          // Use same channel as client (appointment id) so recording captures the call
+          const channelName = String(id);
           console.log(`[RECORDING] 🎬 STARTING - Appointment: ${id}, Channel: ${channelName}`);
           console.log(`[RECORDING] All conditions passed, starting recording...`);
           
@@ -1642,6 +1643,7 @@ export const completeAppointment = async (req, res) => {
           
           if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
             if (!updateQuery.$set) updateQuery.$set = {};
+            updateQuery.$set.recordingChannelName = channelName;
             updateQuery.$set.recordingResourceId = recordingResult.resourceId;
             updateQuery.$set.recordingSid = recordingResult.sid;
             updateQuery.$set.recordingStatus = 'recording';
@@ -1690,7 +1692,7 @@ export const completeAppointment = async (req, res) => {
       if (latestAppt?.recordingResourceId && latestAppt?.recordingSid && 
           (latestAppt.recordingStatus === 'recording' || latestAppt.recordingStatus === 'acquired')) {
         try {
-          const channelName = `appointment_${id}`;
+          const channelName = latestAppt.recordingChannelName || String(id);
           console.log(`[RECORDING] 🛑 STOPPING - Appointment: ${id}, Channel: ${channelName}, Reason: call ended`);
           
           const stopResult = await stopRecording(

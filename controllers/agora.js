@@ -75,36 +75,22 @@ export const AgoraRtcToken = async (req,res) => {
                     console.log(`[AgoraRtcToken] Current Recording Status: ${appointment.recordingStatus || 'none'}`);
                     console.log(`[AgoraRtcToken] Has Recording Resource ID: ${!!appointment.recordingResourceId}`);
                     
-                    // Check if recording should start
-                    // Recording should start if:
-                    // 1. Payment is completed (main requirement)
-                    // 2. Recording not already started/active
-                    // 3. Appointment is not cancelled/rejected
-                    // Note: Status can be approved, in_progress, or completed - all are valid for recording
-                    const isValidStatus = ['approved', 'in_progress', 'completed'].includes(appointment.status);
+                    // Recording: start only if payment done and not already recording
                     const isPaymentCompleted = appointment.paymentStatus === 'completed';
-                    const isRecordingNotStarted = !appointment.recordingResourceId || 
-                                                  appointment.recordingStatus !== 'recording' && 
-                                                  appointment.recordingStatus !== 'acquired';
-                    
-                    const shouldStartRecording = isValidStatus && isPaymentCompleted && isRecordingNotStarted;
-                    
-                    console.log(`[AgoraRtcToken] Should Start Recording: ${shouldStartRecording}`);
-                    console.log(`[AgoraRtcToken]   - Status check: ${isValidStatus} (status: ${appointment.status})`);
-                    console.log(`[AgoraRtcToken]   - Payment check: ${isPaymentCompleted} (paymentStatus: ${appointment.paymentStatus})`);
-                    console.log(`[AgoraRtcToken]   - Recording check: ${isRecordingNotStarted} (hasResourceId: ${!!appointment.recordingResourceId}, status: ${appointment.recordingStatus || 'none'})`);
-                    
+                    const isRecordingActive = appointment.recordingResourceId && 
+                        (appointment.recordingStatus === 'recording' || appointment.recordingStatus === 'acquired');
+                    const shouldStartRecording = isPaymentCompleted && !isRecordingActive;
+
                     if (shouldStartRecording) {
-                        // Normalize channel name for recording (use appointment_ prefix)
-                        const recordingChannelName = `appointment_${appointmentId}`;
-                        console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Original Channel: ${channel}, Recording Channel: ${recordingChannelName}`);
-                        
-                        // Start recording asynchronously (don't block token generation)
+                        // Use exact channel from request so recording is on same channel clients join
+                        const recordingChannelName = channel;
+                        console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Channel: ${recordingChannelName}`);
                         startRecordingForChannel(recordingChannelName, 'mix')
                             .then(async (recordingResult) => {
                                 if (recordingResult.success && recordingResult.resourceId && recordingResult.sid) {
                                     await Appointment.findByIdAndUpdate(appointmentId, {
                                         $set: {
+                                            recordingChannelName: recordingChannelName,
                                             recordingResourceId: recordingResult.resourceId,
                                             recordingSid: recordingResult.sid,
                                             recordingStatus: 'recording',
@@ -125,8 +111,8 @@ export const AgoraRtcToken = async (req,res) => {
                                 });
                                 console.error(`[AgoraRtcToken] ❌ RECORDING EXCEPTION -`, error.message);
                             });
-                    } else {
-                        console.log(`[AgoraRtcToken] ⏭️  SKIPPING RECORDING START - Conditions not met`);
+                    } else if (isRecordingActive) {
+                        console.log(`[AgoraRtcToken] ℹ️  Recording already active - token issued, video call can proceed`);
                     }
                 } else {
                     console.log(`[AgoraRtcToken] ⚠️  Appointment not found - ID: ${appointmentId}`);
