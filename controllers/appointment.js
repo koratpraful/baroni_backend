@@ -1629,7 +1629,8 @@ export const completeAppointment = async (req, res) => {
       
       if (shouldStartRecording) {
         try {
-          const channelName = `appointment_${id}`;
+          // Use raw appointment id as channel so it matches client join (client typically uses appointment id as channel name)
+          const channelName = String(id);
           console.log(`[RECORDING] 🎬 STARTING - Appointment: ${id}, Channel: ${channelName}`);
           console.log(`[RECORDING] All conditions passed, starting recording...`);
           
