@@ -30,6 +30,12 @@ const getAuthHeader = () => {
  */
 export const acquireResource = async (channelName) => {
   try {
+    console.log('[AgoraRecording] acquireResource env check:', {
+      hasAppId: !!AGORA_APP_ID,
+      hasCustomerId: !!AGORA_CUSTOMER_ID,
+      hasCustomerSecret: !!AGORA_CUSTOMER_SECRET,
+      appIdPreview: AGORA_APP_ID ? `${AGORA_APP_ID.substring(0, 4)}...${AGORA_APP_ID.substring(AGORA_APP_ID.length - 4)}` : null
+    });
     if (!AGORA_APP_ID || !AGORA_CUSTOMER_ID || !AGORA_CUSTOMER_SECRET) {
       throw new Error('Agora credentials not configured');
     }
