@@ -14,7 +14,8 @@
     "migrate:transaction-status": "node scripts/migrateTransactionStatus.js",
     "migrate:agora-keys": "node scripts/runAgoraKeyMigration.js",
     "init:config": "node scripts/initializeDefaultConfig.js",
-    "delete:test-users": "node scripts/deleteTestUsers.js"
+    "delete:test-users": "node scripts/deleteTestUsers.js",
+    "test:agora-recording": "node scripts/testAgoraRecording.js"
   },
   "keywords": [],
   "author": "",
