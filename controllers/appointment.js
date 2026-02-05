@@ -1560,6 +1560,8 @@ export const completeAppointment = async (req, res) => {
     }
     const { id } = req.params;
     const { callDuration, endCall = false } = req.body;
+    const durationSec = typeof callDuration === 'number' && !isNaN(callDuration) ? Math.round(callDuration) : null;
+    recordingLog(RecordingSteps.DURATION_REPORT_RECEIVED, { appointmentId: String(id), durationInSeconds: durationSec, endCall: !!endCall }, endCall ? 'endCall=true (user hung up)' : 'duration update');
     
     const appt = await Appointment.findById(id);
     if (!appt) {
@@ -1774,6 +1776,7 @@ export const completeAppointment = async (req, res) => {
             .lean();
         }
       } else {
+        recordingLog(RecordingSteps.RECORDING_STOP_SKIPPED, { appointmentId: String(id), hasResourceId: !!latestAppt?.recordingResourceId, hasSid: !!latestAppt?.recordingSid, recordingStatus: latestAppt?.recordingStatus || 'none' }, 'endCall received but no active recording to stop');
         console.log(`[RECORDING] ⏭️  SKIPPING STOP - No active recording found (ResourceID: ${latestAppt?.recordingResourceId || 'none'}, Status: ${latestAppt?.recordingStatus || 'none'})`);
       }
     } else {
