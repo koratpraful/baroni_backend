@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { recordingLog, RecordingSteps } from '../utils/recordingLogger.js';
+import { GenerateRtcAgoraToken } from '../config/agora.js';
 
 // Agora Cloud Recording API Configuration
 const AGORA_APP_ID = process.env.AGORA_APP_ID;
@@ -93,13 +94,16 @@ export const startRecording = async (resourceId, channelName, mode = 'mix') => {
       throw new Error('Agora storage credentials not configured');
     }
 
+    // Generate RTC token so the cloud recorder can join the secured channel
+    const recordingToken = GenerateRtcAgoraToken(AGORA_RECORDING_UID, channelName);
+
     const url = `${AGORA_API_BASE_URL}/${AGORA_APP_ID}/cloud_recording/resourceid/${resourceId}/mode/${mode}/start`;
     
     const payload = {
       cname: channelName,
       uid: String(AGORA_RECORDING_UID), // Agora API expects string but must be integer value (32-bit unsigned integer)
       clientRequest: {
-        token: "", // Empty token if channel doesn't require token
+        token: recordingToken,
         recordingConfig: {
           channelType: 0, // 0 = Communication, 1 = Live Broadcast
           streamTypes: 2, // 0 = Audio only, 1 = Video only, 2 = Audio and Video
