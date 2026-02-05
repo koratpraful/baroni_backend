@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { recordingLog, RecordingSteps } from '../utils/recordingLogger.js';
 
 // Agora Cloud Recording API Configuration
 const AGORA_APP_ID = process.env.AGORA_APP_ID;
@@ -29,6 +30,7 @@ const getAuthHeader = () => {
  * @returns {Promise<Object>} Resource ID
  */
 export const acquireResource = async (channelName) => {
+  recordingLog(RecordingSteps.ACQUIRE_START, { channel: channelName }, 'acquire resource');
   try {
     console.log('[AgoraRecording] acquireResource env check:', {
       hasAppId: !!AGORA_APP_ID,
@@ -52,15 +54,19 @@ export const acquireResource = async (channelName) => {
     const response = await axios.post(url, payload, { headers: getAuthHeader() });
     
     if (response.data && response.data.resourceId) {
-      console.log(`[AgoraRecording] Acquired resource ID: ${response.data.resourceId} for channel: ${channelName}`);
+      const resourceId = response.data.resourceId;
+      recordingLog(RecordingSteps.ACQUIRE_SUCCESS, { channel: channelName, resourceId }, 'resource acquired');
+      console.log(`[AgoraRecording] Acquired resource ID: ${resourceId} for channel: ${channelName}`);
       return {
         success: true,
-        resourceId: response.data.resourceId
+        resourceId
       };
     }
 
     throw new Error('Failed to acquire resource ID');
   } catch (error) {
+    const errMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    recordingLog(RecordingSteps.ACQUIRE_FAIL, { channel: channelName }, errMsg);
     console.error('[AgoraRecording] Error acquiring resource:', error.response?.data || error.message);
     return {
       success: false,
@@ -77,6 +83,7 @@ export const acquireResource = async (channelName) => {
  * @returns {Promise<Object>} Recording session ID (sid)
  */
 export const startRecording = async (resourceId, channelName, mode = 'mix') => {
+  recordingLog(RecordingSteps.START_RECORDING_REQUEST, { channel: channelName, resourceId, mode }, 'start recording');
   try {
     if (!AGORA_APP_ID || !AGORA_CUSTOMER_ID || !AGORA_CUSTOMER_SECRET) {
       throw new Error('Agora credentials not configured');
@@ -116,10 +123,12 @@ export const startRecording = async (resourceId, channelName, mode = 'mix') => {
     const response = await axios.post(url, payload, { headers: getAuthHeader() });
     
     if (response.data && response.data.sid) {
-      console.log(`[AgoraRecording] Started recording - SID: ${response.data.sid}, Resource ID: ${resourceId}, Channel: ${channelName}`);
+      const sid = response.data.sid;
+      recordingLog(RecordingSteps.START_SUCCESS, { channel: channelName, resourceId, sid, mode }, 'recording started');
+      console.log(`[AgoraRecording] Started recording - SID: ${sid}, Resource ID: ${resourceId}, Channel: ${channelName}`);
       return {
         success: true,
-        sid: response.data.sid,
+        sid,
         resourceId: resourceId,
         serverResponse: response.data
       };
@@ -127,6 +136,8 @@ export const startRecording = async (resourceId, channelName, mode = 'mix') => {
 
     throw new Error('Failed to start recording');
   } catch (error) {
+    const errMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    recordingLog(RecordingSteps.START_FAIL, { channel: channelName, resourceId }, errMsg);
     console.error('[AgoraRecording] Error starting recording:', error.response?.data || error.message);
     return {
       success: false,
@@ -144,6 +155,7 @@ export const startRecording = async (resourceId, channelName, mode = 'mix') => {
  * @returns {Promise<Object>} Recording file information
  */
 export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') => {
+  recordingLog(RecordingSteps.STOP_REQUEST, { channel: channelName, resourceId, sid, mode }, 'stop recording');
   try {
     console.log(`[AgoraRecording] ===== STOP RECORDING REQUEST =====`);
     console.log(`[AgoraRecording] Resource ID: ${resourceId}`);
@@ -185,6 +197,7 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
       const isNoData = responseCode === 435 || responseReason === 'no recorded data';
       
       if (isNoData) {
+        recordingLog(RecordingSteps.STOP_NO_DATA, { channel: channelName, resourceId, sid }, 'no recorded data (channel empty)');
         console.log(`[AgoraRecording] ⚠️  STOP RECORDING - NO DATA RECORDED`);
         console.log(`[AgoraRecording] Response Status: ${response.status} (206 = Partial Content)`);
         console.log(`[AgoraRecording] Response Code: ${responseCode}`);
@@ -197,6 +210,7 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
         console.log(`[AgoraRecording] Channel Name Used: ${channelName}`);
         console.log(`[AgoraRecording] ==========================================`);
       } else {
+        recordingLog(RecordingSteps.STOP_SUCCESS, { channel: channelName, resourceId, sid, filesCount: (response.data.serverResponse?.fileList || response.data.fileList || []).length }, 'recording stopped');
         console.log(`[AgoraRecording] ✅ STOP RECORDING SUCCESS`);
         console.log(`[AgoraRecording] Response Status: ${response.status}`);
         console.log(`[AgoraRecording] Response Code: ${responseCode || 'none'}`);
@@ -251,6 +265,7 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
     
     // Handle 404 error - recording already stopped or session expired
     if (errorCode === 404 || errorReason?.includes('failed to find worker') || errorReason?.includes('not found')) {
+      recordingLog(RecordingSteps.STOP_ALREADY_STOPPED, { channel: channelName, resourceId, sid }, '404 already stopped or expired');
       console.log(`[AgoraRecording] ⚠️  404 Error - Recording already stopped or session expired`);
       console.log(`[AgoraRecording] This is normal if recording was already stopped or session expired`);
       console.log(`[AgoraRecording] ==========================================`);
@@ -264,6 +279,7 @@ export const stopRecording = async (resourceId, sid, channelName, mode = 'mix') 
       };
     }
     
+    recordingLog(RecordingSteps.STOP_FAIL, { channel: channelName, resourceId, sid }, errorReason);
     console.error(`[AgoraRecording] ❌ FAILED TO STOP RECORDING`);
     console.error(`[AgoraRecording] Error:`, errorData || error.message);
     console.log(`[AgoraRecording] ==========================================`);
@@ -294,9 +310,11 @@ export const queryRecording = async (resourceId, sid, channelName, mode = 'mix')
     const response = await axios.get(url, { headers: getAuthHeader() });
     
     if (response.data) {
+      const status = response.data.serverResponse?.status || null;
+      recordingLog(RecordingSteps.QUERY_RECORDING, { channel: channelName, resourceId, sid, status }, 'query ok');
       return {
         success: true,
-        status: response.data.serverResponse?.status || null,
+        status,
         fileList: response.data.serverResponse?.fileList || [],
         serverResponse: response.data
       };
@@ -304,6 +322,7 @@ export const queryRecording = async (resourceId, sid, channelName, mode = 'mix')
 
     throw new Error('Failed to query recording');
   } catch (error) {
+    recordingLog(RecordingSteps.QUERY_RECORDING, { channel: channelName, resourceId, sid }, (error.response?.data || error.message)?.toString?.() || String(error.message));
     console.error('[AgoraRecording] Error querying recording:', error.response?.data || error.message);
     return {
       success: false,
@@ -363,6 +382,7 @@ export const updateLayout = async (resourceId, sid, channelName, layoutConfig = 
  */
 export const startRecordingForChannel = async (channelName, mode = 'mix') => {
   try {
+    recordingLog(RecordingSteps.START_RECORDING_REQUEST, { channel: channelName, mode }, 'startRecordingForChannel begin');
     console.log(`[AgoraRecording] ===== START RECORDING FOR CHANNEL =====`);
     console.log(`[AgoraRecording] Channel Name: ${channelName}`);
     console.log(`[AgoraRecording] Mode: ${mode}`);
@@ -392,12 +412,14 @@ export const startRecordingForChannel = async (channelName, mode = 'mix') => {
       channelName: channelName
     };
     
+    recordingLog(RecordingSteps.START_SUCCESS, { channel: channelName, resourceId: result.resourceId, sid: result.sid }, 'startRecordingForChannel done');
     console.log(`[AgoraRecording] ✅ RECORDING STARTED SUCCESSFULLY`);
     console.log(`[AgoraRecording] Final Result:`, JSON.stringify(result, null, 2));
     console.log(`[AgoraRecording] ==========================================`);
     
     return result;
   } catch (error) {
+    recordingLog(RecordingSteps.START_FAIL, { channel: channelName }, error.message);
     console.error(`[AgoraRecording] ❌ EXCEPTION IN startRecordingForChannel`);
     console.error(`[AgoraRecording] Error:`, error);
     console.error(`[AgoraRecording] Stack:`, error.stack);
