@@ -1,6 +1,7 @@
 import { GenerateRtcAgoraToken, GenerateRtmAgoraToken } from "../config/agora.js";
 import { ensureUserAgoraKey } from "../utils/agoraKeyGenerator.js";
 import { startRecordingForChannel, stopRecording, queryRecording } from "../services/agoraCloudRecording.js";
+import { recordingLog, RecordingSteps } from "../utils/recordingLogger.js";
 import Appointment from "../models/Appointment.js";
 
 export const AgoraRtmToken = async (req, res) => {
@@ -30,6 +31,7 @@ export const AgoraRtcToken = async (req, res) => {
     const agoraKey = await ensureUserAgoraKey(req.user);
     const uid = Number(agoraKey);
 
+    recordingLog(RecordingSteps.RTC_TOKEN_REQUEST, { userId: String(req.user._id), channel, uid }, 'RTC token request');
     console.log(`[AgoraRtcToken] ===== RTC TOKEN REQUEST =====`);
     console.log(`[AgoraRtcToken] User ID: ${req.user._id}`);
     console.log(`[AgoraRtcToken] Channel: ${channel}`);
@@ -97,6 +99,7 @@ export const AgoraRtcToken = async (req, res) => {
             // CRITICAL: Use the SAME channel name the client is joining (channel from request).
             // Recording must join the same Agora channel as users; otherwise it records an empty channel.
             const recordingChannelName = channel;
+            recordingLog(RecordingSteps.RECORDING_START_REQUESTED, { appointmentId, channel: recordingChannelName }, 'starting recording on token request');
             console.log(`[AgoraRtcToken] 🎬 STARTING RECORDING - Channel: ${recordingChannelName} (must match client join)`);
 
             // Start recording asynchronously (don't block token generation)
@@ -112,11 +115,13 @@ export const AgoraRtcToken = async (req, res) => {
                       recordingStartedAt: new Date()
                     }
                   });
+                  recordingLog(RecordingSteps.RECORDING_STARTED_FROM_TOKEN, { appointmentId, channel: recordingChannelName, resourceId: recordingResult.resourceId, sid: recordingResult.sid }, 'recording started from RTC token flow');
                   console.log(`[AgoraRtcToken] ✅ RECORDING STARTED - ResourceID: ${recordingResult.resourceId}, SID: ${recordingResult.sid}, Channel: ${recordingChannelName}`);
                 } else {
                   await Appointment.findByIdAndUpdate(appointmentId, {
                     $set: { recordingStatus: 'failed' }
                   });
+                  recordingLog(RecordingSteps.RECORDING_FAILED_FROM_TOKEN, { appointmentId, channel: recordingChannelName }, recordingResult?.error ? JSON.stringify(recordingResult.error) : 'unknown');
                   console.error(`[AgoraRtcToken] ❌ RECORDING FAILED - Error:`, recordingResult.error);
                 }
               })
@@ -124,9 +129,11 @@ export const AgoraRtcToken = async (req, res) => {
                 await Appointment.findByIdAndUpdate(appointmentId, {
                   $set: { recordingStatus: 'failed' }
                 });
+                recordingLog(RecordingSteps.RECORDING_FAILED_FROM_TOKEN, { appointmentId, channel: recordingChannelName }, error.message);
                 console.error(`[AgoraRtcToken] ❌ RECORDING EXCEPTION -`, error.message);
               });
           } else {
+            recordingLog(RecordingSteps.RECORDING_SKIPPED, { appointmentId, channel, status: appointment?.status, paymentStatus: appointment?.paymentStatus, recordingStatus: appointment?.recordingStatus }, 'conditions not met');
             console.log(`[AgoraRtcToken] ⏭️  SKIPPING RECORDING START - Conditions not met`);
           }
         } else {
@@ -137,15 +144,18 @@ export const AgoraRtcToken = async (req, res) => {
         // Continue with token generation even if appointment check fails
       }
     } else {
+      recordingLog(RecordingSteps.RECORDING_SKIPPED, { channel }, 'non-appointment channel');
       console.log(`[AgoraRtcToken] ℹ️  Non-appointment channel - No recording needed`);
     }
 
     const token = GenerateRtcAgoraToken(uid, channel);
+    recordingLog(RecordingSteps.RTC_TOKEN_GENERATED, { channel, uid }, 'token generated');
     console.log(`[AgoraRtcToken] ✅ Token generated successfully`);
     console.log(`[AgoraRtcToken] ====================================`);
 
     res.json({ token });
   } catch (error) {
+    recordingLog(RecordingSteps.RTC_TOKEN_ERROR, { channel: req.body?.channel }, error.message);
     console.error('[AgoraRtcToken] ❌ Error generating RTC token:', error);
     res.status(500).json({ error: "Internal server error" });
   }

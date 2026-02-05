@@ -46,7 +46,9 @@ router.use('/dedication-requests', dedicationRequestsRouter);
 router.use('/services', servicesRouter);
 router.use('/dedication-samples', dedicationSamplesRouter);
 router.use('/availabilities', availabilitiesRouter);
-router.use('/appointments',appointmentsRouter);
+router.use('/appointments', appointmentsRouter);
+// Alias: some clients call /api/appointment (singular) for booking
+router.use('/appointment', appointmentsRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/contact-support', contactSupportRouter);
 router.use('/transactions', transactionRouter);

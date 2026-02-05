@@ -14,6 +14,7 @@ import Conversation from '../models/Conversation.js';
 import { convertLocalToUTC } from '../utils/timezoneHelper.js';
 import Review from '../models/Review.js';
 import { startRecordingForChannel, stopRecording } from '../services/agoraCloudRecording.js';
+import { recordingLog, RecordingSteps } from '../utils/recordingLogger.js';
 
 const toUser = (u) => u ? sanitizeUserData(u) : null;
 
@@ -56,6 +57,11 @@ const sanitize = (doc) => {
     is_appointment_pending: doc.is_appointment_pending === true,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    // Cloud recording: so client can show recording status and play files
+    recordingStatus: doc.recordingStatus || 'not_started',
+    recordingFiles: Array.isArray(doc.recordingFiles) ? doc.recordingFiles : [],
+    recordingStartedAt: doc.recordingStartedAt || null,
+    recordingStoppedAt: doc.recordingStoppedAt || null,
   };
 };
 
@@ -166,15 +172,32 @@ export const createAppointment = async (req, res) => {
     }
     let { starId, starBaroniId, baroniId, availabilityId, timeSlotId, price, starName } = req.body;
 
-    // Allow passing star by Baroni ID
+    const User = (await import('../models/User.js')).default;
+
+    // Resolve star: by Baroni ID or by starId
     if (!starId && (starBaroniId || baroniId)) {
-      const starByBaroni = await (await import('../models/User.js')).default.findOne({ baroniId: starBaroniId || baroniId, role: 'star' }).select('_id');
-      if (!starByBaroni) return res.status(404).json({ success: false, message: 'Star not found' });
+      const starByBaroni = await User.findOne({ baroniId: starBaroniId || baroniId, role: 'star' }).select('_id');
+      if (!starByBaroni) {
+        return res.status(404).json({ success: false, message: 'Star not found', code: 'STAR_NOT_FOUND' });
+      }
       starId = starByBaroni._id;
+    } else if (starId) {
+      const star = await User.findOne({ _id: starId, role: 'star' }).select('_id');
+      if (!star) {
+        return res.status(404).json({ success: false, message: 'Star not found', code: 'STAR_NOT_FOUND' });
+      }
+    } else {
+      return res.status(400).json({ success: false, message: 'Star is required (starId or starBaroniId/baroniId)' });
     }
 
     const availability = await Availability.findOne({ _id: availabilityId, userId: starId });
-    if (!availability) return res.status(404).json({ success: false, message: 'Availability not found' });
+    if (!availability) {
+      return res.status(404).json({
+        success: false,
+        message: 'Availability not found. It may have been removed or the slot is no longer offered.',
+        code: 'AVAILABILITY_NOT_FOUND'
+      });
+    }
 
     // Validate that the appointment date is not in the past
     const today = new Date();
@@ -217,7 +240,13 @@ export const createAppointment = async (req, res) => {
     }
 
     const slot = availability.timeSlots.find((s) => String(s._id) === String(timeSlotId));
-    if (!slot) return res.status(404).json({ success: false, message: 'Time slot unavailable' });
+    if (!slot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Time slot not found or no longer available.',
+        code: 'TIME_SLOT_NOT_FOUND'
+      });
+    }
     // Check if slot is unavailable (booked) or locked (payment link sent, waiting for payment)
     if (slot.status === 'unavailable' || slot.status === 'locked') {
       return res.status(409).json({ 
@@ -1299,6 +1328,7 @@ export const cancelAppointment = async (req, res) => {
       try {
         // CRITICAL: Use the EXACT channel name that was used when starting (may be raw ID or appointment_ prefix)
         const channelName = appt.recordingChannelName || `appointment_${appt._id}`;
+        recordingLog(RecordingSteps.RECORDING_STOP_ON_CANCEL, { appointmentId: String(appt._id), channel: channelName, resourceId: appt.recordingResourceId, sid: appt.recordingSid }, 'stopping recording on appointment cancel');
         console.log(`[CancelAppointment] ===== STOPPING AGORA RECORDING =====`);
         console.log(`[CancelAppointment] Appointment ID: ${appt._id}`);
         console.log(`[CancelAppointment] Channel Name: ${channelName}`);
@@ -1582,6 +1612,7 @@ export const completeAppointment = async (req, res) => {
     // 2. Video call END = Recording END (when endCall = true)
     // CRITICAL: If endCall = true, DO NOT start recording, only stop if active
     
+    recordingLog(shouldEndCall ? RecordingSteps.RECORDING_LOGIC_CALL_END : RecordingSteps.RECORDING_LOGIC_CALL_START, { appointmentId: String(id), durationInSeconds, endCall, shouldEndCall, currentDuration }, shouldEndCall ? 'call end path' : 'call in progress');
     console.log(`[RECORDING] ===== RECORDING LOGIC CHECK =====`);
     console.log(`[RECORDING] Appointment ID: ${id}`);
     console.log(`[RECORDING] Current Duration: ${currentDuration}`);
@@ -1631,6 +1662,7 @@ export const completeAppointment = async (req, res) => {
         try {
           // Use raw appointment id as channel so it matches client join (client typically uses appointment id as channel name)
           const channelName = String(id);
+          recordingLog(RecordingSteps.RECORDING_START_VIA_DURATION, { appointmentId: String(id), channel: channelName }, 'starting recording via reportCallDuration');
           console.log(`[RECORDING] 🎬 STARTING - Appointment: ${id}, Channel: ${channelName}`);
           console.log(`[RECORDING] All conditions passed, starting recording...`);
           
@@ -1679,6 +1711,7 @@ export const completeAppointment = async (req, res) => {
     
     // STOP RECORDING: Only when endCall = true (video call ended)
     // No duration checks, no other conditions
+    let finalAppointment = updated;
     if (shouldEndCall) {
       console.log(`[RECORDING] 🛑 STOP CHECK - Appointment: ${id}, endCall: ${endCall}, callEndedByDuration: ${callEndedByDuration}, shouldEndCall: ${shouldEndCall}`);
       const latestAppt = await Appointment.findById(id).lean();
@@ -1688,6 +1721,7 @@ export const completeAppointment = async (req, res) => {
           (latestAppt.recordingStatus === 'recording' || latestAppt.recordingStatus === 'acquired')) {
         try {
           const channelName = latestAppt.recordingChannelName || `appointment_${id}`;
+          recordingLog(RecordingSteps.RECORDING_STOP_VIA_END_CALL, { appointmentId: String(id), channel: channelName, resourceId: latestAppt.recordingResourceId, sid: latestAppt.recordingSid }, 'stopping recording - call ended');
           console.log(`[RECORDING] 🛑 STOPPING - Appointment: ${id}, Channel: ${channelName}, Reason: call ended`);
           
           const stopResult = await stopRecording(
@@ -1697,29 +1731,47 @@ export const completeAppointment = async (req, res) => {
             'mix'
           );
           
+          const filesToStore = stopResult.files && Array.isArray(stopResult.files) && stopResult.files.length > 0
+            ? stopResult.files.map((file) => ({
+                fileName: file.fileName || file.filename || '',
+                trackType: file.trackType || 'audio_and_video',
+                uid: String(file.uid ?? ''),
+                mixedAllUser: file.mixedAllUser || false,
+                isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
+                sliceStartTime: typeof file.sliceStartTime === 'number' ? file.sliceStartTime : 0
+              }))
+            : [];
+          
           if (stopResult.success) {
+            recordingLog(RecordingSteps.STOP_SUCCESS, { appointmentId: String(id), channel: channelName, resourceId: latestAppt.recordingResourceId, sid: latestAppt.recordingSid, filesCount: filesToStore.length }, 'recording stopped via end call');
             await Appointment.findByIdAndUpdate(id, {
               $set: {
                 recordingStatus: 'stopped',
                 recordingStoppedAt: new Date(),
-                recordingFiles: stopResult.files && Array.isArray(stopResult.files) && stopResult.files.length > 0 ? stopResult.files.map(file => ({
-                  fileName: file.fileName || file.filename || '',
-                  trackType: file.trackType || 'audio_and_video',
-                  uid: file.uid || '',
-                  mixedAllUser: file.mixedAllUser || false,
-                  isPlayable: file.isPlayable !== undefined ? file.isPlayable : true,
-                  sliceStartTime: file.sliceStartTime || 0
-                })) : []
+                recordingFiles: filesToStore
               }
             });
-            console.log(`[RECORDING] ✅ STOPPED - Files: ${stopResult.files?.length || 0}`);
+            console.log(`[RECORDING] ✅ STOPPED - Files stored: ${filesToStore.length} (raw from Agora: ${stopResult.files?.length || 0})${stopResult.alreadyStopped ? ' (session already stopped by Agora)' : ''}`);
           } else {
+            recordingLog(RecordingSteps.STOP_FAIL, { appointmentId: String(id), channel: channelName, resourceId: latestAppt.recordingResourceId, sid: latestAppt.recordingSid }, stopResult.error ? JSON.stringify(stopResult.error) : 'stop failed');
             await Appointment.findByIdAndUpdate(id, { $set: { recordingStatus: 'failed' } });
             console.error(`[RECORDING] ❌ STOP FAILED -`, stopResult.error);
           }
+          // Re-fetch so response includes latest recording data
+          finalAppointment = await Appointment.findById(id)
+            .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
+            .populate('fanId', 'name pseudo profilePic baroniId email contact role agoraKey')
+            .populate('availabilityId', 'date timeSlots')
+            .lean();
         } catch (recordingError) {
+          recordingLog(RecordingSteps.STOP_FAIL, { appointmentId: String(id) }, recordingError.message);
           await Appointment.findByIdAndUpdate(id, { $set: { recordingStatus: 'failed' } });
           console.error(`[RECORDING] ❌ STOP EXCEPTION -`, recordingError.message);
+          finalAppointment = await Appointment.findById(id)
+            .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
+            .populate('fanId', 'name pseudo profilePic baroniId email contact role agoraKey')
+            .populate('availabilityId', 'date timeSlots')
+            .lean();
         }
       } else {
         console.log(`[RECORDING] ⏭️  SKIPPING STOP - No active recording found (ResourceID: ${latestAppt?.recordingResourceId || 'none'}, Status: ${latestAppt?.recordingStatus || 'none'})`);
@@ -1745,13 +1797,11 @@ export const completeAppointment = async (req, res) => {
       success: true, 
       message: 'Call duration added successfully',
       data: {
-        appointment: sanitize(updated), // Both callDuration and duration will be in seconds with same value
-        // Additional duration info in seconds
+        appointment: sanitize(finalAppointment),
         totalDurationSeconds: finalDurationSeconds,
-        callDuration: finalDurationSeconds, // Duration in seconds
-        duration: finalDurationSeconds, // Duration in seconds (same as callDuration)
+        callDuration: finalDurationSeconds,
+        duration: finalDurationSeconds,
         isFullyCompleted: finalDurationSeconds >= 300,
-        // Review info - true if fan has already given review for this appointment
         hasReview: hasReview
       }
     });
