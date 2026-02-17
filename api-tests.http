@@ -1,0 +1,227 @@
+### Baroni API Test Collection
+### Use with VS Code REST Client extension
+### Click "Send Request" above each request to test
+
+@baseUrl = http://localhost:4000
+@apiUrl = {{baseUrl}}/api
+
+### Variables (update these as needed)
+@testContact = +1234567890
+@testEmail = test@example.com
+@testPassword = testpassword123
+@authToken = YOUR_AUTH_TOKEN_HERE
+
+### ========================================
+### HEALTH & BASIC ENDPOINTS
+### ========================================
+
+### Health Check
+GET {{baseUrl}}/
+
+### ========================================
+### AUTHENTICATION
+### ========================================
+
+### Register User
+POST {{apiUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "contact": "{{testContact}}",
+  "email": "{{testEmail}}",
+  "password": "{{testPassword}}",
+  "fcmToken": "test-fcm-token"
+}
+
+### Login User
+# @name login
+POST {{apiUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "contact": "{{testContact}}",
+  "password": "{{testPassword}}"
+}
+
+### Get User Profile (requires auth)
+GET {{apiUrl}}/auth/me
+Authorization: Bearer {{authToken}}
+
+### Update FCM Token
+PUT {{apiUrl}}/auth/fcm-token
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "fcmToken": "new-fcm-token-here"
+}
+
+### ========================================
+### CATEGORIES
+### ========================================
+
+### Get All Categories
+GET {{apiUrl}}/category
+
+### Get Category by ID
+GET {{apiUrl}}/category/CATEGORY_ID_HERE
+
+### ========================================
+### STARS
+### ========================================
+
+### Get All Stars
+GET {{apiUrl}}/star
+
+### Get Stars with Filters
+GET {{apiUrl}}/star?country=France&category=CATEGORY_ID
+
+### Get Star Profile
+GET {{apiUrl}}/star/STAR_ID_HERE
+
+### Search Stars
+GET {{apiUrl}}/star/search?q=star_name
+
+### ========================================
+### DASHBOARD
+### ========================================
+
+### Get Dashboard (requires auth)
+GET {{apiUrl}}/dashboard
+Authorization: Bearer {{authToken}}
+
+### Get Dashboard with Country Filter
+GET {{apiUrl}}/dashboard?country=France
+Authorization: Bearer {{authToken}}
+
+### ========================================
+### APPOINTMENTS
+### ========================================
+
+### Get User Appointments (requires auth)
+GET {{apiUrl}}/appointments
+Authorization: Bearer {{authToken}}
+
+### Create Appointment (requires auth)
+POST {{apiUrl}}/appointments
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "starId": "STAR_ID_HERE",
+  "date": "2025-01-15",
+  "time": "14:00",
+  "message": "Hello, I'd like to book an appointment"
+}
+
+### ========================================
+### LIVE SHOWS
+### ========================================
+
+### Get Live Shows
+GET {{apiUrl}}/live-shows
+
+### Get Live Show Details
+GET {{apiUrl}}/live-shows/SHOW_ID_HERE
+
+### ========================================
+### SERVICES & DEDICATIONS
+### ========================================
+
+### Get Star Services
+GET {{apiUrl}}/services?starId=STAR_ID_HERE
+
+### Get Dedications
+GET {{apiUrl}}/dedications?starId=STAR_ID_HERE
+
+### Get Dedication Samples
+GET {{apiUrl}}/dedication-samples?starId=STAR_ID_HERE
+
+### ========================================
+### FAVORITES
+### ========================================
+
+### Get User Favorites (requires auth)
+GET {{apiUrl}}/favorites
+Authorization: Bearer {{authToken}}
+
+### Add to Favorites (requires auth)
+POST {{apiUrl}}/favorites
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "starId": "STAR_ID_HERE"
+}
+
+### Remove from Favorites (requires auth)
+DELETE {{apiUrl}}/favorites/STAR_ID_HERE
+Authorization: Bearer {{authToken}}
+
+### ========================================
+### RATINGS & REVIEWS
+### ========================================
+
+### Get Star Ratings
+GET {{apiUrl}}/ratings?starId=STAR_ID_HERE
+
+### Add Rating (requires auth)
+POST {{apiUrl}}/ratings
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "starId": "STAR_ID_HERE",
+  "rating": 5,
+  "comment": "Great experience!"
+}
+
+### ========================================
+### TRANSACTIONS
+### ========================================
+
+### Get User Transactions (requires auth)
+GET {{apiUrl}}/transactions
+Authorization: Bearer {{authToken}}
+
+### ========================================
+### NOTIFICATIONS
+### ========================================
+
+### Get User Notifications (requires auth)
+GET {{apiUrl}}/notifications
+Authorization: Bearer {{authToken}}
+
+### Mark Notification as Read (requires auth)
+PUT {{apiUrl}}/notifications/NOTIFICATION_ID_HERE/read
+Authorization: Bearer {{authToken}}
+
+### ========================================
+### ADMIN ENDPOINTS (requires admin role)
+### ========================================
+
+### Get Admin Dashboard (requires admin auth)
+GET {{apiUrl}}/admin/dashboard
+Authorization: Bearer {{authToken}}
+
+### Get All Users (admin only)
+GET {{apiUrl}}/admin/users
+Authorization: Bearer {{authToken}}
+
+### ========================================
+### ERROR TESTING
+### ========================================
+
+### Test 404 - Invalid Endpoint
+GET {{apiUrl}}/invalid-endpoint
+
+### Test 401 - Unauthorized
+GET {{apiUrl}}/dashboard
+
+### Test 400 - Bad Request
+POST {{apiUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "invalid": "data"
+}
