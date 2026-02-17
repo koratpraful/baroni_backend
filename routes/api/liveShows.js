@@ -40,7 +40,7 @@ router.get('/me/shows', getMyShows);
 // Fan entertainment feed: joined events + live shows + ads interleaved
 router.get('/feed', getEntertainmentFeed);
 router.get('/:id/details', getLiveShowDetails);
-router.get('/:id/agora-token', requireRole('star', 'admin'), getLiveShowAgoraToken);
+router.get('/:id/agora-token', requireRole('fan', 'star', 'admin'), getLiveShowAgoraToken);
 router.get('/:id', getLiveShowById);
 
 // CRUD operations for live shows (star only)

@@ -77,7 +77,7 @@ const liveShowSchema = new mongoose.Schema(
     },
     thumbnail: {
       type: String,
-        default: 'https://res.cloudinary.com/ddnpvm2yk/image/upload/v1759868390/placeholder_aws6oc.png',
+      default: 'https://res.cloudinary.com/ddnpvm2yk/image/upload/v1759868390/placeholder_aws6oc.png',
     }
     ,
     transactionId: {
@@ -91,6 +91,9 @@ const liveShowSchema = new mongoose.Schema(
     },
     hostingPaymentDescription: {
       type: String
+    },
+    startedAt: {
+      type: Date
     }
   },
   { timestamps: true }
@@ -106,13 +109,13 @@ liveShowSchema.add({
 });
 
 // Virtual for checking if show is at capacity
-liveShowSchema.virtual('isAtCapacity').get(function() {
+liveShowSchema.virtual('isAtCapacity').get(function () {
   if (this.maxCapacity === -1) return false; // Unlimited
   return this.currentAttendees >= this.maxCapacity;
 });
 
 // Virtual for checking if show is upcoming (pending and on/after today)
-liveShowSchema.virtual('isUpcoming').get(function() {
+liveShowSchema.virtual('isUpcoming').get(function () {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   return this.date >= todayStart && this.status === 'pending';

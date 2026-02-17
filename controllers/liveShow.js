@@ -187,6 +187,8 @@ const sanitizeLiveShow = (show) => ({
   ...(show.paymentStatus ? { paymentStatus: show.paymentStatus } : {}),
   createdAt: show.createdAt,
   updatedAt: show.updatedAt,
+  currentAttendees: show.currentAttendees || 0,
+  startedAt: show.startedAt,
 });
 
 // Helper: combine date and time into a Date object
@@ -207,8 +209,8 @@ const buildShowDateTime = (date, time) => {
 
 const setPerUserFlags = (sanitized, show, req) => {
   const data = { ...sanitized };
-  console.log(data,"ttttttttttttyyyyyyyyyy")
-  console.log(show,"0000000000000000000000000000000")
+  console.log(data, "ttttttttttttyyyyyyyyyy")
+  console.log(show, "0000000000000000000000000000000")
   // Ensure likeCount is always present across all responses
   data.likeCount = Array.isArray(show.likes) ? show.likes.length : 0;
   data.likesCount = data.likeCount;
@@ -352,7 +354,7 @@ export const createLiveShow = async (req, res) => {
     // Send notification to admin and star
     try {
       const starName = req.user.name || req.user.pseudo || 'A star';
-      
+
       // Notify admin
       await NotificationHelper.sendCustomNotification(
         adminUser._id,
@@ -386,8 +388,8 @@ export const createLiveShow = async (req, res) => {
       console.error('Error sending live show notifications:', notificationError);
     }
 
-    const resp = { 
-      success: true, 
+    const resp = {
+      success: true,
       message: 'Live show created successfully and is now open for joining',
       data: {
         liveShow: sanitizeLiveShow(liveShow),
@@ -437,7 +439,7 @@ export const getAllLiveShows = async (req, res) => {
       const flagged = setPerUserFlags(sanitized, show, req);
       const likescount = Array.isArray(show.likes) ? show.likes.length : 0;
       const { likes, likeCount, likesCount, ...rest } = flagged;
-      return { ...rest,description:show.description, likescount, showAt: dateObj ? dateObj.toISOString() : undefined, timeToNowMs };
+      return { ...rest, description: show.description, likescount, showAt: dateObj ? dateObj.toISOString() : undefined, timeToNowMs };
     });
 
     const future = [];
@@ -457,7 +459,7 @@ export const getAllLiveShows = async (req, res) => {
     cancelled.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     const data = [...future, ...past, ...cancelled];
     return res.json({
-      success: true, 
+      success: true,
       message: 'Live shows retrieved successfully',
       data: data
     });
@@ -474,10 +476,10 @@ export const getLiveShowById = async (req, res) => {
     const show = await LiveShow.findById(id).populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' });
     if (!show) return res.status(404).json({ success: false, message: 'Live show not found' });
     const showData = setPerUserFlags(sanitizeLiveShow(show), show, req);
-    console.log(showData,"aaaaaaaaaaaaaaaaaaaaaaaa");
+    console.log(showData, "aaaaaaaaaaaaaaaaaaaaaaaa");
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show retrieved successfully',
       data: {
         liveShow: showData
@@ -496,8 +498,8 @@ export const getLiveShowByCode = async (req, res) => {
 
     const showData = setPerUserFlags(sanitizeLiveShow(show), show, req);
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show retrieved successfully',
       data: {
         liveShow: showData
@@ -534,8 +536,8 @@ export const updateLiveShow = async (req, res) => {
     const updatedShow = await LiveShow.findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
       .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show updated successfully',
       data: {
         liveShow: sanitizeLiveShow(updatedShow)
@@ -560,8 +562,8 @@ export const deleteLiveShow = async (req, res) => {
 
     await LiveShow.findByIdAndDelete(id);
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show deleted successfully'
     });
   } catch (err) {
@@ -583,10 +585,19 @@ export const joinLiveShow = async (req, res) => {
     // Check if already joined
     const alreadyJoined = Array.isArray(show.attendees) && show.attendees.some(u => u.toString() === req.user._id.toString());
     if (alreadyJoined) {
+      // Sync count if needed
+      const currentCount = show.attendees.length;
+      if (show.currentAttendees !== currentCount) {
+        await LiveShow.findByIdAndUpdate(id, { currentAttendees: currentCount });
+      }
+
       const populated = await LiveShow.findById(id).populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' });
+      // ensure we return the latest data
+      populated.currentAttendees = currentCount;
+
       const data = setPerUserFlags(sanitizeLiveShow(populated), populated, req);
-      return res.json({ 
-        success: true, 
+      return res.json({
+        success: true,
         message: 'Already joined',
         data: {
           ...data
@@ -726,8 +737,8 @@ export const getMyJoinedLiveShows = async (req, res) => {
       .sort({ date: -1 });
 
     const data = shows.map(show => setPerUserFlags(sanitizeLiveShow(show), show, req));
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live shows retrieved successfully',
       data: data
     });
@@ -793,10 +804,10 @@ export const getEntertainmentFeed = async (req, res) => {
       .select('_id title type status startDate endDate image link description likes joinedUsers')
       .sort({ startDate: 1 })
       .lean();
-    
+
     // Get event IDs that we already fetched (to exclude them from ads)
     const eventIds = new Set(events.map(e => e._id.toString()));
-    
+
     // Ads are: all draft/active/live items EXCEPT those that are events
     // OR items with type='ad', type=null, type=undefined, type='promotion', type='announcement'
     const ads = allDraftActiveLive.filter(item => {
@@ -807,8 +818,8 @@ export const getEntertainmentFeed = async (req, res) => {
       }
       // Include if type is 'ad', null, undefined, 'promotion', 'announcement'
       // OR if type is 'event' but it's not in our events list (might be incorrectly labeled ad)
-      if (!item.type || item.type === 'ad' || item.type === null || 
-          item.type === 'promotion' || item.type === 'announcement') {
+      if (!item.type || item.type === 'ad' || item.type === null ||
+        item.type === 'promotion' || item.type === 'announcement') {
         return true;
       }
       // If type is 'event' but not in events list, include it (might be ad with wrong type)
@@ -817,11 +828,11 @@ export const getEntertainmentFeed = async (req, res) => {
       }
       return false;
     });
-    
+
     console.log('[EntertainmentFeed] All draft/active/live items:', allDraftActiveLive.length);
     console.log('[EntertainmentFeed] Events found:', events.length);
     console.log('[EntertainmentFeed] Ads found (after excluding events):', ads.length);
-    
+
     if (allDraftActiveLive.length > 0) {
       console.log('[EntertainmentFeed] All draft/active/live items:', allDraftActiveLive.map(item => ({
         id: item._id.toString(),
@@ -831,7 +842,7 @@ export const getEntertainmentFeed = async (req, res) => {
         isInEvents: eventIds.has(item._id.toString())
       })));
     }
-    
+
     if (ads.length > 0) {
       console.log('[EntertainmentFeed] Final ads to include:', ads.map(ad => ({
         id: ad._id.toString(),
@@ -913,7 +924,7 @@ export const getEntertainmentFeed = async (req, res) => {
     console.log('[EntertainmentFeed] Events:', events.length, 'LiveShows:', liveShows.length, 'Ads:', ads.length);
     console.log('[EntertainmentFeed] Event items:', eventItems.length, 'Show items:', showItems.length, 'Ad items:', adItems.length);
     console.log('[EntertainmentFeed] Total merged items:', merged.length);
-    
+
     if (merged.length > 0) {
       console.log('[EntertainmentFeed] Sample items:', merged.slice(0, 3).map(item => ({
         type: item.type,
@@ -970,8 +981,8 @@ export const cancelLiveShow = async (req, res) => {
       console.error('Error sending live show cancellation notification:', notificationError);
     }
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show cancelled',
       data: {
         liveShow: sanitizeLiveShow(updated)
@@ -1013,8 +1024,8 @@ export const rescheduleLiveShow = async (req, res) => {
       console.error('Error sending live show reschedule notification:', notificationError);
     }
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show rescheduled',
       data: {
         liveShow: sanitizeLiveShow(updated)
@@ -1036,12 +1047,12 @@ export const getStarUpcomingShows = async (req, res) => {
       status: 'pending',
       date: { $gt: new Date() }
     })
-    .sort({ date: 1 });
+      .sort({ date: 1 });
 
     const showsData = shows.map(show => setPerUserFlags(sanitizeLiveShow(show), show, req));
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live shows retrieved successfully',
       data: {
         liveShows: showsData
@@ -1074,8 +1085,8 @@ export const getStarAllShows = async (req, res) => {
 
     const showsData = shows.map(show => setPerUserFlags(sanitizeLiveShow(show), show, req));
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live shows retrieved successfully',
       data: {
         liveShows: showsData
@@ -1103,8 +1114,8 @@ export const toggleLikeLiveShow = async (req, res) => {
     const updated = await LiveShow.findByIdAndUpdate(id, update, { new: true });
     const data = sanitizeLiveShow(updated);
     data.isLiked = !hasLiked;
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: hasLiked ? 'Unliked' : 'Liked',
       data: {
         ...data,
@@ -1152,10 +1163,10 @@ export const completeLiveShowAttendance = async (req, res) => {
       for (const a of completedAttendances) {
         await deleteConversationBetweenUsers(a.fanId, a.starId);
       }
-    } catch (_e) {}
+    } catch (_e) { }
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       message: 'Live show attendance completed and coins transferred'
     });
   } catch (err) {
@@ -1240,7 +1251,7 @@ export const getMyShows = async (req, res) => {
 export const getLiveShowAgoraToken = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -1250,7 +1261,7 @@ export const getLiveShowAgoraToken = async (req, res) => {
 
     // Find the live show
     const liveShow = await LiveShow.findById(id);
-    
+
     if (!liveShow) {
       return res.status(404).json({
         success: false,
@@ -1258,23 +1269,43 @@ export const getLiveShowAgoraToken = async (req, res) => {
       });
     }
 
-    // Verify user is the star who created the show or admin
-    if (req.user.role !== 'admin' && liveShow.starId.toString() !== req.user._id.toString()) {
+    // Verify user permissions
+    const userId = req.user._id.toString();
+    const isStar = liveShow.starId.toString() === userId;
+    const isAdmin = req.user.role === 'admin';
+    const isFan = req.user.role === 'fan';
+
+    if (isFan) {
+      // Check if fan has joined
+      const hasJoined = Array.isArray(liveShow.attendees) && liveShow.attendees.map(String).includes(userId);
+      if (!hasJoined) {
+        return res.status(403).json({
+          success: false,
+          message: 'You must join this live show first'
+        });
+      }
+    } else if (!isStar && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Only the star who created this show or admin can get the Agora token'
+        message: 'Access denied'
       });
     }
 
-    // Generate channel name from live show ID
-    const channelName = `live_show_${id}`;
-    
+    // Use showCode as channel name for consistency, fallback to ID
+    const channelName = liveShow.showCode || liveShow._id.toString();
+
     // Get user's Agora key
     const agoraKey = await ensureUserAgoraKey(req.user);
     const uid = Number(agoraKey);
 
     // Generate RTC token
     const token = GenerateRtcAgoraToken(uid, channelName);
+
+    // If user is star and startedAt is not set, set it now
+    if (isStar && !liveShow.startedAt) {
+      liveShow.startedAt = new Date();
+      await liveShow.save();
+    }
 
     console.log(`[GetLiveShowAgoraToken] Generated token for live show ${id}, channel: ${channelName}, user: ${req.user._id}`);
 

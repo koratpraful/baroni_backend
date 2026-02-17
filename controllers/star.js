@@ -89,7 +89,7 @@ export const becomeStar = async (req, res) => {
 
         if (existingStarPayments.length > 0) {
             console.log(`[BecomeStar] User ${userId} has ${existingStarPayments.length} existing pending payment(s), cancelling them to create a fresh payment`);
-            
+
             // Cancel all existing payments
             for (const existingPayment of existingStarPayments) {
                 try {
@@ -102,12 +102,12 @@ export const becomeStar = async (req, res) => {
                 }
             }
         }
-        
+
         // Check for approved commitments and automatically cancel them if payment allows
         // NOTE: Pending appointments do NOT block becoming a star - only approved appointments block
         // If payment is 'initiated', allow user to complete payment first (don't block)
         // If payment is 'pending' or 'completed', automatically cancel and refund
-        
+
         // Get all approved appointments that can be cancelled (NOT pending - pending appointments don't block)
         const approvedAppointmentsList = await Appointment.find({
             fanId: userId,
@@ -137,7 +137,7 @@ export const becomeStar = async (req, res) => {
                     const { refundEscrow } = await import('../services/starWalletService.js');
                     await refundEscrow(appointment.starId, appointment._id, null);
                 }
-                
+
                 // Cancel or refund the transaction
                 if (appointment.transactionId) {
                     const transaction = await Transaction.findById(appointment.transactionId);
@@ -150,18 +150,18 @@ export const becomeStar = async (req, res) => {
                         }
                     }
                 }
-                
+
                 // Free the reserved slot
                 await Availability.updateOne(
                     { _id: appointment.availabilityId, userId: appointment.starId, 'timeSlots._id': appointment.timeSlotId },
                     { $set: { 'timeSlots.$.status': 'available' } }
                 );
-                
+
                 // Mark appointment as cancelled
                 appointment.status = 'cancelled';
                 appointment.paymentStatus = 'refunded';
                 await appointment.save();
-                
+
                 console.log(`[BecomeStar] Auto-cancelled appointment ${appointment._id} for user ${userId}`);
             } catch (error) {
                 console.error(`[BecomeStar] Error auto-cancelling appointment ${appointment._id}:`, error);
@@ -177,18 +177,18 @@ export const becomeStar = async (req, res) => {
                     const { refundEscrow } = await import('../services/starWalletService.js');
                     await refundEscrow(dedication.starId, null, dedication._id);
                 }
-                
+
                 // Cancel the transaction
                 if (dedication.transactionId) {
                     await cancelTransaction(dedication.transactionId);
                 }
-                
+
                 // Mark dedication as cancelled
                 dedication.status = 'cancelled';
                 dedication.paymentStatus = 'refunded';
                 dedication.cancelledAt = new Date();
                 await dedication.save();
-                
+
                 console.log(`[BecomeStar] Auto-cancelled dedication ${dedication._id} for user ${userId}`);
             } catch (error) {
                 console.error(`[BecomeStar] Error auto-cancelling dedication ${dedication._id}:`, error);
@@ -212,13 +212,13 @@ export const becomeStar = async (req, res) => {
                         }
                     }
                 }
-                
+
                 // Mark attendance as cancelled
                 attendance.status = 'cancelled';
                 attendance.paymentStatus = 'refunded';
                 attendance.cancelledAt = new Date();
                 await attendance.save();
-                
+
                 console.log(`[BecomeStar] Auto-cancelled live show attendance ${attendance._id} for user ${userId}`);
             } catch (error) {
                 console.error(`[BecomeStar] Error auto-cancelling live show attendance ${attendance._id}:`, error);
@@ -297,7 +297,7 @@ export const becomeStar = async (req, res) => {
         let transactionResult;
         try {
             console.log(`[BecomeStar] Creating transaction for user ${req.user._id} with amount ${numericAmount}`);
-            
+
             transactionResult = await createHybridTransaction({
                 type: TRANSACTION_TYPES.BECOME_STAR_PAYMENT,
                 payerId: req.user._id,
@@ -308,7 +308,7 @@ export const becomeStar = async (req, res) => {
                 starName: req.user.name || '',
                 metadata: { plan }
             });
-            
+
             console.log(`[BecomeStar] Transaction result:`, transactionResult);
         } catch (transactionError) {
             console.error(`[BecomeStar] Transaction creation failed:`, transactionError);
@@ -317,7 +317,7 @@ export const becomeStar = async (req, res) => {
 
         // Retrieve the transaction
         console.log(`[BecomeStar] Retrieving transaction for user ${req.user._id}`);
-        
+
         const transaction = await Transaction.findOne({
             payerId: req.user._id,
             receiverId: adminUser._id,
@@ -342,7 +342,7 @@ export const becomeStar = async (req, res) => {
         }
 
         // Update user with payment status and baroniId (but don't change role yet)
-        let updates = { 
+        let updates = {
             paymentStatus: transaction.status === 'initiated' ? 'initiated' : 'pending',
             role: 'fan', // Keep as fan until payment is completed
         };
@@ -364,12 +364,12 @@ export const becomeStar = async (req, res) => {
         if (transactionResult.paymentMode === 'coin') {
             await completeTransaction(transaction._id);
             // Update user role to star for coin-only payments and set default about text
-            const starUpdateResult = await User.findByIdAndUpdate(req.user._id, { 
-                $set: { 
-                    role: 'star', 
+            const starUpdateResult = await User.findByIdAndUpdate(req.user._id, {
+                $set: {
+                    role: 'star',
                     paymentStatus: 'completed',
                     about: "Coucou, c'est ta star 🌟 ! Je suis là pour te partager de la bonne humeur, de l'énergie et des dédicaces pleines d'amour."
-                } 
+                }
             }, { new: true });
 
             // Verify user was successfully updated to star before creating default resources
@@ -389,8 +389,8 @@ export const becomeStar = async (req, res) => {
 
         const responseBody = {
             success: true,
-            message: transactionResult.paymentMode === 'coin' 
-                ? 'You are now a Baroni Star' 
+            message: transactionResult.paymentMode === 'coin'
+                ? 'You are now a Baroni Star'
                 : 'Payment initiated. Complete the external payment to become a Baroni Star',
             data: {
                 user: {
@@ -422,15 +422,15 @@ export const getAllStars = async (req, res) => {
     try {
         const { q, country, category } = req.query;
         console.log('getAllStars called with params:', { q, country, category });
-        
+
         // Debug: Check total stars in database
         const totalStars = await User.countDocuments({ role: "star", isDeleted: { $ne: true } });
         console.log('Total stars in database:', totalStars);
-        
+
         // Debug: Check stars by country if country filter is applied
         if (country && country.trim()) {
-            const starsByCountry = await User.find({ 
-                role: "star", 
+            const starsByCountry = await User.find({
+                role: "star",
                 isDeleted: { $ne: true },
                 country: { $exists: true, $ne: null, $ne: '' }
             }).select('country name pseudo').limit(10);
@@ -463,10 +463,10 @@ export const getAllStars = async (req, res) => {
                 'china': ['China', 'CN'],
                 'brazil': ['Brazil', 'BR']
             };
-            
+
             const normalizedCountry = country.trim().toLowerCase();
             const variations = countryVariations[normalizedCountry];
-            
+
             if (variations) {
                 console.log(`Normalizing country "${country.trim()}" to variations:`, variations);
                 filter.country = { $in: variations };
@@ -482,16 +482,16 @@ export const getAllStars = async (req, res) => {
             console.log('Processing category filter for:', category.trim());
             // Find the category by name to get its ObjectId
             const Category = (await import('../models/Category.js')).default;
-            
+
             // Debug: List all available categories
             const allCategories = await Category.find({}).select('name _id');
             console.log('All available categories:', allCategories.map(c => `${c.name} (${c._id})`));
-            
+
             // Try exact match first, then fuzzy match
-            let categoryDoc = await Category.findOne({ 
-                name: { $regex: new RegExp(`^${category.trim()}$`, 'i') } 
+            let categoryDoc = await Category.findOne({
+                name: { $regex: new RegExp(`^${category.trim()}$`, 'i') }
             });
-            
+
             // If not found, try common variations
             if (!categoryDoc) {
                 const categoryVariations = {
@@ -508,20 +508,20 @@ export const getAllStars = async (req, res) => {
                     'tv host': 'TV Hosts',
                     'host': 'TV Hosts'
                 };
-                
+
                 const normalizedCategory = category.trim().toLowerCase();
                 const mappedCategory = categoryVariations[normalizedCategory];
-                
+
                 if (mappedCategory) {
                     console.log(`Mapping "${category.trim()}" to "${mappedCategory}"`);
-                    categoryDoc = await Category.findOne({ 
-                        name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') } 
+                    categoryDoc = await Category.findOne({
+                        name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') }
                     });
                 }
             }
-            
+
             console.log('Category lookup result:', categoryDoc ? `Found: ${categoryDoc.name} (${categoryDoc._id})` : 'Not found');
-            
+
             if (categoryDoc && categoryDoc._id) {
                 filter.profession = categoryDoc._id;
                 console.log('Set filter.profession to ObjectId:', categoryDoc._id);
@@ -574,10 +574,10 @@ export const getAllStars = async (req, res) => {
                         'china': ['China', 'CN'],
                         'brazil': ['Brazil', 'BR']
                     };
-                    
+
                     const normalizedCountry = country.trim().toLowerCase();
                     const variations = countryVariations[normalizedCountry];
-                    
+
                     if (variations) {
                         console.log(`Normalizing country "${country.trim()}" to variations for baroniId:`, variations);
                         baroniIdFilter.country = { $in: variations };
@@ -593,16 +593,16 @@ export const getAllStars = async (req, res) => {
                     console.log('Processing category filter for baroniId search:', category.trim());
                     // Find the category by name to get its ObjectId
                     const Category = (await import('../models/Category.js')).default;
-                    
+
                     // Debug: List all available categories
                     const allCategories = await Category.find({}).select('name _id');
                     console.log('All available categories for baroniId:', allCategories.map(c => `${c.name} (${c._id})`));
-                    
+
                     // Try exact match first, then fuzzy match
-                    let categoryDoc = await Category.findOne({ 
-                        name: { $regex: new RegExp(`^${category.trim()}$`, 'i') } 
+                    let categoryDoc = await Category.findOne({
+                        name: { $regex: new RegExp(`^${category.trim()}$`, 'i') }
                     });
-                    
+
                     // If not found, try common variations
                     if (!categoryDoc) {
                         const categoryVariations = {
@@ -619,20 +619,20 @@ export const getAllStars = async (req, res) => {
                             'tv host': 'TV Hosts',
                             'host': 'TV Hosts'
                         };
-                        
+
                         const normalizedCategory = category.trim().toLowerCase();
                         const mappedCategory = categoryVariations[normalizedCategory];
-                        
+
                         if (mappedCategory) {
                             console.log(`Mapping "${category.trim()}" to "${mappedCategory}" for baroniId`);
-                            categoryDoc = await Category.findOne({ 
-                                name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') } 
+                            categoryDoc = await Category.findOne({
+                                name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') }
                             });
                         }
                     }
-                    
+
                     console.log('Category lookup result for baroniId:', categoryDoc ? `Found: ${categoryDoc.name} (${categoryDoc._id})` : 'Not found');
-                    
+
                     if (categoryDoc && categoryDoc._id) {
                         baroniIdFilter.profession = categoryDoc._id;
                         console.log('Set baroniIdFilter.profession to ObjectId:', categoryDoc._id);
@@ -688,10 +688,10 @@ export const getAllStars = async (req, res) => {
                             'china': ['China', 'CN'],
                             'brazil': ['Brazil', 'BR']
                         };
-                        
+
                         const normalizedCountry = country.trim().toLowerCase();
                         const variations = countryVariations[normalizedCountry];
-                        
+
                         if (variations) {
                             console.log(`Normalizing country "${country.trim()}" to variations for flexible search:`, variations);
                             flexibleFilter.country = { $in: variations };
@@ -706,12 +706,12 @@ export const getAllStars = async (req, res) => {
                     if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
                         console.log('Applying category filter to flexible search:', category.trim());
                         const Category = (await import('../models/Category.js')).default;
-                        
+
                         // Try exact match first, then fuzzy match
-                        let categoryDoc = await Category.findOne({ 
-                            name: { $regex: new RegExp(`^${category.trim()}$`, 'i') } 
+                        let categoryDoc = await Category.findOne({
+                            name: { $regex: new RegExp(`^${category.trim()}$`, 'i') }
                         });
-                        
+
                         // If not found, try common variations
                         if (!categoryDoc) {
                             const categoryVariations = {
@@ -728,18 +728,18 @@ export const getAllStars = async (req, res) => {
                                 'tv host': 'TV Hosts',
                                 'host': 'TV Hosts'
                             };
-                            
+
                             const normalizedCategory = category.trim().toLowerCase();
                             const mappedCategory = categoryVariations[normalizedCategory];
-                            
+
                             if (mappedCategory) {
                                 console.log(`Mapping "${category.trim()}" to "${mappedCategory}" for flexible search`);
-                                categoryDoc = await Category.findOne({ 
-                                    name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') } 
+                                categoryDoc = await Category.findOne({
+                                    name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') }
                                 });
                             }
                         }
-                        
+
                         if (categoryDoc && categoryDoc._id) {
                             flexibleFilter.profession = categoryDoc._id;
                             console.log('Set flexibleFilter.profession to ObjectId:', categoryDoc._id);
@@ -776,7 +776,7 @@ export const getAllStars = async (req, res) => {
                             return null;
                         }
                         return {
-                        ...star,
+                            ...star,
                             isLiked: Array.isArray(req.user.favorites) && req.user.favorites.includes(star._id || star.id)
                         };
                     }).filter(star => star !== null); // Remove any null entries
@@ -788,8 +788,8 @@ export const getAllStars = async (req, res) => {
                             return null;
                         }
                         return {
-                        ...star,
-                        isLiked: false
+                            ...star,
+                            isLiked: false
                         };
                     }).filter(star => star !== null); // Remove any null entries
                 }
@@ -819,7 +819,7 @@ export const getAllStars = async (req, res) => {
         // BUT only if there's no search query - if there's a search query and no matches, return empty
         if ((!stars || stars.length === 0) && (!q || !q.trim())) {
             console.log('No stars found with current filters, trying relaxed search...');
-            
+
             // Create a more relaxed filter - only essential requirements
             const relaxedFilter = {
                 role: "star",
@@ -847,10 +847,10 @@ export const getAllStars = async (req, res) => {
                     'china': ['China', 'CN'],
                     'brazil': ['Brazil', 'BR']
                 };
-                
+
                 const normalizedCountry = country.trim().toLowerCase();
                 const variations = countryVariations[normalizedCountry];
-                
+
                 if (variations) {
                     console.log(`Normalizing country "${country.trim()}" to variations for relaxed search:`, variations);
                     relaxedFilter.country = { $in: variations };
@@ -865,12 +865,12 @@ export const getAllStars = async (req, res) => {
             if (category && category.trim() && category.trim().toLowerCase() !== 'all') {
                 console.log('Applying category filter to relaxed search:', category.trim());
                 const Category = (await import('../models/Category.js')).default;
-                
+
                 // Try exact match first, then fuzzy match
-                let categoryDoc = await Category.findOne({ 
-                    name: { $regex: new RegExp(`^${category.trim()}$`, 'i') } 
+                let categoryDoc = await Category.findOne({
+                    name: { $regex: new RegExp(`^${category.trim()}$`, 'i') }
                 });
-                
+
                 // If not found, try common variations
                 if (!categoryDoc) {
                     const categoryVariations = {
@@ -887,18 +887,18 @@ export const getAllStars = async (req, res) => {
                         'tv host': 'TV Hosts',
                         'host': 'TV Hosts'
                     };
-                    
+
                     const normalizedCategory = category.trim().toLowerCase();
                     const mappedCategory = categoryVariations[normalizedCategory];
-                    
+
                     if (mappedCategory) {
                         console.log(`Mapping "${category.trim()}" to "${mappedCategory}" for relaxed search`);
-                        categoryDoc = await Category.findOne({ 
-                            name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') } 
+                        categoryDoc = await Category.findOne({
+                            name: { $regex: new RegExp(`^${mappedCategory}$`, 'i') }
                         });
                     }
                 }
-                
+
                 if (categoryDoc && categoryDoc._id) {
                     relaxedFilter.profession = categoryDoc._id;
                     console.log('Set relaxedFilter.profession to ObjectId:', categoryDoc._id);
@@ -942,7 +942,7 @@ export const getAllStars = async (req, res) => {
                     return null;
                 }
                 return {
-                ...star,
+                    ...star,
                     isLiked: Array.isArray(req.user.favorites) && req.user.favorites.includes(star._id || star.id)
                 };
             }).filter(star => star !== null); // Remove any null entries
@@ -954,8 +954,8 @@ export const getAllStars = async (req, res) => {
                     return null;
                 }
                 return {
-                ...star,
-                isLiked: false
+                    ...star,
+                    isLiked: false
                 };
             }).filter(star => star !== null); // Remove any null entries
         }
@@ -968,7 +968,7 @@ export const getAllStars = async (req, res) => {
         };
 
         console.log('Final response:', { success: response.success, count: response.count, dataLength: response.data.length });
-        
+
         res.status(200).json(response);
     } catch (error) {
         res.status(500).json({
@@ -1000,9 +1000,9 @@ export const getStarById = async (req, res) => {
             _id: id,
             role: "star"
         })
-        .populate('profession', 'name image')
-        .select("-password -passwordResetToken -passwordResetExpires")
-        .lean();
+            .populate('profession', 'name image')
+            .select("-password -passwordResetToken -passwordResetExpires")
+            .lean();
 
         // Prepare parallel queries
         const parallelQueries = [starQuery];
@@ -1027,7 +1027,7 @@ export const getStarById = async (req, res) => {
         }
 
         const starCountry = star.country || null;
-        
+
         // Update getCurrentDateString with star's timezone
         getCurrentDateString = () => {
             const offsetHours = getCountryTimezoneOffset(starCountry);
@@ -1041,7 +1041,7 @@ export const getStarById = async (req, res) => {
         };
 
         // Increment profile impressions count (non-blocking - fire and forget)
-        User.findByIdAndUpdate(id, { $inc: { profileImpressions: 1 } }).catch(err => 
+        User.findByIdAndUpdate(id, { $inc: { profileImpressions: 1 } }).catch(err =>
             console.error('Error updating profile impressions:', err)
         );
 
@@ -1086,7 +1086,7 @@ export const getStarById = async (req, res) => {
             }).sort({ date: 1 }).lean(),
             LiveShow.find({
                 starId: id,
-                date: { $gt: new Date() },
+                date: { $gte: new Date(getCurrentDateString()) },
                 status: 'pending'
             })
                 .sort({ date: 1 })
@@ -1094,11 +1094,11 @@ export const getStarById = async (req, res) => {
                 .lean(),
             // Rating aggregation
             Review.aggregate([
-            { $match: { starId: new mongoose.Types.ObjectId(id) } },
-            { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
+                { $match: { starId: new mongoose.Types.ObjectId(id) } },
+                { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } }
             ]),
             // Latest reviews
-            Review.find({ 
+            Review.find({
                 starId: id,
                 isVisible: true
             })
@@ -1117,7 +1117,7 @@ export const getStarById = async (req, res) => {
         if (req.user) {
             const [isLiked, appointmentData, conversation] = userSpecificData;
             starData.isLiked = isLiked;
-            
+
             if (req.user.role === 'fan') {
                 const [hasApprovedAppointment, hasApprovedDedication] = appointmentData;
                 starData.isMessage = Boolean(hasApprovedAppointment || hasApprovedDedication);
@@ -1169,7 +1169,7 @@ export const getStarById = async (req, res) => {
         // Uses star's country timezone instead of hardcoded IST
         function parseTimeSlotToUTCDate(dateStr, slot, country) {
             if (!slot || typeof slot !== 'string' || !dateStr) return null;
-            
+
             // Use convertLocalToUTC which properly handles the star's country timezone
             try {
                 const utcDate = convertLocalToUTC(dateStr, slot, country);
@@ -1183,11 +1183,11 @@ export const getStarById = async (req, res) => {
 
         // Merge availabilities by date (combine daily and weekly slots for same date) - using lean() data
         const mergedByDate = new Map();
-        
+
         availability.forEach(item => {
             const doc = item; // Already plain object from lean()
             const dateKey = doc.date;
-            
+
             if (!mergedByDate.has(dateKey)) {
                 // First availability for this date - use it as base
                 mergedByDate.set(dateKey, {
@@ -1204,19 +1204,19 @@ export const getStarById = async (req, res) => {
                 // Merge slots from this availability into existing one
                 const merged = mergedByDate.get(dateKey);
                 const existingSlotsMap = new Map();
-                
+
                 // Create map of existing slots
                 merged.timeSlots.forEach(slot => {
                     existingSlotsMap.set(slot.slot, slot);
                 });
-                
+
                 // Add new slots that don't already exist
                 doc.timeSlots.forEach(slot => {
                     if (!existingSlotsMap.has(slot.slot)) {
                         merged.timeSlots.push(slot);
                     }
                 });
-                
+
                 // Update mode flags - if either is weekly/daily, mark accordingly
                 if (doc.isWeekly) merged.isWeekly = true;
                 if (doc.isDaily) merged.isDaily = true;
@@ -1412,7 +1412,7 @@ export const getGuestStarById = async (req, res) => {
             }).sort({ date: 1 }),
             LiveShow.find({
                 starId: id,
-                date: { $gt: new Date() },
+                date: { $gte: new Date(getCurrentDateString()) },
                 status: 'pending'
             })
                 .sort({ date: 1 })
@@ -1451,7 +1451,7 @@ export const getGuestStarById = async (req, res) => {
         // Uses star's country timezone instead of hardcoded IST
         function parseTimeSlotToUTCDate(dateStr, slot, country) {
             if (!slot || typeof slot !== 'string' || !dateStr) return null;
-            
+
             // Use convertLocalToUTC which properly handles the star's country timezone
             try {
                 const utcDate = convertLocalToUTC(dateStr, slot, country);
@@ -1606,7 +1606,7 @@ const sendStarPromotionNotification = async (userId) => {
     try {
         // Import notification service
         const notificationService = (await import('../services/notificationService.js')).default;
-        
+
         // Get user details
         const user = await User.findById(userId);
         if (!user) {
@@ -1615,7 +1615,7 @@ const sendStarPromotionNotification = async (userId) => {
         }
 
         const userName = user.name || user.pseudo || 'Star';
-        
+
         // Prepare notification data
         const notificationData = {
             title: {
@@ -1644,7 +1644,7 @@ const sendStarPromotionNotification = async (userId) => {
 
         // Send notification to the new star
         await notificationService.sendToUser(user._id.toString(), notificationData, data, options);
-        
+
         console.log(`Star promotion notification sent to user ${user._id}`);
     } catch (error) {
         console.error('Error sending star promotion notification:', error);
