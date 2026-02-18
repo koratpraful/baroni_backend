@@ -16,6 +16,7 @@ import { deleteConversationBetweenUsers } from '../services/messagingCleanup.js'
 import { sanitizeUserData } from '../utils/userDataHelper.js';
 import { GenerateRtcAgoraToken } from '../config/agora.js';
 import { ensureUserAgoraKey } from '../utils/agoraKeyGenerator.js';
+import { convertLocalToUTC } from '../utils/timezoneHelper.js';
 
 // Get single live show details for fan
 export const getLiveShowDetails = async (req, res) => {
@@ -49,21 +50,18 @@ export const getLiveShowDetails = async (req, res) => {
       });
     }
 
-    // Calculate time until live show (combine date + time)
+    // Show start is stored in UTC (GMT) - use directly for countdown
     const liveShowDateTime = (() => {
       try {
-        const base = new Date(liveShow.date);
-        if (liveShow.time && typeof liveShow.time === 'string') {
-          const [hh, mm] = liveShow.time.split(':').map((v) => parseInt(v, 10));
-          if (!Number.isNaN(hh)) base.setHours(hh);
-          if (!Number.isNaN(mm)) base.setMinutes(mm);
-          base.setSeconds(0, 0);
-        }
-        return base;
+        const d = new Date(liveShow.date);
+        return isNaN(d.getTime()) ? null : d;
       } catch (_e) {
-        return new Date(liveShow.date);
+        return null;
       }
     })();
+    if (!liveShowDateTime) {
+      return res.status(400).json({ success: false, message: 'Invalid show date' });
+    }
     const now = new Date();
     const timeUntilLiveShow = liveShowDateTime.getTime() - now.getTime();
 
@@ -191,26 +189,31 @@ const sanitizeLiveShow = (show) => ({
   startedAt: show.startedAt,
 });
 
-// Helper: combine date and time into a Date object
+// Helper: combine date and time into a Date object (interpret time as UTC for consistent GMT-based comparison)
 const buildShowDateTime = (date, time) => {
   if (!date) return null;
   const dt = new Date(date);
   if (!time || typeof time !== 'string') return dt;
   try {
     const [hh, mm] = time.split(':').map((v) => parseInt(v, 10));
-    if (!Number.isNaN(hh)) dt.setHours(hh);
-    if (!Number.isNaN(mm)) dt.setMinutes(mm);
-    dt.setSeconds(0, 0);
+    if (!Number.isNaN(hh)) dt.setUTCHours(hh);
+    if (!Number.isNaN(mm)) dt.setUTCMinutes(mm);
+    dt.setUTCSeconds(0, 0);
   } catch (_e) {
     // keep original date
   }
   return dt;
 };
 
+// Helper: get YYYY-MM-DD from date (Date or ISO string)
+const toDateString = (date) => {
+  if (!date) return '';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+};
+
 const setPerUserFlags = (sanitized, show, req) => {
   const data = { ...sanitized };
-  console.log(data, "ttttttttttttyyyyyyyyyy")
-  console.log(show, "0000000000000000000000000000000")
   // Ensure likeCount is always present across all responses
   data.likeCount = Array.isArray(show.likes) ? show.likes.length : 0;
   data.likesCount = data.likeCount;
@@ -229,11 +232,11 @@ const setPerUserFlags = (sanitized, show, req) => {
   data.isLiked = Array.isArray(show.likes) && req.user
     ? show.likes.some(u => u.toString() === req.user._id.toString())
     : false;
-  // Derived flag: upcoming if scheduled in the future (or later today) and still pending
+  // Derived flag: upcoming if scheduled in the future (UTC) and still pending
   try {
-    const showDateTime = show && show.date ? buildShowDateTime(show.date, show.time) : null;
+    const showDateTime = show && show.date ? new Date(show.date) : null;
     const now = new Date();
-    data.isUpcoming = !!(showDateTime && showDateTime.getTime() > now.getTime() && show.status === 'pending');
+    data.isUpcoming = !!(showDateTime && !isNaN(showDateTime.getTime()) && showDateTime.getTime() > now.getTime() && show.status === 'pending');
   } catch (_e) {
     data.isUpcoming = false;
   }
@@ -253,17 +256,24 @@ export const createLiveShow = async (req, res) => {
 
     const { sessionTitle, date, time, attendanceFee, hostingPrice, maxCapacity, description, starName } = req.body;
 
-    // Enforce date rule via feature flag: allow creating for today only if enabled
-    const showDate = buildShowDateTime(date, time);
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfTomorrow = new Date(startOfToday);
-    startOfTomorrow.setDate(startOfToday.getDate() + 1);
+    // Convert star's local date+time to UTC (GMT) - same approach as appointments
+    const star = await User.findById(req.user._id).select('country').lean();
+    const starCountry = star?.country || null;
+    const dateStr = toDateString(date);
+    if (!dateStr) {
+      return res.status(400).json({ success: false, message: 'Invalid date' });
+    }
+    const utcShowAt = convertLocalToUTC(dateStr, time || '', starCountry);
 
+    // Enforce date rule via feature flag: allow creating for today only if enabled (compare in UTC)
+    const now = new Date();
+    const startOfTodayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const startOfTomorrowUTC = new Date(startOfTodayUTC);
+    startOfTomorrowUTC.setUTCDate(startOfTodayUTC.getUTCDate() + 1);
     const allowToday = String(process.env.LIVESHOW_TODAY || '').toLowerCase() === 'true';
-    const earliestAllowedDate = allowToday ? startOfToday : startOfTomorrow;
+    const earliestAllowedDate = allowToday ? startOfTodayUTC : startOfTomorrowUTC;
 
-    if (isNaN(showDate.getTime()) || showDate < earliestAllowedDate) {
+    if (isNaN(utcShowAt.getTime()) || utcShowAt < earliestAllowedDate) {
       return res.status(400).json({
         success: false,
         message: allowToday
@@ -333,8 +343,8 @@ export const createLiveShow = async (req, res) => {
 
     const liveShow = await LiveShow.create({
       sessionTitle,
-      // Persist a single canonical Date combining the chosen day and time.
-      date: buildShowDateTime(date, time),
+      // Store show start in UTC (GMT) - same as appointments
+      date: utcShowAt,
       time: String(time),
       attendanceFee: Number(attendanceFee),
       hostingPrice: Number(hostingPrice),
@@ -405,7 +415,7 @@ export const createLiveShow = async (req, res) => {
   }
 };
 
-// Get all live shows (public)
+// Get all live shows (public). For star: when no starId query, return only shows created by that star.
 export const getAllLiveShows = async (req, res) => {
   try {
     const { status, starId, upcoming } = req.query;
@@ -423,9 +433,14 @@ export const getAllLiveShows = async (req, res) => {
     if (normalizedStatus && allowedStatuses.includes(normalizedStatus)) {
       filter.status = normalizedStatus;
     }
-    if (starId && mongoose.Types.ObjectId.isValid(starId)) filter.starId = starId;
+    if (starId && mongoose.Types.ObjectId.isValid(starId)) {
+      filter.starId = starId;
+    } else if (req.user && req.user.role === 'star') {
+      // Star side: show only live shows created by this star
+      filter.starId = req.user._id;
+    }
     if (isUpcomingRequested) {
-      // Upcoming means scheduled strictly in the future and still pending
+      // Upcoming means scheduled strictly in the future (UTC) and still pending
       const now = new Date();
       filter.date = { $gt: now };
       filter.status = 'pending';
@@ -434,8 +449,8 @@ export const getAllLiveShows = async (req, res) => {
     const shows = await LiveShow.find(filter).populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' }).sort({ date: 1 });
     const withComputed = shows.map((show) => {
       const sanitized = sanitizeLiveShow(show);
-      const dateObj = sanitized.date ? buildShowDateTime(sanitized.date, sanitized.time) : undefined;
-      const timeToNowMs = dateObj ? (dateObj.getTime() - Date.now()) : undefined;
+      const dateObj = sanitized.date ? new Date(sanitized.date) : undefined;
+      const timeToNowMs = dateObj && !isNaN(dateObj.getTime()) ? (dateObj.getTime() - Date.now()) : undefined;
       const flagged = setPerUserFlags(sanitized, show, req);
       const likescount = Array.isArray(show.likes) ? show.likes.length : 0;
       const { likes, likeCount, likesCount, ...rest } = flagged;
@@ -476,8 +491,6 @@ export const getLiveShowById = async (req, res) => {
     const show = await LiveShow.findById(id).populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' });
     if (!show) return res.status(404).json({ success: false, message: 'Live show not found' });
     const showData = setPerUserFlags(sanitizeLiveShow(show), show, req);
-    console.log(showData, "aaaaaaaaaaaaaaaaaaaaaaaa");
-
     return res.json({
       success: true,
       message: 'Live show retrieved successfully',
@@ -729,12 +742,20 @@ export const joinLiveShow = async (req, res) => {
   }
 };
 
-// Get current user's joined live shows
+// Get current user's joined live shows (fan). Optional ?upcoming=true for future pending only (UTC comparison).
 export const getMyJoinedLiveShows = async (req, res) => {
   try {
-    const shows = await LiveShow.find({ attendees: req.user._id })
+    const { upcoming } = req.query;
+    const isUpcoming = String(upcoming || '').toLowerCase() === 'true' || String(upcoming) === '1';
+    const filter = { attendees: req.user._id };
+    if (isUpcoming) {
+      filter.status = 'pending';
+      filter.date = { $gt: new Date() }; // UTC comparison
+    }
+    const sortOrder = isUpcoming ? { date: 1 } : { date: -1 }; // Upcoming: nearest first
+    const shows = await LiveShow.find(filter)
       .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' })
-      .sort({ date: -1 });
+      .sort(sortOrder);
 
     const data = shows.map(show => setPerUserFlags(sanitizeLiveShow(show), show, req));
     return res.json({
@@ -760,23 +781,27 @@ export const getEntertainmentFeed = async (req, res) => {
     const now = new Date();
 
     // Live shows query based on user role:
-    // - For stars: Show their own created live shows
-    // - For fans: Show all pending live shows (to discover and join)
-    // - Also include shows where user has joined (for both roles)
-    let liveShowFilter = {
-      status: 'pending',
-      date: { $gte: now }
-    };
+    // - For stars: Show their own created live shows OR shows they've joined
+    // - For fans: Show all pending upcoming (to discover) AND shows they have joined (so "Live Shows" tab has data)
+    let liveShowFilter;
 
     if (userRole === 'star') {
-      // Stars see their own created shows OR shows they've joined
-      liveShowFilter.$or = [
-        { starId: userId },
-        { attendees: userId }
-      ];
+      liveShowFilter = {
+        $or: [
+          { starId: userId },
+          { attendees: userId }
+        ],
+        status: 'pending',
+        date: { $gte: now }
+      };
     } else {
-      // Fans see all pending shows (to discover) OR shows they've joined
-      // No additional filter needed - show all pending shows
+      // Fans: include (1) all pending upcoming to discover, (2) any show they have joined (so joined + upcoming show in list)
+      liveShowFilter = {
+        $or: [
+          { status: 'pending', date: { $gte: now } },
+          { attendees: userId }
+        ]
+      };
     }
 
     const liveShows = await LiveShow.find(liveShowFilter)
@@ -1011,8 +1036,17 @@ export const rescheduleLiveShow = async (req, res) => {
     if (show.starId.toString() !== req.user._id.toString() && req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Only the star can reschedule this show' });
 
     const payload = {};
-    if (date) payload.date = new Date(date);
-    if (time) payload.time = String(time);
+    if (date != null || time != null) {
+      const star = await User.findById(req.user._id).select('country').lean();
+      const starCountry = star?.country || null;
+      const dateStr = toDateString(date != null ? date : show.date);
+      const timeStr = time != null ? String(time) : show.time;
+      if (dateStr && timeStr) {
+        payload.date = convertLocalToUTC(dateStr, timeStr, starCountry);
+        if (time != null) payload.time = timeStr;
+      } else if (date != null) payload.date = new Date(date);
+      if (time != null && !payload.date) payload.time = String(time);
+    }
 
     const updated = await LiveShow.findByIdAndUpdate(id, payload, { new: true, runValidators: true })
       .populate({ path: 'starId', select: '-password -passwordResetToken -passwordResetExpires' });
@@ -1195,7 +1229,7 @@ export const getMyShows = async (req, res) => {
         filter.status = normalizedStatus;
       }
       if (isUpcomingRequested) {
-        filter.date = { $gt: new Date() };
+        filter.date = { $gt: new Date() }; // UTC comparison
         filter.status = 'pending';
       }
 
@@ -1208,7 +1242,7 @@ export const getMyShows = async (req, res) => {
             select: 'name image'
           }
         })
-        .sort({ date: -1 });
+        .sort(isUpcomingRequested ? { date: 1 } : { date: -1 }); // Upcoming: nearest first
     } else if (req.user.role === 'star') {
       // For stars: get shows they have hosted
       const filter = { starId: req.user._id };
@@ -1216,7 +1250,7 @@ export const getMyShows = async (req, res) => {
         filter.status = normalizedStatus;
       }
       if (isUpcomingRequested) {
-        filter.date = { $gt: new Date() };
+        filter.date = { $gt: new Date() }; // UTC comparison
         filter.status = 'pending';
       }
 
@@ -1229,7 +1263,7 @@ export const getMyShows = async (req, res) => {
             select: 'name image'
           }
         })
-        .sort({ date: -1 });
+        .sort(isUpcomingRequested ? { date: 1 } : { date: -1 }); // Upcoming: nearest first
     } else {
       return res.status(403).json({ success: false, message: 'Access denied. Only fans and stars can access this endpoint.' });
     }

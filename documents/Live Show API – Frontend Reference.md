@@ -25,6 +25,7 @@ starName (optional helper field for payment description)
 contact (phone, required for hybrid payment)
 Behavior:
 Validates date rules (from tomorrow unless LIVESHOW_TODAY=true).
+Date/time are converted to GMT/UTC using star’s country (same as appointments).
 Creates hybrid transaction for hosting fee to admin.
 Creates LiveShow with:
 status: 'pending'
@@ -42,15 +43,15 @@ Query params:
 status (optional): one of pending | completed | cancelled
 starId (optional): Mongo ID to filter by star
 upcoming (optional): "true" to get only future pending shows
+Behavior: Star (no starId): returns only that star’s created shows. All times stored/compared in GMT/UTC.
 When upcoming=true:
-date > now
-status = 'pending' (overwrites any other status)
+date > now (UTC), status = 'pending' (overwrites any other status)
 Response:
 { success: true, message, data: [ ...items ] }
 Each item includes:
 Show info (id, sessionTitle, date, time, attendanceFee, maxCapacity, currentAttendees, thumbnail, showCode, status, description, etc.)
 Flags like isUpcoming, isLiked, isFavorite, hasJoined, likeCount, likescount
-Computed fields: showAt (ISO date), timeToNowMs
+Computed fields: showAt (ISO date UTC), timeToNowMs
 > For “upcoming” tab: call GET /api/live-shows?upcoming=true and filter on isUpcoming or just rely on returned order (future shows first).
 
 
@@ -109,9 +110,10 @@ Sorted by date descending.
 8. Get my joined shows (fan only)
 URL: GET /api/live-shows/me/joined
 Auth role: fan
+Query: upcoming (optional): "true" → only pending shows with date > now (UTC), sorted by date asc (nearest first).
 Behavior:
 Returns shows where attendees includes req.user._id.
-Sorted by date desc.
+Default: sorted by date desc. With upcoming=true: pending, date > now, sorted by date asc.
 Response:
 { success: true, data: [...] }
 
@@ -136,7 +138,7 @@ URL: GET /api/live-shows/feed
 Auth role: any authenticated user
 Behavior:
 For fans:
-All pending upcoming live shows (status='pending', date ≥ now) + events + ads.
+All pending upcoming live shows (status='pending', date ≥ now) plus any live show the fan has joined (so “Live Shows” tab shows joined + upcoming) + events + ads.
 For stars:
 Their own live shows OR shows they joined, plus events + ads.
 Returns mixed array sorted by time, with type:
