@@ -168,11 +168,11 @@ export const getAllUsers = async (req, res) => {
 
     // Get reported users count
     const reportedUserIds = await ReportUser.distinct('reportedUserId');
-    const reportedCount = reportedUserIds.length > 0 
-      ? await User.countDocuments({ 
-          _id: { $in: reportedUserIds },
-          isDeleted: { $ne: true }
-        })
+    const reportedCount = reportedUserIds.length > 0
+      ? await User.countDocuments({
+        _id: { $in: reportedUserIds },
+        isDeleted: { $ne: true }
+      })
       : 0;
 
     return res.json({
@@ -526,7 +526,7 @@ export const getUserDetails = async (req, res) => {
             const day = String(now.getUTCDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
           }
-          
+
           try {
             const offsetHours = getCountryTimezoneOffset(starCountry);
             const offsetMs = offsetHours * 60 * 60 * 1000;
@@ -557,7 +557,7 @@ export const getUserDetails = async (req, res) => {
         // Helper function to parse time slot and convert to UTC Date object
         function parseTimeSlotToUTCDate(dateStr, slot, country) {
           if (!slot || typeof slot !== 'string' || !dateStr) return null;
-          
+
           try {
             const utcDate = convertLocalToUTC(dateStr, slot, country);
             return utcDate;
@@ -569,11 +569,11 @@ export const getUserDetails = async (req, res) => {
 
         // Merge availabilities by date
         const mergedByDate = new Map();
-        
+
         availability.forEach(item => {
           const doc = item;
           const dateKey = doc.date;
-          
+
           if (!mergedByDate.has(dateKey)) {
             mergedByDate.set(dateKey, {
               _id: doc._id,
@@ -588,17 +588,17 @@ export const getUserDetails = async (req, res) => {
           } else {
             const merged = mergedByDate.get(dateKey);
             const existingSlotsMap = new Map();
-            
+
             merged.timeSlots.forEach(slot => {
               existingSlotsMap.set(slot.slot, slot);
             });
-            
+
             doc.timeSlots.forEach(slot => {
               if (!existingSlotsMap.has(slot.slot)) {
                 merged.timeSlots.push(slot);
               }
             });
-            
+
             if (doc.isWeekly) merged.isWeekly = true;
             if (doc.isDaily) merged.isDaily = true;
           }
@@ -640,45 +640,45 @@ export const getUserDetails = async (req, res) => {
         // Filter out unavailable and past slots
         filteredAvailability = Array.isArray(mergedAvailability)
           ? mergedAvailability
-              .map((item) => {
-                const timeSlots = Array.isArray(item.timeSlots)
-                  ? item.timeSlots
-                      .filter((s) => {
-                        // Only show available slots
-                        if (!s || s.status !== 'available') return false;
+            .map((item) => {
+              const timeSlots = Array.isArray(item.timeSlots)
+                ? item.timeSlots
+                  .filter((s) => {
+                    // Only show available slots
+                    if (!s || s.status !== 'available') return false;
 
-                        // Filter out past slots
-                        const currentUTCTime = new Date();
-                        const today = currentDateString;
+                    // Filter out past slots
+                    const currentUTCTime = new Date();
+                    const today = currentDateString;
 
-                        let slotStartTime = null;
-                        if (s.utcStartTime) {
-                          slotStartTime = new Date(s.utcStartTime);
-                        } else {
-                          slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
-                        }
+                    let slotStartTime = null;
+                    if (s.utcStartTime) {
+                      slotStartTime = new Date(s.utcStartTime);
+                    } else {
+                      slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
+                    }
 
-                        if (slotStartTime && slotStartTime <= currentUTCTime) {
-                          return false;
-                        }
-                        return true;
-                      })
-                      .sort((a, b) => {
-                        // Sort by UTC start time if available, otherwise by slot string
-                        if (a.utcStartTime && b.utcStartTime) {
-                          return new Date(a.utcStartTime) - new Date(b.utcStartTime);
-                        }
-                        const timeA = parseTimeSlot(a.slot);
-                        const timeB = parseTimeSlot(b.slot);
-                        return timeA - timeB;
-                      })
-                  : [];
-                return { ...item, timeSlots };
-              })
-              .filter((item) => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
-              .sort((a, b) => {
-                return new Date(a.date) - new Date(b.date);
-              })
+                    if (slotStartTime && slotStartTime <= currentUTCTime) {
+                      return false;
+                    }
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    // Sort by UTC start time if available, otherwise by slot string
+                    if (a.utcStartTime && b.utcStartTime) {
+                      return new Date(a.utcStartTime) - new Date(b.utcStartTime);
+                    }
+                    const timeA = parseTimeSlot(a.slot);
+                    const timeB = parseTimeSlot(b.slot);
+                    return timeA - timeB;
+                  })
+                : [];
+              return { ...item, timeSlots };
+            })
+            .filter((item) => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
+            .sort((a, b) => {
+              return new Date(a.date) - new Date(b.date);
+            })
           : [];
       } catch (error) {
         console.error('Error fetching availability for star:', error);
@@ -689,7 +689,7 @@ export const getUserDetails = async (req, res) => {
     // Helper function to get country flag emoji from country name or code
     const getCountryFlag = (country) => {
       if (!country) return null;
-      
+
       const countryToFlag = {
         'India': '🇮🇳', 'भारत': '🇮🇳', 'Bharat': '🇮🇳', 'IN': '🇮🇳',
         'USA': '🇺🇸', 'United States': '🇺🇸', 'America': '🇺🇸', 'US': '🇺🇸',
@@ -721,7 +721,7 @@ export const getUserDetails = async (req, res) => {
         'Vietnam': '🇻🇳', 'VN': '🇻🇳',
         'Malaysia': '🇲🇾', 'MY': '🇲🇾'
       };
-      
+
       if (countryToFlag[country]) return countryToFlag[country];
       const normalizedCountry = country.trim();
       for (const [key, flag] of Object.entries(countryToFlag)) {
@@ -744,8 +744,8 @@ export const getUserDetails = async (req, res) => {
     // Calculate status based on availableForBookings and hidden
     // active: availableForBookings === true && hidden !== true
     // blocked: availableForBookings === false || hidden === true
-    const userStatus = (user.availableForBookings === true && user.hidden !== true) 
-      ? 'active' 
+    const userStatus = (user.availableForBookings === true && user.hidden !== true)
+      ? 'active'
       : 'blocked';
 
     return res.json({
@@ -894,21 +894,108 @@ export const getManagementUserProfile = async (req, res) => {
       });
     }
 
-    // Helper function to check if user is online (logged in within last 15 minutes)
-    const isUserOnline = (lastLoginAt) => {
-      if (!lastLoginAt) return false;
-      const now = new Date();
-      const lastLogin = new Date(lastLoginAt);
-      const diffInMinutes = (now - lastLogin) / (1000 * 60);
-      return diffInMinutes <= 15; // Consider online if logged in within last 15 minutes
-    };
+    // Parallelize all independent data fetching
+    const [
+      servicesRaw,
+      dedicationsRaw,
+      dedicationSamples,
+      additionalData
+    ] = await Promise.all([
+      // 1. Services
+      Service.find({ userId: user._id }).lean(),
 
-    // Shared data
-    const servicesRaw = await Service.find({ userId: user._id }).lean();
-    const dedicationsRaw = await Dedication.find({ userId: user._id }).lean();
-    const dedicationSamples = await DedicationSample.find({ userId: user._id }).lean();
+      // 2. Dedication charges
+      Dedication.find({ userId: user._id }).lean(),
 
-    // Merge dedications into services array
+      // 3. Dedication Samples
+      DedicationSample.find({ userId: user._id }).lean(),
+
+      // 4. Role-specific data (Star/Fan insights - SIMPLIFIED)
+      (async () => {
+        if (user.role === 'star') {
+          // Fetch reviews only for list display, not for average/count (already in user model)
+          const reviewsPromise = Review.find({ starId: user._id })
+            .populate('reviewerId', 'name pseudo profilePic')
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .lean();
+
+          // Availability check
+          const availabilityCheckPromise = Availability.findOne({
+            userId: user._id,
+            'timeSlots.status': 'available'
+          }).select('_id').lean();
+
+          // Detailed availability for management profile
+          const availabilityDocsPromise = (async () => {
+            try {
+              const { getCountryTimezoneOffset } = await import('../utils/timezoneHelper.js');
+              const starCountry = user.country || null;
+
+              let currentDateString;
+              try {
+                if (!starCountry) {
+                  const now = new Date();
+                  const year = now.getUTCFullYear();
+                  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+                  const day = String(now.getUTCDate()).padStart(2, '0');
+                  currentDateString = `${year}-${month}-${day}`;
+                } else {
+                  const offsetHours = getCountryTimezoneOffset(starCountry);
+                  const offsetMs = offsetHours * 60 * 60 * 1000;
+                  const now = new Date();
+                  const localTime = new Date(now.getTime() + offsetMs);
+                  const year = localTime.getUTCFullYear();
+                  const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+                  const day = String(localTime.getUTCDate()).padStart(2, '0');
+                  currentDateString = `${year}-${month}-${day}`;
+                }
+              } catch (e) {
+                const now = new Date();
+                const year = now.getUTCFullYear();
+                const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(now.getUTCDate()).padStart(2, '0');
+                currentDateString = `${year}-${month}-${day}`;
+              }
+
+              return Availability.find({
+                userId: user._id,
+                date: { $gte: currentDateString }
+              }).sort({ date: 1 }).lean();
+            } catch (err) {
+              console.error('Error fetching availability docs:', err);
+              return [];
+            }
+          })();
+
+          const [
+            reviews,
+            hasAvailableTimeSlots,
+            availabilityDocs
+          ] = await Promise.all([
+            reviewsPromise,
+            availabilityCheckPromise,
+            availabilityDocsPromise
+          ]);
+
+          return {
+            type: 'star',
+            reviews,
+            hasAvailableTimeSlots,
+            availabilityDocs
+          };
+
+        } else if (user.role === 'fan') {
+          return {
+            type: 'fan'
+          };
+        }
+
+        return { type: 'other' };
+      })()
+    ]);
+
+    // Process Services Data
     const videoCallServices = servicesRaw.map(s => ({
       id: s._id,
       type: s.type,
@@ -927,325 +1014,198 @@ export const getManagementUserProfile = async (req, res) => {
 
     const services = [...videoCallServices, ...dedicationServices];
 
-    // Transaction stats (covers both fan and star money flow)
-    const transactionStats = await Transaction.aggregate([
-      {
-        $match: {
-          $or: [
-            { payerId: user._id },
-            { receiverId: user._id }
-          ]
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalSpent: {
-            $sum: {
-              $cond: [{ $eq: ['$payerId', user._id] }, '$amount', 0]
-            }
-          },
-          totalEarned: {
-            $sum: {
-              $cond: [{ $eq: ['$receiverId', user._id] }, '$amount', 0]
-            }
-          },
-          transactionCount: { $sum: 1 }
-        }
-      }
-    ]);
-
-    const stats = transactionStats[0] || {
+    // Process Transaction Stats REMOVED
+    const stats = {
       totalSpent: 0,
       totalEarned: 0,
       transactionCount: 0
     };
 
-    // Reports (as reporter and as reported user)
-    const [reportsAsReporter, reportsAsReported] = await Promise.all([
-      ReportUser.find({ reporterId: user._id })
-        .populate('reportedUserId', 'name pseudo role')
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .lean(),
-      ReportUser.find({ reportedUserId: user._id })
-        .populate('reporterId', 'name pseudo role')
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .lean()
-    ]);
-
-    // Star-only insights
+    // Process Role Specific Data
     let reviews = [];
     let starInsights = null;
+    let fanInsights = null;
     let managementAvailability = [];
 
-    if (user.role === 'star') {
-      reviews = await Review.find({ starId: user._id })
-        .populate('reviewerId', 'name pseudo profilePic')
-        .sort({ createdAt: -1 })
-        .limit(10)
-        .lean();
-
-      const averageRating = reviews.length > 0
-        ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
-        : 0;
-
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-      const [videoCalls, dedications, liveShows, engagedUsers] = await Promise.all([
-        Appointment.countDocuments({
-          starId: user._id,
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        DedicationRequest.countDocuments({
-          starId: user._id,
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        LiveShow.countDocuments({
-          starId: user._id,
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        Transaction.distinct('payerId', {
-          receiverId: user._id,
-          createdAt: { $gte: thirtyDaysAgo }
-        }).then(users => users.length)
-      ]);
-
-      const [cancelledVideoCalls, cancelledDedications, cancelledLiveShows, rejectedByStarCalls, rejectedByStarDedications] = await Promise.all([
-        Appointment.countDocuments({
-          starId: user._id,
-          status: 'cancelled',
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        DedicationRequest.countDocuments({
-          starId: user._id,
-          status: 'cancelled',
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        LiveShow.countDocuments({
-          starId: user._id,
-          status: 'cancelled',
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        Appointment.countDocuments({
-          starId: user._id,
-          status: 'rejected',
-          createdAt: { $gte: thirtyDaysAgo }
-        }),
-        DedicationRequest.countDocuments({
-          starId: user._id,
-          status: 'rejected',
-          createdAt: { $gte: thirtyDaysAgo }
-        })
-      ]);
-
-      const revenueStats = await Transaction.aggregate([
-        {
-          $match: {
-            receiverId: user._id,
-            createdAt: { $gte: thirtyDaysAgo }
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            totalRevenue: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'completed'] }, '$amount', 0]
-              }
-            },
-            escrowAmount: {
-              $sum: {
-                $cond: [{ $eq: ['$status', 'pending'] }, '$amount', 0]
-              }
-            }
-          }
-        }
-      ]);
-
-      const hasAvailableTimeSlots = await Availability.findOne({
-        userId: user._id,
-        'timeSlots.status': 'available'
-      });
+    if (additionalData.type === 'star') {
+      reviews = additionalData.reviews;
 
       starInsights = {
         rating: {
-          average: Math.round(averageRating * 10) / 10,
-          totalReviews: reviews.length
+          average: user.averageRating || 0,
+          totalReviews: user.totalReviews || 0
         },
+        overview: {
+          videoCalls: 0,
+          dedications: 0,
+          liveShows: 0,
+          engagedUsers: 0
+        },
+        cancelled: {
+          videoCalls: 0,
+          dedications: 0,
+          liveShows: 0,
+          rejectedByStar: 0
+        },
+        revenue: {
+          total: 0,
+          escrow: 0
+        },
+        availability: {
+          availableForBookings: user.availableForBookings && Boolean(additionalData.hasAvailableTimeSlots),
+          hasAvailableSlots: Boolean(additionalData.hasAvailableTimeSlots)
+        }
+      };
+
+      // Process availability docs if any
+      if (additionalData.availabilityDocs && additionalData.availabilityDocs.length > 0) {
+        try {
+          const { convertLocalToUTC } = await import('../utils/timezoneHelper.js');
+          const starCountry = user.country || null;
+          const availabilityDocs = additionalData.availabilityDocs;
+
+          const parseTimeSlotToUTCDate = (dateStr, slot, country) => {
+            if (!slot || typeof slot !== 'string' || !dateStr) return null;
+            try {
+              return convertLocalToUTC(dateStr, slot, country);
+            } catch (error) {
+              return null;
+            }
+          };
+
+          const parseSlotMinutes = (slot) => {
+            if (!slot || typeof slot !== 'string') return 0;
+            const parts = slot.split(' - ');
+            if (parts.length !== 2) return 0;
+            const startTime = parts[0].trim();
+            const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+            if (h24Match) {
+              const hour = parseInt(h24Match[1], 10);
+              const minute = parseInt(h24Match[2], 10);
+              return hour * 60 + minute;
+            }
+            const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+            if (ampmMatch) {
+              let hour = parseInt(ampmMatch[1], 10);
+              const minute = parseInt(ampmMatch[2], 10);
+              const ampm = ampmMatch[3].toUpperCase();
+              if (ampm === 'PM' && hour !== 12) hour += 12;
+              if (ampm === 'AM' && hour === 12) hour = 0;
+              return hour * 60 + minute;
+            }
+            return 0;
+          };
+
+          const mergedByDate = new Map();
+          availabilityDocs.forEach(doc => {
+            const dateKey = doc.date;
+            if (!mergedByDate.has(dateKey)) {
+              mergedByDate.set(dateKey, { ...doc, timeSlots: [...(doc.timeSlots || [])] });
+            } else {
+              const merged = mergedByDate.get(dateKey);
+              const existingSlots = new Set(merged.timeSlots.map(s => s.slot));
+
+              doc.timeSlots.forEach(slot => {
+                if (!existingSlots.has(slot.slot)) {
+                  merged.timeSlots.push(slot);
+                  existingSlots.add(slot.slot);
+                }
+              });
+
+              if (doc.isWeekly) merged.isWeekly = true;
+              if (doc.isDaily) merged.isDaily = true;
+            }
+          });
+
+          const mergedAvailability = Array.from(mergedByDate.values());
+          const currentUTCTime = new Date();
+
+          managementAvailability = mergedAvailability
+            .map(item => {
+              const timeSlots = (item.timeSlots || [])
+                .filter(s => {
+                  if (!s || s.status !== 'available') return false;
+
+                  let slotStartTime = null;
+                  if (s.utcStartTime) {
+                    slotStartTime = new Date(s.utcStartTime);
+                  } else {
+                    slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
+                  }
+
+                  return !(slotStartTime && slotStartTime <= currentUTCTime);
+                })
+                .sort((a, b) => {
+                  if (a.utcStartTime && b.utcStartTime) {
+                    return new Date(a.utcStartTime) - new Date(b.utcStartTime);
+                  }
+                  return parseSlotMinutes(a.slot) - parseSlotMinutes(b.slot);
+                });
+
+              return { ...item, timeSlots };
+            })
+            .filter(item => item.timeSlots.length > 0)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        } catch (err) {
+          console.error('Error processing availability:', err);
+          managementAvailability = [];
+        }
+      }
+
+    } else if (additionalData.type === 'fan') {
+      const getCount = (arr, status) => {
+        const item = arr.find(i => i._id === status);
+        return item ? item.count : 0;
+      };
+
+      const apptStats = additionalData.appointmentStats || [];
+      const dedStats = additionalData.dedicationStats || [];
+      const showStats = additionalData.liveShowStats || [];
+
+      // Calculate overview metrics (all time vs 30 days logic was mixed in original, keeping 30 days consistent)
+      // Original code for overview counts:
+      // Appointment.countDocuments({ fanId: user._id, createdAt: { $gte: thirtyDaysAgo } })
+      // This counts ALL appointments regardless of status in the last 30 days for overview.
+
+      const videoCalls = apptStats.reduce((sum, item) => sum + item.count, 0);
+      const dedications = dedStats.reduce((sum, item) => sum + item.count, 0);
+      const liveShows = showStats.reduce((sum, item) => item._id === 'completed' ? sum + item.count : sum, 0); // Live shows specifically checked for completed in original
+
+      const cancelledVideoCalls = getCount(apptStats, 'cancelled');
+      const cancelledDedications = getCount(dedStats, 'cancelled');
+      const cancelledLiveShows = getCount(showStats, 'cancelled');
+
+      const rejectedByStarCalls = getCount(apptStats, 'rejected');
+      const rejectedByStarDedications = getCount(dedStats, 'rejected');
+
+      fanInsights = {
         overview: {
           videoCalls,
           dedications,
           liveShows,
-          engagedUsers
+          engagedStars: additionalData.engagedStars
         },
         cancelled: {
           videoCalls: cancelledVideoCalls,
           dedications: cancelledDedications,
           liveShows: cancelledLiveShows,
           rejectedByStar: rejectedByStarCalls + rejectedByStarDedications
-        },
-        revenue: {
-          total: revenueStats[0]?.totalRevenue || 0,
-          escrow: revenueStats[0]?.escrowAmount || 0
-        },
-        availability: {
-          availableForBookings: user.availableForBookings && Boolean(hasAvailableTimeSlots),
-          hasAvailableSlots: Boolean(hasAvailableTimeSlots)
         }
       };
-
-      // Detailed availability list for management profile (future available slots)
-      try {
-        const { getCountryTimezoneOffset, convertLocalToUTC } = await import('../utils/timezoneHelper.js');
-        const starCountry = user.country || null;
-
-        const getCurrentDateString = () => {
-          if (!starCountry) {
-            const now = new Date();
-            const year = now.getUTCFullYear();
-            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(now.getUTCDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-          }
-
-          try {
-            const offsetHours = getCountryTimezoneOffset(starCountry);
-            const offsetMs = offsetHours * 60 * 60 * 1000;
-            const now = new Date();
-            const localTime = new Date(now.getTime() + offsetMs);
-            const year = localTime.getUTCFullYear();
-            const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(localTime.getUTCDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-          } catch (error) {
-            console.error('Error getting current date for star country (management profile):', error);
-            const now = new Date();
-            const year = now.getUTCFullYear();
-            const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(now.getUTCDate()).
-              padStart(2, '0');
-            return `${year}-${month}-${day}`;
-          }
-        };
-
-        const currentDateString = getCurrentDateString();
-
-        const availabilityDocs = await Availability.find({
-          userId: user._id,
-          date: { $gte: currentDateString }
-        }).sort({ date: 1 }).lean();
-
-        const parseTimeSlotToUTCDate = (dateStr, slot, country) => {
-          if (!slot || typeof slot !== 'string' || !dateStr) return null;
-          try {
-            return convertLocalToUTC(dateStr, slot, country);
-          } catch (error) {
-            console.error(`Error parsing time slot ${slot} on ${dateStr} (management profile):`, error);
-            return null;
-          }
-        };
-
-        const mergedByDate = new Map();
-        availabilityDocs.forEach(doc => {
-          const dateKey = doc.date;
-          if (!mergedByDate.has(dateKey)) {
-            mergedByDate.set(dateKey, {
-              _id: doc._id,
-              userId: doc.userId,
-              date: doc.date,
-              isWeekly: doc.isWeekly || false,
-              isDaily: doc.isDaily || false,
-              timeSlots: [...(doc.timeSlots || [])],
-              createdAt: doc.createdAt,
-              updatedAt: doc.updatedAt
-            });
-          } else {
-            const merged = mergedByDate.get(dateKey);
-            const existingSlotsMap = new Map();
-            merged.timeSlots.forEach(slot => {
-              existingSlotsMap.set(slot.slot, slot);
-            });
-            doc.timeSlots.forEach(slot => {
-              if (!existingSlotsMap.has(slot.slot)) {
-                merged.timeSlots.push(slot);
-              }
-            });
-            if (doc.isWeekly) merged.isWeekly = true;
-            if (doc.isDaily) merged.isDaily = true;
-          }
-        });
-
-        const mergedAvailability = Array.from(mergedByDate.values());
-
-        const parseSlotMinutes = (slot) => {
-          if (!slot || typeof slot !== 'string') return 0;
-          const parts = slot.split(' - ');
-          if (parts.length !== 2) return 0;
-          const startTime = parts[0].trim();
-          const h24Match = startTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
-          if (h24Match) {
-            const hour = parseInt(h24Match[1], 10);
-            const minute = parseInt(h24Match[2], 10);
-            return hour * 60 + minute;
-          }
-          const ampmMatch = startTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-          if (ampmMatch) {
-            let hour = parseInt(ampmMatch[1], 10);
-            const minute = parseInt(ampmMatch[2], 10);
-            const ampm = ampmMatch[3].toUpperCase();
-            if (ampm === 'PM' && hour !== 12) hour += 12;
-            if (ampm === 'AM' && hour === 12) hour = 0;
-            return hour * 60 + minute;
-          }
-          return 0;
-        };
-
-        managementAvailability = Array.isArray(mergedAvailability)
-          ? mergedAvailability
-              .map(item => {
-                const timeSlots = Array.isArray(item.timeSlots)
-                  ? item.timeSlots
-                      .filter(s => {
-                        if (!s || s.status !== 'available') return false;
-                        const currentUTCTime = new Date();
-                        let slotStartTime = null;
-                        if (s.utcStartTime) {
-                          slotStartTime = new Date(s.utcStartTime);
-                        } else {
-                          slotStartTime = parseTimeSlotToUTCDate(item.date, s.slot, starCountry);
-                        }
-                        if (slotStartTime && slotStartTime <= currentUTCTime) {
-                          return false;
-                        }
-                        return true;
-                      })
-                      .sort((a, b) => {
-                        if (a.utcStartTime && b.utcStartTime) {
-                          return new Date(a.utcStartTime) - new Date(b.utcStartTime);
-                        }
-                        const timeA = parseSlotMinutes(a.slot);
-                        const timeB = parseSlotMinutes(b.slot);
-                        return timeA - timeB;
-                      })
-                  : [];
-                return { ...item, timeSlots };
-              })
-              .filter(item => Array.isArray(item.timeSlots) && item.timeSlots.length > 0)
-              .sort((a, b) => new Date(a.date) - new Date(b.date))
-          : [];
-      } catch (err) {
-        console.error('Error building management availability list for star:', err);
-        managementAvailability = [];
-      }
     }
 
-    // Calculate status based on availableForBookings and hidden
-    // active: availableForBookings === true && hidden !== true
-    // blocked: availableForBookings === false || hidden === true
-    const userStatus = (user.availableForBookings === true && user.hidden !== true) 
-      ? 'active' 
+    // Helper function to check if user is online
+    const isUserOnline = (lastLoginAt) => {
+      if (!lastLoginAt) return false;
+      const now = new Date();
+      const lastLogin = new Date(lastLoginAt);
+      const diffInMinutes = (now - lastLogin) / (1000 * 60);
+      return diffInMinutes <= 15;
+    };
+
+    const userStatus = (user.availableForBookings === true && user.hidden !== true)
+      ? 'active'
       : 'blocked';
 
     return res.json({
@@ -1311,35 +1271,12 @@ export const getManagementUserProfile = async (req, res) => {
           createdAt: review.createdAt
         })),
         reports: {
-          asReporter: reportsAsReporter.map(report => ({
-            id: report._id,
-            reportedUser: report.reportedUserId ? {
-              id: report.reportedUserId._id,
-              name: report.reportedUserId.name,
-              pseudo: report.reportedUserId.pseudo,
-              role: report.reportedUserId.role
-            } : null,
-            reason: report.reason,
-            description: report.description,
-            status: report.status,
-            createdAt: report.createdAt
-          })),
-          asReported: reportsAsReported.map(report => ({
-            id: report._id,
-            reporter: report.reporterId ? {
-              id: report.reporterId._id,
-              name: report.reporterId.name,
-              pseudo: report.reporterId.pseudo,
-              role: report.reporterId.role
-            } : null,
-            reason: report.reason,
-            description: report.description,
-            status: report.status,
-            createdAt: report.createdAt
-          }))
+          asReporter: [],
+          asReported: []
         },
         stats,
         starInsights,
+        fanInsights,
         availability: user.role === 'star' ? managementAvailability : null
       }
     });
@@ -1387,6 +1324,24 @@ export const getManagementUserOverview = async (req, res) => {
       // Support named periods
       const normalized = periodValue.toLowerCase();
 
+      if (normalized === 'last_7_days') {
+        const days = 7;
+        const since = new Date(now.getTime() - days * msPerDay);
+        return { since, periodDays: days };
+      }
+
+      if (normalized === 'last_15_days') {
+        const days = 15;
+        const since = new Date(now.getTime() - days * msPerDay);
+        return { since, periodDays: days };
+      }
+
+      if (normalized === 'last_30_days') {
+        const days = 30;
+        const since = new Date(now.getTime() - days * msPerDay);
+        return { since, periodDays: days };
+      }
+
       if (normalized === 'current_month') {
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const diffDays = Math.round((now.getTime() - startOfMonth.getTime()) / msPerDay);
@@ -1410,6 +1365,12 @@ export const getManagementUserOverview = async (req, res) => {
         const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
         const diffDays = Math.round((now.getTime() - sixMonthsAgo.getTime()) / msPerDay);
         return { since: sixMonthsAgo, periodDays: diffDays || 1 };
+      }
+
+      if (normalized === 'last_12_months') {
+        const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+        const diffDays = Math.round((now.getTime() - twelveMonthsAgo.getTime()) / msPerDay);
+        return { since: twelveMonthsAgo, periodDays: diffDays || 1 };
       }
 
       if (normalized === 'this_year') {
@@ -1614,9 +1575,9 @@ export const updateManagementUserProfile = async (req, res) => {
       const normalizedEmail = email.toLowerCase();
       // Check if email is different (case-insensitive comparison)
       if (user.email?.toLowerCase() !== normalizedEmail) {
-        const existing = await User.findOne({ 
-          email: normalizedEmail, 
-          _id: { $ne: id } 
+        const existing = await User.findOne({
+          email: normalizedEmail,
+          _id: { $ne: id }
         });
         if (existing) {
           return res.status(409).json({
@@ -1677,7 +1638,7 @@ export const updateManagementUserProfile = async (req, res) => {
     if (hidden !== undefined) user.hidden = hidden;
     if (appNotification !== undefined) user.appNotification = appNotification;
     if (isVerified !== undefined) user.isVerified = isVerified;
-    
+
     // Star-specific fields (only update if user is or becomes a star)
     // Accept both feature_star and isAddedInFeatureStar (they mean the same thing)
     const featureStarValue = feature_star !== undefined ? feature_star : isAddedInFeatureStar;
@@ -1842,68 +1803,68 @@ export const updateManagementUserProfile = async (req, res) => {
       if (user.role !== 'star') {
         // Silently ignore samples for non-stars
       } else {
-      for (const sampleOp of dedicationSamples) {
-        if (!sampleOp || typeof sampleOp !== 'object') continue;
+        for (const sampleOp of dedicationSamples) {
+          if (!sampleOp || typeof sampleOp !== 'object') continue;
 
-        const { operation, id: sampleId, type, video, description } = sampleOp;
+          const { operation, id: sampleId, type, video, description } = sampleOp;
 
-        if (operation === 'add') {
-          // Add new dedication sample
-          if (!type || !video) {
-            return res.status(400).json({
-              success: false,
-              message: 'Sample type and video are required for add operation'
+          if (operation === 'add') {
+            // Add new dedication sample
+            if (!type || !video) {
+              return res.status(400).json({
+                success: false,
+                message: 'Sample type and video are required for add operation'
+              });
+            }
+
+            const newSample = new DedicationSample({
+              type,
+              video,
+              description: description || '',
+              userId: user._id
             });
-          }
+            await newSample.save();
+          } else if (operation === 'update') {
+            // Update existing dedication sample
+            if (!sampleId || !mongoose.Types.ObjectId.isValid(sampleId)) {
+              return res.status(400).json({
+                success: false,
+                message: 'Valid sample ID is required for update operation'
+              });
+            }
 
-          const newSample = new DedicationSample({
-            type,
-            video,
-            description: description || '',
-            userId: user._id
-          });
-          await newSample.save();
-        } else if (operation === 'update') {
-          // Update existing dedication sample
-          if (!sampleId || !mongoose.Types.ObjectId.isValid(sampleId)) {
-            return res.status(400).json({
-              success: false,
-              message: 'Valid sample ID is required for update operation'
-            });
-          }
+            const sample = await DedicationSample.findOne({ _id: sampleId, userId: user._id });
+            if (!sample) {
+              return res.status(404).json({
+                success: false,
+                message: 'Dedication sample not found'
+              });
+            }
 
-          const sample = await DedicationSample.findOne({ _id: sampleId, userId: user._id });
-          if (!sample) {
-            return res.status(404).json({
-              success: false,
-              message: 'Dedication sample not found'
-            });
-          }
+            if (type !== undefined) sample.type = type;
+            if (video !== undefined) sample.video = video;
+            if (description !== undefined) sample.description = description;
+            await sample.save();
+          } else if (operation === 'delete') {
+            // Delete dedication sample
+            if (!sampleId || !mongoose.Types.ObjectId.isValid(sampleId)) {
+              return res.status(400).json({
+                success: false,
+                message: 'Valid sample ID is required for delete operation'
+              });
+            }
 
-          if (type !== undefined) sample.type = type;
-          if (video !== undefined) sample.video = video;
-          if (description !== undefined) sample.description = description;
-          await sample.save();
-        } else if (operation === 'delete') {
-          // Delete dedication sample
-          if (!sampleId || !mongoose.Types.ObjectId.isValid(sampleId)) {
-            return res.status(400).json({
-              success: false,
-              message: 'Valid sample ID is required for delete operation'
-            });
-          }
+            const sample = await DedicationSample.findOne({ _id: sampleId, userId: user._id });
+            if (!sample) {
+              return res.status(404).json({
+                success: false,
+                message: 'Dedication sample not found'
+              });
+            }
 
-          const sample = await DedicationSample.findOne({ _id: sampleId, userId: user._id });
-          if (!sample) {
-            return res.status(404).json({
-              success: false,
-              message: 'Dedication sample not found'
-            });
+            await DedicationSample.deleteOne({ _id: sampleId });
           }
-
-          await DedicationSample.deleteOne({ _id: sampleId });
         }
-      }
       }
     }
 
@@ -2199,7 +2160,7 @@ export const updateUserRole = async (req, res) => {
         type: 'become_star_payment',
         status: 'completed'
       });
-      
+
       if (!starPayment) {
         return res.status(400).json({
           success: false,
